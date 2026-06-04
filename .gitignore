@@ -1,0 +1,13 @@
+# Python
+.venv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+ipython_log.py*
+.pytest_cache
+
+node_modules/
+vendor
+.pi
+coverage.json

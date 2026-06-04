@@ -1,0 +1,56 @@
+# Metadados do projeto
+[project]
+name = "htmxclient"
+version = "0.0.0"
+description = "An HTMX powered python http client"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = ["jsrun~=0.1.0"]
+
+# Grupos de dependências para desenvolvimento e testes
+[dependency-groups]
+dev = ["ipdb", "ipython", "ipython-autoimport"]
+lint = ["prek~=0.3.8", "pyrefly~=1.0.0", "ruff~=0.15.9"]
+test = ["pytest~=9.0.2", "pytest-cov~=7.1.0", "pytest-xdist~=3.8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/htmxclient"]
+
+[tool.pyrefly]
+search_path = ["src", "tests"]
+
+[tool.pytest]
+addopts = ["--cov-report=html"]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+fix = true
+show-fixes = true
+
+[tool.ruff.lint]
+select = [
+  "I",  # https://docs.astral.sh/ruff/rules/#isort-i
+  "E",  # https://docs.astral.sh/ruff/rules/#pycodestyle-e-w
+  "W",
+  "F",  # https://docs.astral.sh/ruff/rules/#pyflakes-f
+  "B",  # https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+  "T201",  # https://docs.astral.sh/ruff/rules/print
+  "Q",  # https://docs.astral.sh/ruff/rules/#flake8-quotes-q
+]
+fixable = ["ALL"]
+unfixable = [
+  "F841",  # Report but don't auto-remove unused variables
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["htmxclient"]
+
+[tool.uv]
+default-groups = ["dev", "lint", "test"]
