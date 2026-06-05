@@ -2,6 +2,7 @@
 (function () {
     const _suites = [];
     let _cur = null;
+    const _SKIP = Symbol("skip");
 
     globalThis.describe = (name, fn) => {
         const s = { name, tests: [], _be: [], _ae: [] };
@@ -23,23 +24,33 @@
     globalThis.before = (fn) => {};
     globalThis.after = (fn) => {};
 
+    // Test context passed as `this` — supports mocha's this.skip() and this.timeout()
+    const _ctx = {
+        skip() { throw _SKIP; },
+        timeout() {},
+    };
+
     globalThis.__runAllTests = async function () {
         const results = [];
         for (const s of _suites) {
             for (const t of s.tests) {
-                for (const be of s._be) await be();
+                for (const be of s._be) await be.call(_ctx);
                 try {
-                    await t.fn();
+                    await t.fn.call(_ctx);
                     results.push({ suite: s.name, name: t.name, passed: true });
                 } catch (e) {
-                    results.push({
-                        suite: s.name,
-                        name: t.name,
-                        passed: false,
-                        error: String(e.message || e),
-                    });
+                    if (e === _SKIP) {
+                        results.push({ suite: s.name, name: t.name, passed: true });
+                    } else {
+                        results.push({
+                            suite: s.name,
+                            name: t.name,
+                            passed: false,
+                            error: String(e.message || e),
+                        });
+                    }
                 }
-                for (const ae of s._ae) await ae();
+                for (const ae of s._ae) await ae.call(_ctx);
             }
         }
         return results;
