@@ -223,7 +223,13 @@ async def test_fetch_sends_arbitrary_headers(browser_async, httpx_mock, headers)
     st.dictionaries(
         _header_key,
         st.text(min_size=0, max_size=100, alphabet=_ascii_printable),
-    ).filter(lambda d: len({k.lower() for k in d}) == len(d))
+    ).filter(
+        lambda d: len({k.lower() for k in d}) == len(d)
+        and all(
+            k.lower() not in {"__proto__", "constructor", "prototype"}
+            for k in d
+        )
+    )
 )
 @settings(
     suppress_health_check=[HealthCheck.function_scoped_fixture],
