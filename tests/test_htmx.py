@@ -1,115 +1,48 @@
+from pathlib import Path
+
 import pytest
-from jsrun import JavaScriptError
 
-from htmxclient.browser import Browser
+from htmxclient.browser import build_browser
 
-# ---------------------------------------------------------------------------
-# htmx loading
-# ---------------------------------------------------------------------------
-
-
-async def test_htmx_loaded(app_browser):
-    assert await app_browser.runtime.eval_async("typeof htmx") == "object"
-
-
-async def test_htmx_version(app_browser):
-    version = app_browser.runtime.eval("htmx.version")
-    assert isinstance(version, str) and version
-
+_ROOT = Path(__file__).parent.parent
+_VENDOR_TEST = _ROOT / "vendor/htmx/test"
+_CHAI_JS = _ROOT / "node_modules/chai/chai.js"
+_RUNNER_JS = Path(__file__).parent / "runner.js"
+_FETCH_MOCK_JS = _VENDOR_TEST / "lib/fetch-mock.js"
+_HELPERS_JS = _VENDOR_TEST / "lib/helpers.js"
+_UNIT_TEST_DIR = _VENDOR_TEST / "tests/unit"
 
 # ---------------------------------------------------------------------------
-# Browser.load — sets HTML and initialises htmx on the content
+# htmx vendor unit tests — one pytest case per JS file in tests/unit/
 # ---------------------------------------------------------------------------
 
 
-async def test_load_sets_body(app_browser):
-    await app_browser.load("<p id='msg'>hello</p>")
-    assert app_browser.query("#msg") == "hello"
+_INFRASTRUCTURE_JS = "\n".join(
+    [
+        _RUNNER_JS.read_text(),
+        _FETCH_MOCK_JS.read_text(),
+        "document.body.innerHTML = '<div id=\"test-playground\"></div>';",
+        _HELPERS_JS.read_text(),
+    ]
+)
 
 
-async def test_load_replaces_body(app_browser):
-    await app_browser.load("<span id='a'>first</span>")
-    await app_browser.load("<span id='b'>second</span>")
-    assert app_browser.query("#b") == "second"
-    # first load is gone
-    result = app_browser.runtime.eval("document.querySelector('#a')")
-    assert result is None
+_unit_files = sorted(_UNIT_TEST_DIR.glob("*.js"))
 
 
-# ---------------------------------------------------------------------------
-# Browser.query
-# ---------------------------------------------------------------------------
-
-
-async def test_query_inner_html(app_browser):
-    await app_browser.load("<ul><li>a</li><li>b</li></ul>")
-    assert "<li>a</li>" in app_browser.query("ul")
-
-
-async def test_query_missing_element_raises(app_browser):
-    await app_browser.load("<p>hi</p>")
-    with pytest.raises(JavaScriptError):
-        app_browser.query("#does-not-exist")
-
-
-# ---------------------------------------------------------------------------
-# Browser.trigger — hx-get swaps content from mocked server
-# ---------------------------------------------------------------------------
-
-
-async def test_trigger_hx_get(app_browser, httpx_mock):
-    httpx_mock.add_response(
-        url="http://app.example.com/fragment",
-        text="<span>loaded</span>",
-    )
-    await app_browser.load(
-        '<div id="target">'
-        '<button hx-get="/fragment" hx-target="#target" hx-swap="innerHTML">load</button>'
-        "</div>"
-    )
-    await app_browser.trigger("button")
-    assert app_browser.query("#target") == "<span>loaded</span>"
-
-
-async def test_trigger_hx_post(app_browser, httpx_mock):
-    httpx_mock.add_response(
-        url="http://app.example.com/submit",
-        text="<p>saved</p>",
-    )
-    await app_browser.load(
-        '<div id="result">'
-        '<button hx-post="/submit" hx-target="#result" hx-swap="innerHTML">save</button>'
-        "</div>"
-    )
-    await app_browser.trigger("button")
-    assert app_browser.query("#result") == "<p>saved</p>"
-
-
-async def test_trigger_request_sends_correct_method(app_browser, httpx_mock):
-    httpx_mock.add_response(url="http://app.example.com/api", text="ok")
-    await app_browser.load(
-        '<div id="out"><button hx-post="/api" hx-target="#out">go</button></div>'
-    )
-    await app_browser.trigger("button")
-    assert httpx_mock.get_request().method == "POST"
-
-
-async def test_trigger_url_resolves_against_base(app_browser, httpx_mock):
-    # hx-get="/path" should resolve to http://app.example.com/path
-    httpx_mock.add_response(url="http://app.example.com/path", text="ok")
-    await app_browser.load('<div id="r"><button hx-get="/path" hx-target="#r">go</button></div>')
-    await app_browser.trigger("button")
-    assert httpx_mock.get_request().url == "http://app.example.com/path"
-
-
-# ---------------------------------------------------------------------------
-# Browser as context manager
-# ---------------------------------------------------------------------------
-
-
-async def test_browser_context_manager(httpx_mock):
-    httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
-    with await Browser.create("http://app.example.com/") as b:
-        await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
-        await b.trigger("button")
-        assert b.query("#r") == "<b>hi</b>"
+@pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
+async def test_htmx_unit(js_file: Path) -> None:
+    r = await build_browser("http://localhost/")
+    try:
+        r.eval(_JS_SETUP)
+        r.eval(_INFRASTRUCTURE_JS)
+        r.eval(js_file.read_text())
+        results = await r.eval_async("__runAllTests()")
+        failures = [res for res in results if not res["passed"]]
+        if failures:
+            lines = [f"  [{res['suite']}] {res['name']}: {res['error']}" for res in failures]
+            pytest.fail(
+                f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines)
+            )
+    finally:
+        r.close()
