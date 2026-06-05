@@ -109,10 +109,24 @@
         }
     };
 
-    // XPathEvaluator stub — happy-dom has no XPath; htmx uses it only for hx-on:* attributes
+    // happy-dom has no XPath. This handles the single pattern htmx uses internally:
+    //   .//*[@*[starts-with(name(), "PREFIX") or ...]]
+    // i.e. find descendants with at least one attribute whose name starts with a given prefix.
+    // If htmx ever changes its XPath query this stub will silently break.
     globalThis.XPathEvaluator ??= class XPathEvaluator {
-        createExpression() {
-            return { evaluate: () => ({ iterateNext: () => null }) };
+        createExpression(expr) {
+            const prefixes = [...expr.matchAll(/starts-with\(name\(\),\s*"([^"]+)"\)/g)].map(
+                (m) => m[1],
+            );
+            return {
+                evaluate(context) {
+                    const nodes = Array.from(context.querySelectorAll("*")).filter((el) =>
+                        el.getAttributeNames().some((n) => prefixes.some((p) => n.startsWith(p))),
+                    );
+                    let i = 0;
+                    return { iterateNext: () => nodes[i++] ?? null };
+                },
+            };
         }
     };
 
