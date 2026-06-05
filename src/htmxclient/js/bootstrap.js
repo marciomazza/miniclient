@@ -1,5 +1,6 @@
 import { Window } from "happy-dom";
 import applyURLPatches from "./urlsearch-dom-patches.js";
+import applyPatchDomParser from "./patch-dom-parser.js";
 
 const win = new Window({ url: globalThis.__BASE_URL__ ?? "http://localhost/" });
 
@@ -39,8 +40,12 @@ win.IntersectionObserver ??= class {
     disconnect() {}
 };
 Object.defineProperty(globalThis, "IntersectionObserver", {
-    get() { return window.IntersectionObserver; },
-    set(v) { window.IntersectionObserver = v; },
+    get() {
+        return window.IntersectionObserver;
+    },
+    set(v) {
+        window.IntersectionObserver = v;
+    },
     configurable: true,
 });
 globalThis.AbortController = win.AbortController;
@@ -55,8 +60,7 @@ globalThis.XMLHttpRequest = win.XMLHttpRequest;
 globalThis.CSSStyleSheet = win.CSSStyleSheet;
 globalThis.DocumentFragment = win.DocumentFragment;
 globalThis.ShadowRoot = win.ShadowRoot;
-// happy-dom treats <body>...</body> as content inside body rather than as the body element itself.
-// Wrapping in <html> makes it parse correctly.
+applyPatchDomParser(win);
 globalThis.CSS = {
     escape(value) {
         value = String(value);
@@ -120,8 +124,12 @@ globalThis.fetch = async (input, init = {}) => {
 // globalThis (e.g. installFetchMock) are immediately visible to htmx, which reads
 // window.fetch.bind(window) when building each request context.
 Object.defineProperty(win, "fetch", {
-    get() { return globalThis.fetch; },
-    set(v) { globalThis.fetch = v; },
+    get() {
+        return globalThis.fetch;
+    },
+    set(v) {
+        globalThis.fetch = v;
+    },
     configurable: true,
     enumerable: true,
 });
@@ -133,7 +141,7 @@ Object.defineProperty(win, "fetch", {
     const _SLEEP = globalThis.__SLEEP_OP_ID__;
     const _CLEAR = globalThis.__CLEAR_TIMER_OP_ID__;
     let _nextId = 1;
-    const _active = {};    // timerId  -> true
+    const _active = {}; // timerId  -> true
     const _intervals = {}; // intervalId -> current timerId
 
     globalThis.setTimeout = (fn, ms = 0, ...args) => {
@@ -189,13 +197,20 @@ Object.defineProperty(win, "fetch", {
     const _evalScript = (el) => {
         if (el.nodeType !== 1) return;
         if (el.tagName === "SCRIPT" && el.textContent) {
-            try { (0, eval)(el.textContent); } catch (_) {}
+            try {
+                (0, eval)(el.textContent);
+            } catch  {}
         }
         for (const s of el.querySelectorAll("script")) {
-            if (s.textContent) try { (0, eval)(s.textContent); } catch (_) {}
+            if (s.textContent)
+                try {
+                    (0, eval)(s.textContent);
+                } catch  {}
         }
     };
-    const _execScripts = (nodes) => { for (const n of nodes) if (n) _evalScript(n); };
+    const _execScripts = (nodes) => {
+        for (const n of nodes) if (n) _evalScript(n);
+    };
     for (const m of ["replaceChildren", "append", "before", "after", "prepend"]) {
         const orig = win.Element.prototype[m];
         if (orig) {
