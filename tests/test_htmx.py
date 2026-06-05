@@ -19,10 +19,7 @@ _UNIT_TEST_DIR = _VENDOR_TEST / "tests/unit"
 # htmx vendor unit tests — one pytest case per JS file in tests/unit/
 # ---------------------------------------------------------------------------
 
-# FIXME: __issueRequest hangs — AbortController abort-signal does not fire correctly
-# when win.AbortController (happy-dom) is used in jsrun; the timeout-abort test never resolves.
 _SKIP = {
-    "__issueRequest.js",
     "package.js",  # asserts htmx has no dependencies — not relevant to this runtime
 }
 _unit_files = [f for f in sorted(_UNIT_TEST_DIR.glob("*.js")) if f.name not in _SKIP]
