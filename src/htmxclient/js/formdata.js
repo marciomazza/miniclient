@@ -19,7 +19,7 @@
     }
 
     function _collectElement(el, data) {
-        const name = el.name;
+        const name = el.name ?? el.getAttribute?.("name");
         if (!name || _isDisabled(el)) return;
         const tag = el.tagName;
         const type = (el.type || "text").toLowerCase();
@@ -42,6 +42,8 @@
             } else if (el.selectedIndex >= 0) {
                 data.push([name, el.options[el.selectedIndex].value]);
             }
+        } else if (typeof el.__internalsFormValue !== "undefined" && el.__internalsFormValue != null) {
+            data.push([name, el.__internalsFormValue]);
         }
     }
 
@@ -53,6 +55,12 @@
             const seen = new Set();
             for (const el of form.elements) {
                 if (el === submitter) continue;
+                seen.add(el);
+                _collectElement(el, this.#data);
+            }
+            // form-associated custom elements inside the form (not in form.elements in happy-dom)
+            for (const el of form.querySelectorAll("*")) {
+                if (seen.has(el) || typeof el.__internalsFormValue === "undefined") continue;
                 seen.add(el);
                 _collectElement(el, this.#data);
             }

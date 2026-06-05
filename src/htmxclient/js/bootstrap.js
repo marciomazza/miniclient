@@ -76,6 +76,25 @@ globalThis.XMLHttpRequest = win.XMLHttpRequest;
 globalThis.CSSStyleSheet = win.CSSStyleSheet;
 globalThis.DocumentFragment = win.DocumentFragment;
 globalThis.ShadowRoot = win.ShadowRoot;
+globalThis.customElements = win.customElements;
+// Polyfill attachInternals for form-associated custom elements — happy-dom does not implement it.
+// Stores the submitted value on the element as __internalsFormValue so FormData can pick it up.
+{
+    const _orig = win.HTMLElement.prototype.attachInternals;
+    win.HTMLElement.prototype.attachInternals = function () {
+        if (_orig) {
+            try {
+                return _orig.call(this);
+            } catch  {}
+        }
+        const host = this;
+        return {
+            setFormValue(val) {
+                host.__internalsFormValue = val != null ? String(val) : null;
+            },
+        };
+    };
+}
 applyPatchDomParser(win);
 globalThis.CSS = {
     escape(value) {
@@ -215,13 +234,13 @@ Object.defineProperty(win, "fetch", {
         if (el.tagName === "SCRIPT" && el.textContent) {
             try {
                 (0, eval)(el.textContent);
-            } catch  {}
+            } catch {}
         }
         for (const s of el.querySelectorAll("script")) {
             if (s.textContent)
                 try {
                     (0, eval)(s.textContent);
-                } catch  {}
+                } catch {}
         }
     };
     const _execScripts = (nodes) => {
