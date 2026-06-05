@@ -109,6 +109,13 @@
         }
     };
 
+    // XPathEvaluator stub — happy-dom has no XPath; htmx uses it only for hx-on:* attributes
+    globalThis.XPathEvaluator ??= class XPathEvaluator {
+        createExpression() {
+            return { evaluate: () => ({ iterateNext: () => null }) };
+        }
+    };
+
     // Minimal Buffer stub — the real polyfill (node-buffer.js) replaces this when loaded
     globalThis.Buffer ??= {
         from: () => new Uint8Array(),

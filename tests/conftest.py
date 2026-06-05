@@ -3,7 +3,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 
-from htmxclient.browser import build_browser
+from htmxclient.browser import Browser, build_browser
 
 
 @pytest.fixture()
@@ -22,3 +22,12 @@ async def browser_async():
         yield r
     finally:
         r.close()
+
+
+@pytest_asyncio.fixture
+async def app_browser():
+    b = await Browser.create("http://app.example.com/")
+    try:
+        yield b
+    finally:
+        b.close()
