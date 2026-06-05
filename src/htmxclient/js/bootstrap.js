@@ -19,7 +19,7 @@ globalThis.AbortSignal = win.AbortSignal;
 globalThis.Headers = win.Headers;
 globalThis.Request = win.Request;
 globalThis.Response = win.Response;
-globalThis.FormData = win.FormData;
+// FormData replaced by pure-JS implementation in formdata.js (loaded after this module)
 globalThis.URL = win.URL;
 globalThis.XMLHttpRequest = win.XMLHttpRequest;
 globalThis.CSSStyleSheet = win.CSSStyleSheet;
