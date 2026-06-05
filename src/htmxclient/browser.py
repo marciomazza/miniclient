@@ -132,6 +132,10 @@ async def build_browser(url: str = "http://localhost/") -> Runtime:
     r.add_static_module("bootstrap", (_JS / "bootstrap.js").read_text())
     await r.eval_module_async("bootstrap")
     await r.eval_async(_HTMX_SRC.read_text())
+    # Drain any setTimeout(fn, 0) calls made during htmx init so their
+    # _sleep_op coroutines complete before the caller's event loop exits.
+    for _ in range(4):
+        await asyncio.sleep(0)
     return r
 
 
