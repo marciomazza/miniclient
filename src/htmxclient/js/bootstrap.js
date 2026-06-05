@@ -7,6 +7,14 @@ globalThis.document = win.document;
 globalThis.location = win.location;
 globalThis.navigator = win.navigator;
 globalThis.history = win.history;
+// happy-dom's pushState/replaceState don't update location.href; patch to keep them in sync.
+["pushState", "replaceState"].forEach((method) => {
+    const orig = win.history[method].bind(win.history);
+    win.history[method] = function (state, title, url) {
+        orig(state, title, url);
+        if (url != null) win.location.href = String(url);
+    };
+});
 globalThis.Node = win.Node;
 globalThis.Element = win.Element;
 globalThis.HTMLElement = win.HTMLElement;
