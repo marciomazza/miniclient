@@ -125,7 +125,15 @@ globalThis.fetch = async (input, init = {}) => {
         headers: res.headers,
     });
 };
-win.fetch = globalThis.fetch;
+// Make window.fetch a live proxy to globalThis.fetch so test mocks installed on
+// globalThis (e.g. installFetchMock) are immediately visible to htmx, which reads
+// window.fetch.bind(window) when building each request context.
+Object.defineProperty(win, "fetch", {
+    get() { return globalThis.fetch; },
+    set(v) { globalThis.fetch = v; },
+    configurable: true,
+    enumerable: true,
+});
 
 // Timer implementation backed by asyncio.sleep — integrates with the real event loop.
 // win.setTimeout (happy-dom) never fires in this runtime because its internal timer
