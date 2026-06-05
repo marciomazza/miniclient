@@ -35,6 +35,9 @@ search_path = ["src", "tests"]
 
 [tool.pytest]
 addopts = ["--cov-report=html"]
+markers = [
+  "hypo: mark a test as a hypothesis based test",
+]
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"

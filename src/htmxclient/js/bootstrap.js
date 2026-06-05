@@ -1,6 +1,6 @@
 import { Window } from "happy-dom";
 
-const win = new Window({ url: "http://localhost/" });
+const win = new Window({ url: globalThis.__BASE_URL__ ?? "http://localhost/" });
 
 globalThis.window = win;
 globalThis.document = win.document;
@@ -22,6 +22,9 @@ globalThis.Response = win.Response;
 globalThis.FormData = win.FormData;
 globalThis.URL = win.URL;
 globalThis.XMLHttpRequest = win.XMLHttpRequest;
+globalThis.CSSStyleSheet = win.CSSStyleSheet;
+globalThis.DocumentFragment = win.DocumentFragment;
+globalThis.ShadowRoot = win.ShadowRoot;
 const _fetchOpId = globalThis.__FETCH_OP_ID__;
 globalThis.fetch = async (input, init = {}) => {
     const req = input instanceof Request ? input : new Request(input, init);
@@ -38,6 +41,7 @@ globalThis.fetch = async (input, init = {}) => {
         headers: res.headers,
     });
 };
+win.fetch = globalThis.fetch;
 globalThis.setTimeout = (...a) => win.setTimeout(...a);
 globalThis.clearTimeout = (...a) => win.clearTimeout(...a);
 globalThis.setInterval = (...a) => win.setInterval(...a);
