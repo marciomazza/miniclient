@@ -86,7 +86,60 @@ globalThis.fetch = async (input, init = {}) => {
     });
 };
 win.fetch = globalThis.fetch;
-globalThis.setTimeout = (...a) => win.setTimeout(...a);
-globalThis.clearTimeout = (...a) => win.clearTimeout(...a);
-globalThis.setInterval = (...a) => win.setInterval(...a);
-globalThis.clearInterval = (...a) => win.clearInterval(...a);
+
+// Timer implementation backed by asyncio.sleep — integrates with the real event loop.
+// win.setTimeout (happy-dom) never fires in this runtime because its internal timer
+// queue is never drained; these ops replace it entirely.
+{
+    const _SLEEP = globalThis.__SLEEP_OP_ID__;
+    const _CLEAR = globalThis.__CLEAR_TIMER_OP_ID__;
+    let _nextId = 1;
+    const _active = {};    // timerId  -> true
+    const _intervals = {}; // intervalId -> current timerId
+
+    globalThis.setTimeout = (fn, ms = 0, ...args) => {
+        const id = _nextId++;
+        _active[id] = true;
+        // floating promise — resolves when sleep completes or is cancelled
+        __host_op_async__(_SLEEP, { id, ms: ms || 0 }).then(({ cancelled }) => {
+            if (!cancelled && _active[id]) {
+                delete _active[id];
+                fn(...args);
+            }
+        });
+        return id;
+    };
+
+    globalThis.clearTimeout = (id) => {
+        if (id == null) return;
+        delete _active[id];
+        __host_op_async__(_CLEAR, { id });
+    };
+
+    globalThis.setInterval = (fn, ms = 0, ...args) => {
+        const intervalId = _nextId++;
+        const schedule = () => {
+            const timerId = _nextId++;
+            _intervals[intervalId] = timerId;
+            _active[timerId] = true;
+            __host_op_async__(_SLEEP, { id: timerId, ms: ms || 0 }).then(({ cancelled }) => {
+                delete _active[timerId];
+                if (!cancelled && intervalId in _intervals) {
+                    fn(...args);
+                    schedule();
+                }
+            });
+        };
+        schedule();
+        return intervalId;
+    };
+
+    globalThis.clearInterval = (intervalId) => {
+        const timerId = _intervals[intervalId];
+        delete _intervals[intervalId];
+        if (timerId != null) {
+            delete _active[timerId];
+            __host_op_async__(_CLEAR, { id: timerId });
+        }
+    };
+}

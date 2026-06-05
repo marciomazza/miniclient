@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from urllib.parse import urljoin
@@ -92,12 +93,45 @@ async def build_browser(url: str = "http://localhost/") -> Runtime:
     r.eval((_JS / "pre_globals.js").read_text())
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
-    op_id = r.register_op("fetch", _fetch_op, mode="async")
-    r.eval(f"globalThis.__FETCH_OP_ID__ = {op_id};")
+
+    fetch_op_id = r.register_op("fetch", _fetch_op, mode="async")
+    r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
+
+    pending_timers: dict[int, asyncio.Event] = {}
+
+    async def _sleep_op(req: dict[str, int]) -> dict:
+        timer_id = req["id"]
+        ms = req.get("ms", 0)
+        cancel = asyncio.Event()
+        pending_timers[timer_id] = cancel
+        try:
+            sleep_task = asyncio.ensure_future(asyncio.sleep(max(ms, 0) / 1000))
+            cancel_task = asyncio.ensure_future(cancel.wait())
+            done, pending = await asyncio.wait(
+                [sleep_task, cancel_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+            return {"cancelled": cancel.is_set()}
+        finally:
+            pending_timers.pop(timer_id, None)
+
+    async def _clear_timer_op(req: dict[str, int]) -> dict:
+        timer_id = req.get("id")
+        if cancel := timer_id and pending_timers.get(timer_id):
+            cancel.set()
+        return {}
+
+    sleep_op_id = r.register_op("sleep", _sleep_op, mode="async")
+    clear_timer_op_id = r.register_op("clear_timer", _clear_timer_op, mode="async")
+    r.eval(f"globalThis.__SLEEP_OP_ID__ = {sleep_op_id};")
+    r.eval(f"globalThis.__CLEAR_TIMER_OP_ID__ = {clear_timer_op_id};")
+
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
     r.add_static_module("bootstrap", (_JS / "bootstrap.js").read_text())
     await r.eval_module_async("bootstrap")
-    r.eval(_HTMX_SRC.read_text())
+    await r.eval_async(_HTMX_SRC.read_text())
     return r
 
 

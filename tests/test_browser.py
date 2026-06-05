@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -248,3 +250,80 @@ def test_custom_event(browser):
 )
 def test_atob_btoa(browser, js, expected):
     assert browser.eval(js) == expected
+
+
+# ---------------------------------------------------------------------------
+# setTimeout / clearTimeout / setInterval / clearInterval
+# ---------------------------------------------------------------------------
+
+
+async def test_settimeout_fires(browser_async):
+    result = await browser_async.eval_async("new Promise(resolve => setTimeout(() => resolve('ok'), 10))")
+    assert result == "ok"
+
+
+async def test_settimeout_zero_fires(browser_async):
+    result = await browser_async.eval_async("new Promise(resolve => setTimeout(() => resolve(42), 0))")
+    assert result == 42
+
+
+async def test_settimeout_passes_args(browser_async):
+    result = await browser_async.eval_async(
+        "new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))"
+    )
+    assert result == 7
+
+
+async def test_cleartimeout_cancels(browser_async):
+    result = await browser_async.eval_async("""
+        new Promise(resolve => {
+            let fired = false;
+            const id = setTimeout(() => { fired = true; }, 50);
+            clearTimeout(id);
+            setTimeout(() => resolve(fired), 100);
+        })
+    """)
+    assert result is False
+
+
+async def test_settimeout_order(browser_async):
+    result = await browser_async.eval_async("""
+        new Promise(resolve => {
+            const log = [];
+            setTimeout(() => { log.push(1); if (log.length === 3) resolve(log); }, 10);
+            setTimeout(() => { log.push(2); if (log.length === 3) resolve(log); }, 20);
+            setTimeout(() => { log.push(3); if (log.length === 3) resolve(log); }, 30);
+        })
+    """)
+    assert result == [1, 2, 3]
+
+
+async def test_setinterval_fires_multiple_times(browser_async):
+    result = await browser_async.eval_async("""
+        new Promise(resolve => {
+            let count = 0;
+            const id = setInterval(() => {
+                count++;
+                if (count === 3) {
+                    clearInterval(id);
+                    resolve(count);
+                }
+            }, 10);
+        })
+    """)
+    assert result == 3
+
+
+async def test_clearinterval_stops_firing(browser_async):
+    result = await browser_async.eval_async("""
+        new Promise(resolve => {
+            let count = 0;
+            const id = setInterval(() => { count++; }, 10);
+            setTimeout(() => {
+                clearInterval(id);
+                const snapshot = count;
+                setTimeout(() => resolve(snapshot === count), 50);
+            }, 35);
+        })
+    """)
+    assert result is True
