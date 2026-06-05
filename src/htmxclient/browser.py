@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import urljoin
 
+import httpx
 from jsrun import Runtime
 
 _ROOT = Path(__file__).parent.parent.parent
@@ -66,11 +67,31 @@ async def _loader(spec: str) -> str:
     raise ValueError(f"Cannot load module: {spec!r}")
 
 
+async def _fetch_op(req: dict) -> dict:
+    body = req.get("body")
+    content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
+    async with httpx.AsyncClient() as client:
+        r = await client.request(
+            req["method"],
+            req["url"],
+            headers=req.get("headers", {}),
+            content=content,
+        )
+    return {
+        "status": r.status_code,
+        "statusText": "",
+        "headers": dict(r.headers),
+        "body": bytes(r.content),
+    }
+
+
 async def build_browser() -> Runtime:
     r = Runtime()
     r.eval((_JS / "pre_globals.js").read_text())
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
+    op_id = r.register_op("fetch", _fetch_op, mode="async")
+    r.eval(f"globalThis.__FETCH_OP_ID__ = {op_id};")
     r.add_static_module("bootstrap", (_JS / "bootstrap.js").read_text())
     await r.eval_module_async("bootstrap")
     return r

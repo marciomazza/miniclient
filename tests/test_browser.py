@@ -173,8 +173,8 @@ def test_inner_html_round_trip(browser):
 
 
 def test_create_element_attributes(browser):
-    result = browser.eval("const a = document.createElement('a'); a.href = 'http://z.com'; a.href")
-    assert "z.com" in result
+    result = browser.eval("const a = document.createElement('a'); a.href = 'http://x.com'; a.href")
+    assert "x.com" in result
 
 
 # ---------------------------------------------------------------------------

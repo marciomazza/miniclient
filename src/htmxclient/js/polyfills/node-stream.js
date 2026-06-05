@@ -8,16 +8,23 @@ class PassThrough {
         return this;
     }
     emit(event, ...args) {
-        (this._listeners[event] ?? []).forEach(fn => fn(...args));
+        (this._listeners[event] ?? []).forEach((fn) => fn(...args));
     }
-    write(chunk) { this.emit('data', chunk); }
-    end() { this._ended = true; this.emit('end'); }
-    pipe(dest) { return dest; }
+    write(chunk) {
+        this.emit("data", chunk);
+    }
+    end() {
+        this._ended = true;
+        this.emit("end");
+    }
+    pipe(dest) {
+        return dest;
+    }
 }
 
 function pipeline(...args) {
     const cb = args[args.length - 1];
-    if (typeof cb === 'function') cb(null);
+    if (typeof cb === "function") cb(null);
 }
 
 export { PassThrough, pipeline };

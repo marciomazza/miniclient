@@ -5,7 +5,10 @@ version = "0.0.0"
 description = "An HTMX powered python http client"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["jsrun~=0.1.0"]
+dependencies = [
+  "httpx~=0.28.1",
+  "jsrun~=0.1.0",
+]
 
 # Grupos de dependências para desenvolvimento e testes
 [dependency-groups]
@@ -14,8 +17,10 @@ lint = ["prek~=0.3.8", "pyrefly~=1.0.0", "ruff~=0.15.9"]
 test = [
   "hypothesis~=6.152.9",
   "pytest~=9.0.2",
+  "pytest-asyncio~=1.4.0",
   "pytest-cov~=7.1.0",
-  "pytest-xdist~=3.8.0"
+  "pytest-httpx~=0.36.2",
+  "pytest-xdist~=3.8.0",
 ]
 
 [build-system]
@@ -32,6 +37,7 @@ search_path = ["src", "tests"]
 addopts = ["--cov-report=html"]
 pythonpath = ["src"]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
