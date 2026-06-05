@@ -129,8 +129,9 @@ async def build_browser(url: str = "http://localhost/") -> Runtime:
     r.eval(f"globalThis.__CLEAR_TIMER_OP_ID__ = {clear_timer_op_id};")
 
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
-    r.add_static_module("bootstrap", (_JS / "bootstrap.js").read_text())
-    await r.eval_module_async("bootstrap")
+    _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
+    r.add_static_module(_bootstrap_uri, (_JS / "bootstrap.js").read_text())
+    await r.eval_module_async(_bootstrap_uri)
     r.eval((_JS / "formdata.js").read_text())
     await r.eval_async(_HTMX_SRC.read_text())
     # Drain any setTimeout(fn, 0) calls made during htmx init so their

@@ -1,4 +1,5 @@
 import { Window } from "happy-dom";
+import applyURLPatches from "./urlsearch-dom-patches.js";
 
 const win = new Window({ url: globalThis.__BASE_URL__ ?? "http://localhost/" });
 
@@ -49,23 +50,13 @@ globalThis.Headers = win.Headers;
 globalThis.Request = win.Request;
 globalThis.Response = win.Response;
 // FormData replaced by pure-JS implementation in formdata.js (loaded after this module)
-globalThis.URL = win.URL;
+applyURLPatches(win);
 globalThis.XMLHttpRequest = win.XMLHttpRequest;
 globalThis.CSSStyleSheet = win.CSSStyleSheet;
 globalThis.DocumentFragment = win.DocumentFragment;
 globalThis.ShadowRoot = win.ShadowRoot;
 // happy-dom treats <body>...</body> as content inside body rather than as the body element itself.
 // Wrapping in <html> makes it parse correctly.
-{
-    const _NativeDOMParser = win.DOMParser;
-    globalThis.DOMParser = class {
-        parseFromString(str, type) {
-            if (type === "text/html" && /^\s*<body[\s>]/i.test(str))
-                str = "<html>" + str + "</html>";
-            return new _NativeDOMParser().parseFromString(str, type);
-        }
-    };
-}
 globalThis.CSS = {
     escape(value) {
         value = String(value);
