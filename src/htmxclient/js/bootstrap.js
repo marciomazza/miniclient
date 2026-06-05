@@ -191,3 +191,45 @@ Object.defineProperty(win, "fetch", {
         }
     };
 }
+// happy-dom does not execute <script> elements when they are inserted into the DOM.
+// Patch DOM insertion methods used by htmx during swapping so inline scripts run.
+// Also patch Element.replaceWith so scripts replaced in-place during morph also run.
+{
+    const _evalScript = (el) => {
+        if (el.nodeType !== 1) return;
+        if (el.tagName === "SCRIPT" && el.textContent) {
+            try { (0, eval)(el.textContent); } catch (_) {}
+        }
+        for (const s of el.querySelectorAll("script")) {
+            if (s.textContent) try { (0, eval)(s.textContent); } catch (_) {}
+        }
+    };
+    const _execScripts = (nodes) => { for (const n of nodes) if (n) _evalScript(n); };
+    for (const m of ["replaceChildren", "append", "before", "after", "prepend"]) {
+        const orig = win.Element.prototype[m];
+        if (orig) {
+            win.Element.prototype[m] = function (...nodes) {
+                orig.call(this, ...nodes);
+                _execScripts(nodes);
+            };
+        }
+    }
+    // insertBefore is used by htmx morph when inserting unmatched new nodes into the DOM
+    const _origInsertBefore = win.Node.prototype.insertBefore;
+    if (_origInsertBefore) {
+        win.Node.prototype.insertBefore = function (newNode, refNode) {
+            const result = _origInsertBefore.call(this, newNode, refNode);
+            if (this.isConnected) _execScripts([newNode]);
+            return result;
+        };
+    }
+    // replaceWith is used during morph to swap out script nodes directly in the DOM
+    const _origReplaceWith = win.Element.prototype.replaceWith;
+    if (_origReplaceWith) {
+        win.Element.prototype.replaceWith = function (...nodes) {
+            const wasConnected = this.isConnected;
+            _origReplaceWith.call(this, ...nodes);
+            if (wasConnected) _execScripts(nodes);
+        };
+    }
+}
