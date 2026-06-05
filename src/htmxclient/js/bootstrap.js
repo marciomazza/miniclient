@@ -48,6 +48,22 @@ Object.defineProperty(globalThis, "IntersectionObserver", {
     },
     configurable: true,
 });
+// Patch :disabled to account for disabled fieldset ancestor — happy-dom does not propagate
+// the disabled state from <fieldset disabled> to its descendant form controls.
+{
+    const _origMatches = win.Element.prototype.matches;
+    win.Element.prototype.matches = function (selector) {
+        const result = _origMatches.call(this, selector);
+        if (!result && selector === ":disabled") {
+            let p = this.parentElement;
+            while (p) {
+                if (p.tagName === "FIELDSET" && p.disabled) return true;
+                p = p.parentElement;
+            }
+        }
+        return result;
+    };
+}
 globalThis.AbortController = win.AbortController;
 globalThis.AbortSignal = win.AbortSignal;
 globalThis.DOMException = win.DOMException;
