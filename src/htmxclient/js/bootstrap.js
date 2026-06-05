@@ -13,7 +13,20 @@ globalThis.HTMLElement = win.HTMLElement;
 globalThis.Document = win.Document;
 globalThis.Event = win.Event;
 globalThis.CustomEvent = win.CustomEvent;
+globalThis.MouseEvent = win.MouseEvent;
 globalThis.MutationObserver = win.MutationObserver;
+// IntersectionObserver: polyfill if absent, then expose via proxy so win and globalThis stay in sync.
+win.IntersectionObserver ??= class {
+    constructor(cb, options) {}
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+};
+Object.defineProperty(globalThis, "IntersectionObserver", {
+    get() { return window.IntersectionObserver; },
+    set(v) { window.IntersectionObserver = v; },
+    configurable: true,
+});
 globalThis.AbortController = win.AbortController;
 globalThis.AbortSignal = win.AbortSignal;
 globalThis.Headers = win.Headers;
