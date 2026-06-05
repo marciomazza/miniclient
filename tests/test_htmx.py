@@ -1,6 +1,9 @@
+import asyncio
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
+from jsrun import Runtime
 
 from htmxclient.browser import build_browser
 
@@ -17,9 +20,15 @@ _UNIT_TEST_DIR = _VENDOR_TEST / "tests/unit"
 # ---------------------------------------------------------------------------
 
 
-_INFRASTRUCTURE_JS = "\n".join(
+_unit_files = sorted(_UNIT_TEST_DIR.glob("*.js"))
+_RUNNER_JS_TEXT = _RUNNER_JS.read_text()
+_CHAI_SETUP_JS = (
+    _CHAI_JS.read_text()
+    + "\nglobalThis.assert = window.chai.assert;"
+    + "\nglobalThis.should = window.chai.should();"
+)
+_INFRA_JS = "\n".join(
     [
-        _RUNNER_JS.read_text(),
         _FETCH_MOCK_JS.read_text(),
         "document.body.innerHTML = '<div id=\"test-playground\"></div>';",
         _HELPERS_JS.read_text(),
@@ -27,22 +36,28 @@ _INFRASTRUCTURE_JS = "\n".join(
 )
 
 
-_unit_files = sorted(_UNIT_TEST_DIR.glob("*.js"))
+@pytest.fixture(scope="module")
+def htmx_unit_runtime() -> Generator[Runtime, None, None]:
+    """Single browser runtime shared across all unit tests in this module."""
+
+    async def _build() -> Runtime:
+        r = await build_browser("http://localhost/")
+        r.eval(_CHAI_SETUP_JS)
+        r.eval(_INFRA_JS)
+        return r
+
+    r = asyncio.run(_build())
+    yield r
+    r.close()
 
 
 @pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
-async def test_htmx_unit(js_file: Path) -> None:
-    r = await build_browser("http://localhost/")
-    try:
-        r.eval(_JS_SETUP)
-        r.eval(_INFRASTRUCTURE_JS)
-        r.eval(js_file.read_text())
-        results = await r.eval_async("__runAllTests()")
-        failures = [res for res in results if not res["passed"]]
-        if failures:
-            lines = [f"  [{res['suite']}] {res['name']}: {res['error']}" for res in failures]
-            pytest.fail(
-                f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines)
-            )
-    finally:
-        r.close()
+async def test_htmx_unit(js_file: Path, htmx_unit_runtime: Runtime) -> None:
+    r = htmx_unit_runtime
+    r.eval(_RUNNER_JS_TEXT)  # resets _suites for this file
+    r.eval(js_file.read_text())
+    results = await r.eval_async("__runAllTests()")
+    failures = [res for res in results if not res["passed"]]
+    if failures:
+        lines = [f"  [{res['suite']}] {res['name']}: {res['error']}" for res in failures]
+        pytest.fail(f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines))
