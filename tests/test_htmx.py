@@ -14,6 +14,8 @@ _RUNNER_JS = Path(__file__).parent / "runner.js"
 _FETCH_MOCK_JS = _VENDOR_TEST / "lib/fetch-mock.js"
 _HELPERS_JS = _VENDOR_TEST / "lib/helpers.js"
 _UNIT_TEST_DIR = _VENDOR_TEST / "tests/unit"
+_ATTR_TEST_DIR = _VENDOR_TEST / "tests/attributes"
+_E2E_TEST_DIR = _VENDOR_TEST / "tests/end2end"
 
 # ---------------------------------------------------------------------------
 # htmx vendor unit tests — one pytest case per JS file in tests/unit/
@@ -23,6 +25,8 @@ _SKIP = {
     "package.js",  # asserts htmx has no dependencies — not relevant to this runtime
 }
 _unit_files = [f for f in sorted(_UNIT_TEST_DIR.glob("*.js")) if f.name not in _SKIP]
+_attr_files = sorted(_ATTR_TEST_DIR.glob("*.js"))
+_e2e_files = sorted(_E2E_TEST_DIR.glob("*.js"))
 _RUNNER_JS_TEXT = _RUNNER_JS.read_text()
 _CHAI_SETUP_JS = (
     _CHAI_JS.read_text()
@@ -53,9 +57,7 @@ def htmx_unit_runtime() -> Generator[Runtime, None, None]:
     r.close()
 
 
-@pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
-async def test_htmx_unit(js_file: Path, htmx_unit_runtime: Runtime) -> None:
-    r = htmx_unit_runtime
+async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     r.eval(_RUNNER_JS_TEXT)  # resets _suites for this file
     r.eval(js_file.read_text())
     results = await r.eval_async("__runAllTests()")
@@ -63,3 +65,18 @@ async def test_htmx_unit(js_file: Path, htmx_unit_runtime: Runtime) -> None:
     if failures:
         lines = [f"  [{res['suite']}] {res['name']}: {res['error']}" for res in failures]
         pytest.fail(f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines))
+
+
+@pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
+async def test_htmx_unit(js_file: Path, htmx_unit_runtime: Runtime) -> None:
+    await _run_js_tests(htmx_unit_runtime, js_file)
+
+
+@pytest.mark.parametrize("js_file", _attr_files, ids=lambda f: f.stem)
+async def test_htmx_attr(js_file: Path, htmx_unit_runtime: Runtime) -> None:
+    await _run_js_tests(htmx_unit_runtime, js_file)
+
+
+@pytest.mark.parametrize("js_file", _e2e_files, ids=lambda f: f.stem)
+async def test_htmx_e2e(js_file: Path, htmx_unit_runtime: Runtime) -> None:
+    await _run_js_tests(htmx_unit_runtime, js_file)

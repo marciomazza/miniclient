@@ -15,6 +15,7 @@
     globalThis.it = (name, fn) => {
         if (_cur) _cur.tests.push({ name, fn });
     };
+    globalThis.it.skip = (_name, _fn) => { /* no-op: skipped test */ };
     globalThis.beforeEach = (fn) => {
         if (_cur) _cur._be.push(fn);
     };
