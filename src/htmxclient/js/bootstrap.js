@@ -82,6 +82,7 @@ globalThis.CSSStyleSheet = win.CSSStyleSheet;
 globalThis.DocumentFragment = win.DocumentFragment;
 globalThis.ShadowRoot = win.ShadowRoot;
 globalThis.customElements = win.customElements;
+globalThis.EventTarget = win.EventTarget;
 // Polyfill attachInternals for form-associated custom elements — happy-dom does not implement it.
 // Stores the submitted value on the element as __internalsFormValue so FormData can pick it up.
 {
@@ -276,6 +277,49 @@ Object.defineProperty(win, "fetch", {
             const wasConnected = this.isConnected;
             _origReplaceWith.call(this, ...nodes);
             if (wasConnected) _execScripts(nodes);
+        };
+    }
+}
+// Make window behave like the global object: property writes propagate to
+// globalThis so code like `window.foo = x; foo` works as in real browsers
+// (where window === globalThis).  Only user-defined properties are synced —
+// built-ins already on the Window prototype are left alone.
+{
+    const _winBuiltins = new Set();
+    for (let p = win; p; p = Object.getPrototypeOf(p))
+        for (const k of Object.getOwnPropertyNames(p)) _winBuiltins.add(k);
+    const _winProxy = new Proxy(win, {
+        set(target, prop, value) {
+            target[prop] = value;
+            if (typeof prop === "string" && !_winBuiltins.has(prop))
+                try { globalThis[prop] = value; } catch (_) {}
+            return true;
+        },
+        deleteProperty(target, prop) {
+            delete target[prop];
+            if (typeof prop === "string" && !_winBuiltins.has(prop))
+                try { delete globalThis[prop]; } catch (_) {}
+            return true;
+        },
+    });
+    globalThis.window = _winProxy;
+}
+// Set globalThis.event during event dispatch, mirroring browsers' window.event.
+// Required for hx-vals="js:{...}" expressions that reference the triggering event.
+// happy-dom exposes a *public* EventTarget class that differs from the internal one
+// used by DOM nodes — we must patch the internal prototype found via a live element.
+{
+    const _probe = win.document.createElement("div");
+    let _etProto = Object.getPrototypeOf(_probe);
+    while (_etProto && !Object.getOwnPropertyDescriptor(_etProto, "dispatchEvent"))
+        _etProto = Object.getPrototypeOf(_etProto);
+    if (_etProto) {
+        const _origDispatch = _etProto.dispatchEvent;
+        _etProto.dispatchEvent = function (evt) {
+            const prev = globalThis.event;
+            globalThis.event = evt;
+            try { return _origDispatch.call(this, evt); }
+            finally { globalThis.event = prev; }
         };
     }
 }
