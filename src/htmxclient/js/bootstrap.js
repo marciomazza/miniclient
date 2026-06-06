@@ -91,7 +91,7 @@ globalThis.EventTarget = win.EventTarget;
         if (_orig) {
             try {
                 return _orig.call(this);
-            } catch  {}
+            } catch {}
         }
         const host = this;
         return {
@@ -102,49 +102,6 @@ globalThis.EventTarget = win.EventTarget;
     };
 }
 applyPatchDomParser(win);
-globalThis.CSS = {
-    escape(value) {
-        value = String(value);
-        if (value.length === 0) return value;
-        let out = "";
-        for (let i = 0; i < value.length; i++) {
-            const c = value.charCodeAt(i);
-            if (c === 0) {
-                out += "�";
-                continue;
-            }
-            if ((c >= 0x0001 && c <= 0x001f) || c === 0x007f) {
-                out += "\\" + c.toString(16) + " ";
-                continue;
-            }
-            if (i === 0 && c >= 0x0030 && c <= 0x0039) {
-                out += "\\" + c.toString(16) + " ";
-                continue;
-            }
-            if (i === 1 && c >= 0x0030 && c <= 0x0039 && value.charCodeAt(0) === 0x002d) {
-                out += "\\" + c.toString(16) + " ";
-                continue;
-            }
-            if (i === 0 && value.length === 1 && c === 0x002d) {
-                out += "\\" + value[i];
-                continue;
-            }
-            if (
-                c >= 0x0080 ||
-                c === 0x002d ||
-                c === 0x005f ||
-                (c >= 0x0030 && c <= 0x0039) ||
-                (c >= 0x0041 && c <= 0x005a) ||
-                (c >= 0x0061 && c <= 0x007a)
-            ) {
-                out += value[i];
-                continue;
-            }
-            out += "\\" + value[i];
-        }
-        return out;
-    },
-};
 const _fetchOpId = globalThis.__FETCH_OP_ID__;
 globalThis.fetch = async (input, init = {}) => {
     const req = input instanceof Request ? input : new Request(input, init);
@@ -310,13 +267,17 @@ Object.defineProperty(win, "fetch", {
         set(target, prop, value) {
             target[prop] = value;
             if (typeof prop === "string" && !_winBuiltins.has(prop))
-                try { globalThis[prop] = value; } catch (_) {}
+                try {
+                    globalThis[prop] = value;
+                } catch  {}
             return true;
         },
         deleteProperty(target, prop) {
             delete target[prop];
             if (typeof prop === "string" && !_winBuiltins.has(prop))
-                try { delete globalThis[prop]; } catch (_) {}
+                try {
+                    delete globalThis[prop];
+                } catch  {}
             return true;
         },
     });
@@ -336,8 +297,11 @@ Object.defineProperty(win, "fetch", {
         _etProto.dispatchEvent = function (evt) {
             const prev = globalThis.event;
             globalThis.event = evt;
-            try { return _origDispatch.call(this, evt); }
-            finally { globalThis.event = prev; }
+            try {
+                return _origDispatch.call(this, evt);
+            } finally {
+                globalThis.event = prev;
+            }
         };
     }
 }

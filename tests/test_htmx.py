@@ -8,14 +8,11 @@ from jsrun import Runtime
 from htmxclient.browser import build_browser
 
 _ROOT = Path(__file__).parent.parent
-_VENDOR_TEST = _ROOT / "vendor/htmx/test"
+_HTMX_TEST = _ROOT / "vendor/htmx/test"
 _CHAI_JS = _ROOT / "node_modules/chai/chai.js"
 _RUNNER_JS = Path(__file__).parent / "runner.js"
-_FETCH_MOCK_JS = _VENDOR_TEST / "lib/fetch-mock.js"
-_HELPERS_JS = _VENDOR_TEST / "lib/helpers.js"
-_UNIT_TEST_DIR = _VENDOR_TEST / "tests/unit"
-_ATTR_TEST_DIR = _VENDOR_TEST / "tests/attributes"
-_E2E_TEST_DIR = _VENDOR_TEST / "tests/end2end"
+_FETCH_MOCK_JS = _HTMX_TEST / "lib/fetch-mock.js"
+_HELPERS_JS = _HTMX_TEST / "lib/helpers.js"
 
 # ---------------------------------------------------------------------------
 # htmx vendor unit tests — one pytest case per JS file in tests/unit/
@@ -32,9 +29,6 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
         # scroll position is always 0 in a headless DOM
     },
 }
-_unit_files = [f for f in sorted(_UNIT_TEST_DIR.glob("*.js")) if f.name not in _SKIP]
-_attr_files = sorted(_ATTR_TEST_DIR.glob("*.js"))
-_e2e_files = sorted(_E2E_TEST_DIR.glob("*.js"))
 _RUNNER_JS_TEXT = _RUNNER_JS.read_text()
 _CHAI_SETUP_JS = (
     _CHAI_JS.read_text()
@@ -71,12 +65,16 @@ async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     results = await r.eval_async("__runAllTests()")
     skip = _SKIP_TESTS.get(js_file.stem, set())
     failures = [
-        res for res in results
-        if not res["passed"] and (res["suite"], res["name"]) not in skip
+        res for res in results if not res["passed"] and (res["suite"], res["name"]) not in skip
     ]
     if failures:
         lines = [f"  [{res['suite']}] {res['name']}: {res['error']}" for res in failures]
         pytest.fail(f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines))
+
+
+_unit_files = [f for f in sorted((_HTMX_TEST / "tests/unit").glob("*.js")) if f.name not in _SKIP]
+_attributes_files = sorted((_HTMX_TEST / "tests/attributes").glob("*.js"))
+_end2end_files = sorted((_HTMX_TEST / "tests/end2end").glob("*.js"))
 
 
 @pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
@@ -84,11 +82,11 @@ async def test_htmx_unit(js_file: Path, htmx_unit_runtime: Runtime) -> None:
     await _run_js_tests(htmx_unit_runtime, js_file)
 
 
-@pytest.mark.parametrize("js_file", _attr_files, ids=lambda f: f.stem)
-async def test_htmx_attr(js_file: Path, htmx_unit_runtime: Runtime) -> None:
+@pytest.mark.parametrize("js_file", _attributes_files, ids=lambda f: f.stem)
+async def test_htmx_attributes(js_file: Path, htmx_unit_runtime: Runtime) -> None:
     await _run_js_tests(htmx_unit_runtime, js_file)
 
 
-@pytest.mark.parametrize("js_file", _e2e_files, ids=lambda f: f.stem)
+@pytest.mark.parametrize("js_file", _end2end_files, ids=lambda f: f.stem)
 async def test_htmx_e2e(js_file: Path, htmx_unit_runtime: Runtime) -> None:
     await _run_js_tests(htmx_unit_runtime, js_file)
