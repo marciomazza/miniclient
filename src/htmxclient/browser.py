@@ -41,6 +41,16 @@ _NPM_POLYFILL_FILES: dict[str, str] = {
 }
 
 
+_module_source_cache: dict[str, str] = {}
+
+
+def _read_cached(path: Path) -> str:
+    key = str(path)
+    if key not in _module_source_cache:
+        _module_source_cache[key] = path.read_text()
+    return _module_source_cache[key]
+
+
 def _resolver(spec: str, ref: str) -> str | None:
     bare = spec.removeprefix("node:")
     if bare in _NODE_POLYFILL_FILES:
@@ -60,13 +70,11 @@ def _resolver(spec: str, ref: str) -> str | None:
 
 async def _loader(spec: str) -> str:
     if spec.startswith("node:"):
-        filename = _NODE_POLYFILL_FILES[spec.removeprefix("node:")]
-        return (_POLYFILLS / filename).read_text()
+        return _read_cached(_POLYFILLS / _NODE_POLYFILL_FILES[spec.removeprefix("node:")])
     if spec.startswith("npm:"):
-        filename = _NPM_POLYFILL_FILES[spec.removeprefix("npm:")]
-        return (_POLYFILLS / filename).read_text()
+        return _read_cached(_POLYFILLS / _NPM_POLYFILL_FILES[spec.removeprefix("npm:")])
     if spec.startswith("file://"):
-        return Path(spec[7:]).read_text()
+        return _read_cached(Path(spec[7:]))
     raise ValueError(f"Cannot load module: {spec!r}")
 
 
@@ -145,8 +153,15 @@ async def build_browser(url: str = "http://localhost/") -> Runtime:
     r.eval(f"globalThis.__CLEAR_TIMER_OP_ID__ = {clear_timer_op_id};")
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
 
+    for bare, fname in _NODE_POLYFILL_FILES.items():
+        r.add_static_module(f"node:{bare}", _read_cached(_POLYFILLS / fname))
+    for name, fname in _NPM_POLYFILL_FILES.items():
+        r.add_static_module(f"npm:{name}", _read_cached(_POLYFILLS / fname))
+    for js_path in [_JS / "urlsearch-dom-patches.js", _JS / "patch-dom-parser.js"]:
+        r.add_static_module(js_path.as_uri(), _read_cached(js_path))
+
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
-    r.add_static_module(_bootstrap_uri, (_JS / "bootstrap.js").read_text())
+    r.add_static_module(_bootstrap_uri, _read_cached(_JS / "bootstrap.js"))
     await r.eval_module_async(_bootstrap_uri)
     r.eval("var htmx = new Htmx();")
     # Drain any setTimeout(fn, 0) calls made during htmx init so their
