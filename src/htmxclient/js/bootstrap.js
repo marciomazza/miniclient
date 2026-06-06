@@ -280,6 +280,24 @@ Object.defineProperty(win, "fetch", {
         };
     }
 }
+// happy-dom's getElementById does not respect document tree order when duplicate
+// IDs exist (e.g. when htmx stores a preserved element in a pantry node appended
+// after <body>).  Patch the internal Document prototype (distinct from the public
+// win.Document class) to delegate to querySelectorAll, which does respect tree
+// order, so the first element in document order is always returned.
+{
+    let _docProto = Object.getPrototypeOf(win.document);
+    while (_docProto && !Object.getOwnPropertyDescriptor(_docProto, "getElementById"))
+        _docProto = Object.getPrototypeOf(_docProto);
+    if (_docProto) {
+        const _origGetById = _docProto.getElementById;
+        _docProto.getElementById = function (id) {
+            if (!id) return _origGetById.call(this, id);
+            const results = this.querySelectorAll("#" + CSS.escape(String(id)));
+            return results.length > 0 ? results[0] : null;
+        };
+    }
+}
 // Make window behave like the global object: property writes propagate to
 // globalThis so code like `window.foo = x; foo` works as in real browsers
 // (where window === globalThis).  Only user-defined properties are synced —
