@@ -31,6 +31,11 @@ globalThis.Document = win.Document;
 globalThis.Event = win.Event;
 globalThis.CustomEvent = win.CustomEvent;
 globalThis.MouseEvent = win.MouseEvent;
+globalThis.KeyboardEvent = win.KeyboardEvent;
+globalThis.SubmitEvent = win.SubmitEvent;
+globalThis.InputEvent = win.InputEvent;
+globalThis.FocusEvent = win.FocusEvent;
+globalThis.PointerEvent = win.PointerEvent;
 globalThis.MutationObserver = win.MutationObserver;
 // IntersectionObserver: polyfill if absent, then expose via proxy so win and globalThis stay in sync.
 win.IntersectionObserver ??= class {
