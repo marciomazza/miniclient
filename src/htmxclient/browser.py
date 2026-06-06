@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from functools import cache
 from pathlib import Path
 from urllib.parse import urljoin
 
 import httpx
-from jsrun import Runtime
+from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
 _ROOT = Path(__file__).parent.parent.parent
 _NM = _ROOT / "node_modules"
@@ -41,14 +42,31 @@ _NPM_POLYFILL_FILES: dict[str, str] = {
 }
 
 
-_module_source_cache: dict[str, str] = {}
+@cache
+def _build_snapshot() -> bytes:
+    builder = SnapshotBuilder()
+    builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
+    xpath_src = (_NM / "xpath/xpath.js").read_text()
+    builder.execute_script(
+        "xpath",
+        f"""const __xpathLib = {{}};
+        (function(exports){{{xpath_src}}})(__xpathLib);
+        globalThis.__xpathLib = __xpathLib;""",
+    )
+    builder.execute_script("pre_globals", (_JS / "pre_globals.js").read_text())
+    builder.execute_script("formdata", (_JS / "formdata.js").read_text())
+    htmx_source = (
+        _HTMX_SRC.read_text()
+        .replace("var htmx =", "var Htmx =", 1)
+        .replace("return new Htmx()", "return Htmx", 1)
+    )
+    builder.execute_script("htmx", htmx_source)
+    return builder.build()
 
 
+@cache
 def _read_cached(path: Path) -> str:
-    key = str(path)
-    if key not in _module_source_cache:
-        _module_source_cache[key] = path.read_text()
-    return _module_source_cache[key]
+    return path.read_text()
 
 
 def _resolver(spec: str, ref: str) -> str | None:
@@ -97,23 +115,7 @@ async def _fetch_op(req: dict) -> dict:
 
 
 async def build_browser(url: str = "http://localhost/") -> Runtime:
-    r = Runtime()
-    r.eval((_NM / "fast-text-encoding/text.min.js").read_text())
-    xpath_src = (_NM / "xpath/xpath.js").read_text()
-    r.eval(
-        f"""const __xpathLib = {{}};
-        (function(exports){{{xpath_src}}})(__xpathLib);
-        globalThis.__xpathLib = __xpathLib;"""
-    )
-    r.eval((_JS / "pre_globals.js").read_text())
-    r.eval((_JS / "formdata.js").read_text())
-    htmx_source = (
-        _HTMX_SRC.read_text()
-        .replace("var htmx =", "var Htmx =", 1)
-        .replace("return new Htmx()", "return Htmx", 1)
-    )
-
-    await r.eval_async(htmx_source)
+    r = Runtime(RuntimeConfig(snapshot=_build_snapshot()))
 
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
