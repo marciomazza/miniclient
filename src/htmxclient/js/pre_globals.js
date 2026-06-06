@@ -63,20 +63,14 @@
         return out;
     };
 
-    // happy-dom has no XPath. This handles the single pattern htmx uses internally:
-    //   .//*[@*[starts-with(name(), "PREFIX") or ...]]
-    // i.e. find descendants with at least one attribute whose name starts with a given prefix.
-    // If htmx ever changes its XPath query this stub will silently break.
-    globalThis.XPathEvaluator ??= class XPathEvaluator {
+    // XPathEvaluator backed by the xpath npm package (XPath 1.0).
+    // Loaded via __xpathLib injected before this script runs.
+    globalThis.XPathEvaluator = class XPathEvaluator {
         createExpression(expr) {
-            const prefixes = [...expr.matchAll(/starts-with\(name\(\),\s*"([^"]+)"\)/g)].map(
-                (m) => m[1],
-            );
+            const compiled = globalThis.__xpathLib.parse(expr);
             return {
-                evaluate(context) {
-                    const nodes = Array.from(context.querySelectorAll("*")).filter((el) =>
-                        el.getAttributeNames().some((n) => prefixes.some((p) => n.startsWith(p))),
-                    );
+                evaluate(ctx) {
+                    const nodes = compiled.select({ node: ctx });
                     let i = 0;
                     return { iterateNext: () => nodes[i++] ?? null };
                 },

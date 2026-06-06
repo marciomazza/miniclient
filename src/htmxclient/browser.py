@@ -91,6 +91,8 @@ async def _fetch_op(req: dict) -> dict:
 async def build_browser(url: str = "http://localhost/") -> Runtime:
     r = Runtime()
     r.eval((_NM / "fast-text-encoding/text.min.js").read_text())
+    xpath_src = (_NM / "xpath/xpath.js").read_text()
+    r.eval(f"const __xpathLib = {{}}; (function(exports){{{xpath_src}}})(__xpathLib); globalThis.__xpathLib = __xpathLib;")
     r.eval((_JS / "pre_globals.js").read_text())
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)

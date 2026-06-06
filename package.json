@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "fast-text-encoding": "^1.0.6",
-    "happy-dom": "^20.9.0"
+    "happy-dom": "^20.9.0",
+    "xpath": "^0.0.34"
   },
   "devDependencies": {
     "chai": "^4.5.0"
