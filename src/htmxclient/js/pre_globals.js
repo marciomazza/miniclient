@@ -63,52 +63,6 @@
         return out;
     };
 
-    // TextEncoder / TextDecoder — not in jsrun's V8
-    globalThis.TextEncoder ??= class TextEncoder {
-        get encoding() {
-            return "utf-8";
-        }
-        encode(str) {
-            const bytes = [];
-            for (let i = 0; i < str.length; i++) {
-                const c = str.charCodeAt(i);
-                if (c < 0x80) bytes.push(c);
-                else if (c < 0x800) {
-                    bytes.push(0xc0 | (c >> 6));
-                    bytes.push(0x80 | (c & 0x3f));
-                } else {
-                    bytes.push(0xe0 | (c >> 12));
-                    bytes.push(0x80 | ((c >> 6) & 0x3f));
-                    bytes.push(0x80 | (c & 0x3f));
-                }
-            }
-            return new Uint8Array(bytes);
-        }
-    };
-    globalThis.TextDecoder ??= class TextDecoder {
-        constructor(enc = "utf-8") {
-            this.encoding = enc;
-        }
-        decode(buf) {
-            if (!buf) return "";
-            const arr = buf instanceof Uint8Array ? buf : new Uint8Array(buf.buffer ?? buf);
-            let out = "";
-            for (let i = 0; i < arr.length; ) {
-                const b = arr[i++];
-                if (b < 0x80) {
-                    out += String.fromCharCode(b);
-                } else if ((b & 0xe0) === 0xc0) {
-                    out += String.fromCharCode(((b & 0x1f) << 6) | (arr[i++] & 0x3f));
-                } else {
-                    out += String.fromCharCode(
-                        ((b & 0x0f) << 12) | ((arr[i++] & 0x3f) << 6) | (arr[i++] & 0x3f),
-                    );
-                }
-            }
-            return out;
-        }
-    };
-
     // happy-dom has no XPath. This handles the single pattern htmx uses internally:
     //   .//*[@*[starts-with(name(), "PREFIX") or ...]]
     // i.e. find descendants with at least one attribute whose name starts with a given prefix.

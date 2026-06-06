@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "fast-text-encoding": "^1.0.6",
     "happy-dom": "^20.9.0"
   },
   "devDependencies": {
