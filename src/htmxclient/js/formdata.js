@@ -42,7 +42,10 @@
             } else if (el.selectedIndex >= 0) {
                 data.push([name, el.options[el.selectedIndex].value]);
             }
-        } else if (typeof el.__internalsFormValue !== "undefined" && el.__internalsFormValue != null) {
+        } else if (
+            typeof el.__internalsFormValue !== "undefined" &&
+            el.__internalsFormValue != null
+        ) {
             data.push([name, el.__internalsFormValue]);
         }
     }
@@ -76,8 +79,7 @@
             }
             if (submitter) {
                 const name = submitter.name;
-                if (name && !_isDisabled(submitter))
-                    this.#data.push([name, submitter.value ?? ""]);
+                if (name && !_isDisabled(submitter)) this.#data.push([name, submitter.value ?? ""]);
             }
         }
 

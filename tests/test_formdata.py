@@ -1,4 +1,5 @@
 """Tests for the pure-JS FormData implementation (formdata.js)."""
+
 import asyncio
 import json
 from collections.abc import Generator
@@ -76,7 +77,10 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
             [("items", "a"), ("items", "b")],
         ),
         # checkbox — checked, with value
-        ('<form><input type="checkbox" name="agree" value="yes" checked></form>', [("agree", "yes")]),
+        (
+            '<form><input type="checkbox" name="agree" value="yes" checked></form>',
+            [("agree", "yes")],
+        ),
         # checkbox — checked, no value attribute → "on"
         ('<form><input type="checkbox" name="ok" checked></form>', [("ok", "on")]),
         # multiple checkboxes with same name
@@ -100,9 +104,7 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ),
     ],
 )
-def test_collects_successful_controls(
-    fd_runtime: Runtime, html: str, expected: list
-) -> None:
+def test_collects_successful_controls(fd_runtime: Runtime, html: str, expected: list) -> None:
     assert _pairs(fd_runtime, html) == expected
 
 

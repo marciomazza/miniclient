@@ -15,7 +15,9 @@
     globalThis.it = (name, fn) => {
         if (_cur) _cur.tests.push({ name, fn });
     };
-    globalThis.it.skip = (_name, _fn) => { /* no-op: skipped test */ };
+    globalThis.it.skip = (_name, _fn) => {
+        /* no-op: skipped test */
+    };
     globalThis.beforeEach = (fn) => {
         if (_cur) _cur._be.push(fn);
     };
@@ -31,14 +33,16 @@
 
     // Test context passed as `this` — supports mocha's this.skip() and this.timeout()
     const _ctx = {
-        skip() { throw _SKIP; },
+        skip() {
+            throw _SKIP;
+        },
         timeout() {},
     };
 
     globalThis.__runAllTests = async function () {
         const results = [];
         for (const s of _suites) {
-            for (const fn of (s._before ?? [])) await fn.call(_ctx);
+            for (const fn of s._before ?? []) await fn.call(_ctx);
             for (const t of s.tests) {
                 for (const be of s._be) await be.call(_ctx);
                 try {
@@ -58,7 +62,7 @@
                 }
                 for (const ae of s._ae) await ae.call(_ctx);
             }
-            for (const fn of (s._after ?? [])) await fn.call(_ctx);
+            for (const fn of s._after ?? []) await fn.call(_ctx);
         }
         return results;
     };

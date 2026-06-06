@@ -269,7 +269,7 @@ Object.defineProperty(win, "fetch", {
             if (typeof prop === "string" && !_winBuiltins.has(prop))
                 try {
                     globalThis[prop] = value;
-                } catch  {}
+                } catch {}
             return true;
         },
         deleteProperty(target, prop) {
@@ -277,7 +277,7 @@ Object.defineProperty(win, "fetch", {
             if (typeof prop === "string" && !_winBuiltins.has(prop))
                 try {
                     delete globalThis[prop];
-                } catch  {}
+                } catch {}
             return true;
         },
     });

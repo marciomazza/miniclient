@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -258,12 +256,16 @@ def test_atob_btoa(browser, js, expected):
 
 
 async def test_settimeout_fires(browser_async):
-    result = await browser_async.eval_async("new Promise(resolve => setTimeout(() => resolve('ok'), 10))")
+    result = await browser_async.eval_async(
+        "new Promise(resolve => setTimeout(() => resolve('ok'), 10))"
+    )
     assert result == "ok"
 
 
 async def test_settimeout_zero_fires(browser_async):
-    result = await browser_async.eval_async("new Promise(resolve => setTimeout(() => resolve(42), 0))")
+    result = await browser_async.eval_async(
+        "new Promise(resolve => setTimeout(() => resolve(42), 0))"
+    )
     assert result == 42
 
 

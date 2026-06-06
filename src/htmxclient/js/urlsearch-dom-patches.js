@@ -34,7 +34,10 @@ export default function apply(win) {
             // happy-dom's URLSearchParams constructor ignores URLSearchParams and FormData
             // as init values.  Detect those two types and copy entries manually.
             // Plain strings, plain objects, and arrays are handled by the parent constructor.
-            if (init instanceof _WinUSP || (typeof FormData !== "undefined" && init instanceof FormData)) {
+            if (
+                init instanceof _WinUSP ||
+                (typeof FormData !== "undefined" && init instanceof FormData)
+            ) {
                 super();
                 for (const [k, v] of init.entries()) this.append(String(k), String(v));
             } else {

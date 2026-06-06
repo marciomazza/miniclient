@@ -5,22 +5,16 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 
 async def js_fetch_text(browser, url, **opts):
     js_opts = json.dumps(opts, ensure_ascii=False) if opts else "{}"
-    return await browser.eval_async(
-        f"fetch({json.dumps(url)}, {js_opts}).then(r => r.text())"
-    )
+    return await browser.eval_async(f"fetch({json.dumps(url)}, {js_opts}).then(r => r.text())")
 
 
 async def js_fetch_json(browser, url, **opts):
     js_opts = json.dumps(opts, ensure_ascii=False) if opts else "{}"
-    return await browser.eval_async(
-        f"fetch({json.dumps(url)}, {js_opts}).then(r => r.json())"
-    )
+    return await browser.eval_async(f"fetch({json.dumps(url)}, {js_opts}).then(r => r.json())")
 
 
 async def js_fetch_status(browser, url):
-    return await browser.eval_async(
-        f"fetch({json.dumps(url)}).then(r => r.status)"
-    )
+    return await browser.eval_async(f"fetch({json.dumps(url)}).then(r => r.status)")
 
 
 # ASCII printable characters only — the jsrun bridge has encoding issues
@@ -224,10 +218,9 @@ async def test_fetch_sends_arbitrary_headers(browser_async, httpx_mock, headers)
         _header_key,
         st.text(min_size=0, max_size=100, alphabet=_ascii_printable),
     ).filter(
-        lambda d: len({k.lower() for k in d}) == len(d)
-        and all(
-            k.lower() not in {"__proto__", "constructor", "prototype"}
-            for k in d
+        lambda d: (
+            len({k.lower() for k in d}) == len(d)
+            and all(k.lower() not in {"__proto__", "constructor", "prototype"} for k in d)
         )
     )
 )
@@ -235,9 +228,7 @@ async def test_fetch_sends_arbitrary_headers(browser_async, httpx_mock, headers)
     suppress_health_check=[HealthCheck.function_scoped_fixture],
     max_examples=30,
 )
-async def test_fetch_receives_arbitrary_headers(
-    browser_async, httpx_mock, response_headers
-):
+async def test_fetch_receives_arbitrary_headers(browser_async, httpx_mock, response_headers):
     url = "http://api.example.com/response-headers"
     httpx_mock.add_response(url=url, headers=response_headers, text="ok")
     result = await browser_async.eval_async(
@@ -264,12 +255,14 @@ json_strategy = st.recursive(
         st.integers(min_value=-(2**53), max_value=2**53),
         st.booleans(),
     ),
-    lambda children: st.lists(children, min_size=0, max_size=5)
-    | st.dictionaries(
-        st.text(min_size=1, alphabet=_ascii_letters_and_numbers),
-        children,
-        min_size=0,
-        max_size=5,
+    lambda children: (
+        st.lists(children, min_size=0, max_size=5)
+        | st.dictionaries(
+            st.text(min_size=1, alphabet=_ascii_letters_and_numbers),
+            children,
+            min_size=0,
+            max_size=5,
+        )
     ),
     max_leaves=3,
 )
