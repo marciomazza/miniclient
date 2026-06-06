@@ -9,6 +9,15 @@ globalThis.document = win.document;
 globalThis.location = win.location;
 globalThis.navigator = win.navigator;
 globalThis.history = win.history;
+
+// Utility: patch a prototype method, preserving the original.
+function patchMethod(proto, method, wrapper) {
+    const orig = proto[method];
+    proto[method] = function (...args) {
+        return wrapper.call(this, orig, ...args);
+    };
+}
+
 // happy-dom's pushState/replaceState don't update location.href; patch to keep them in sync.
 ["pushState", "replaceState"].forEach((method) => {
     const orig = win.history[method].bind(win.history);
@@ -17,26 +26,43 @@ globalThis.history = win.history;
         if (url != null) win.location.href = String(url);
     };
 });
-globalThis.Node = win.Node;
-globalThis.Element = win.Element;
-globalThis.HTMLElement = win.HTMLElement;
-globalThis.HTMLTemplateElement = win.HTMLTemplateElement;
-globalThis.HTMLInputElement = win.HTMLInputElement;
-globalThis.HTMLTextAreaElement = win.HTMLTextAreaElement;
-globalThis.HTMLSelectElement = win.HTMLSelectElement;
-globalThis.HTMLButtonElement = win.HTMLButtonElement;
-globalThis.HTMLFormElement = win.HTMLFormElement;
-globalThis.HTMLAnchorElement = win.HTMLAnchorElement;
-globalThis.Document = win.Document;
-globalThis.Event = win.Event;
-globalThis.CustomEvent = win.CustomEvent;
-globalThis.MouseEvent = win.MouseEvent;
-globalThis.KeyboardEvent = win.KeyboardEvent;
-globalThis.SubmitEvent = win.SubmitEvent;
-globalThis.InputEvent = win.InputEvent;
-globalThis.FocusEvent = win.FocusEvent;
-globalThis.PointerEvent = win.PointerEvent;
-globalThis.MutationObserver = win.MutationObserver;
+
+// Bulk-assign globals from win.
+const _globals = [
+    "AbortController",
+    "AbortSignal",
+    "CSSStyleSheet",
+    "CustomEvent",
+    "DOMException",
+    "Document",
+    "DocumentFragment",
+    "Element",
+    "Event",
+    "EventTarget",
+    "FocusEvent",
+    "HTMLAnchorElement",
+    "HTMLButtonElement",
+    "HTMLElement",
+    "HTMLFormElement",
+    "HTMLInputElement",
+    "HTMLSelectElement",
+    "HTMLTemplateElement",
+    "HTMLTextAreaElement",
+    "Headers",
+    "InputEvent",
+    "KeyboardEvent",
+    "MouseEvent",
+    "MutationObserver",
+    "Node",
+    "PointerEvent",
+    "Request",
+    "Response",
+    "ShadowRoot",
+    "SubmitEvent",
+    "XMLHttpRequest",
+    "customElements",
+];
+for (const g of _globals) globalThis[g] = win[g];
 // IntersectionObserver: polyfill if absent, then expose via proxy so win and globalThis stay in sync.
 win.IntersectionObserver ??= class {
     constructor(cb, options) {}
@@ -55,20 +81,17 @@ Object.defineProperty(globalThis, "IntersectionObserver", {
 });
 // Patch :disabled to account for disabled fieldset ancestor — happy-dom does not propagate
 // the disabled state from <fieldset disabled> to its descendant form controls.
-{
-    const _origMatches = win.Element.prototype.matches;
-    win.Element.prototype.matches = function (selector) {
-        const result = _origMatches.call(this, selector);
-        if (!result && selector === ":disabled") {
-            let p = this.parentElement;
-            while (p) {
-                if (p.tagName === "FIELDSET" && p.disabled) return true;
-                p = p.parentElement;
-            }
+patchMethod(win.Element.prototype, "matches", function (_origMatches, selector) {
+    const result = _origMatches.call(this, selector);
+    if (!result && selector === ":disabled") {
+        let p = this.parentElement;
+        while (p) {
+            if (p.tagName === "FIELDSET" && p.disabled) return true;
+            p = p.parentElement;
         }
-        return result;
-    };
-}
+    }
+    return result;
+});
 globalThis.AbortController = win.AbortController;
 globalThis.AbortSignal = win.AbortSignal;
 globalThis.DOMException = win.DOMException;
@@ -85,22 +108,19 @@ globalThis.customElements = win.customElements;
 globalThis.EventTarget = win.EventTarget;
 // Polyfill attachInternals for form-associated custom elements — happy-dom does not implement it.
 // Stores the submitted value on the element as __internalsFormValue so FormData can pick it up.
-{
-    const _orig = win.HTMLElement.prototype.attachInternals;
-    win.HTMLElement.prototype.attachInternals = function () {
-        if (_orig) {
-            try {
-                return _orig.call(this);
-            } catch {}
-        }
-        const host = this;
-        return {
-            setFormValue(val) {
-                host.__internalsFormValue = val != null ? String(val) : null;
-            },
-        };
+patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
+    if (_orig) {
+        try {
+            return _orig.call(this);
+        } catch {}
+    }
+    const host = this;
+    return {
+        setFormValue(val) {
+            host.__internalsFormValue = val != null ? String(val) : null;
+        },
     };
-}
+});
 applyPatchDomParser(win);
 const _fetchOpId = globalThis.__FETCH_OP_ID__;
 globalThis.fetch = async (input, init = {}) => {
@@ -192,50 +212,38 @@ Object.defineProperty(win, "fetch", {
 // Patch DOM insertion methods used by htmx during swapping so inline scripts run.
 // Also patch Element.replaceWith so scripts replaced in-place during morph also run.
 {
+    const _runScript = (s) => {
+        if (s.textContent)
+            try {
+                (0, eval)(s.textContent);
+            } catch {}
+    };
     const _evalScript = (el) => {
         if (el.nodeType !== 1) return;
-        if (el.tagName === "SCRIPT" && el.textContent) {
-            try {
-                (0, eval)(el.textContent);
-            } catch {}
-        }
-        for (const s of el.querySelectorAll("script")) {
-            if (s.textContent)
-                try {
-                    (0, eval)(s.textContent);
-                } catch {}
-        }
+        if (el.tagName === "SCRIPT") _runScript(el);
+        for (const s of el.querySelectorAll("script")) _runScript(s);
     };
     const _execScripts = (nodes) => {
         for (const n of nodes) if (n) _evalScript(n);
     };
     for (const m of ["replaceChildren", "append", "before", "after", "prepend"]) {
-        const orig = win.Element.prototype[m];
-        if (orig) {
-            win.Element.prototype[m] = function (...nodes) {
-                orig.call(this, ...nodes);
-                _execScripts(nodes);
-            };
-        }
+        patchMethod(win.Element.prototype, m, function (orig, ...nodes) {
+            orig.call(this, ...nodes);
+            _execScripts(nodes);
+        });
     }
     // insertBefore is used by htmx morph when inserting unmatched new nodes into the DOM
-    const _origInsertBefore = win.Node.prototype.insertBefore;
-    if (_origInsertBefore) {
-        win.Node.prototype.insertBefore = function (newNode, refNode) {
-            const result = _origInsertBefore.call(this, newNode, refNode);
-            if (this.isConnected) _execScripts([newNode]);
-            return result;
-        };
-    }
+    patchMethod(win.Node.prototype, "insertBefore", function (_origInsertBefore, newNode, refNode) {
+        const result = _origInsertBefore.call(this, newNode, refNode);
+        if (this.isConnected) _execScripts([newNode]);
+        return result;
+    });
     // replaceWith is used during morph to swap out script nodes directly in the DOM
-    const _origReplaceWith = win.Element.prototype.replaceWith;
-    if (_origReplaceWith) {
-        win.Element.prototype.replaceWith = function (...nodes) {
-            const wasConnected = this.isConnected;
-            _origReplaceWith.call(this, ...nodes);
-            if (wasConnected) _execScripts(nodes);
-        };
-    }
+    patchMethod(win.Element.prototype, "replaceWith", function (_origReplaceWith, ...nodes) {
+        const wasConnected = this.isConnected;
+        _origReplaceWith.call(this, ...nodes);
+        if (wasConnected) _execScripts(nodes);
+    });
 }
 // happy-dom's getElementById does not respect document tree order when duplicate
 // IDs exist (e.g. when htmx stores a preserved element in a pantry node appended
@@ -247,12 +255,11 @@ Object.defineProperty(win, "fetch", {
     while (_docProto && !Object.getOwnPropertyDescriptor(_docProto, "getElementById"))
         _docProto = Object.getPrototypeOf(_docProto);
     if (_docProto) {
-        const _origGetById = _docProto.getElementById;
-        _docProto.getElementById = function (id) {
+        patchMethod(_docProto, "getElementById", function (_origGetById, id) {
             if (!id) return _origGetById.call(this, id);
             const results = this.querySelectorAll("#" + CSS.escape(String(id)));
             return results.length > 0 ? results[0] : null;
-        };
+        });
     }
 }
 // Make window behave like the global object: property writes propagate to
@@ -293,8 +300,7 @@ Object.defineProperty(win, "fetch", {
     while (_etProto && !Object.getOwnPropertyDescriptor(_etProto, "dispatchEvent"))
         _etProto = Object.getPrototypeOf(_etProto);
     if (_etProto) {
-        const _origDispatch = _etProto.dispatchEvent;
-        _etProto.dispatchEvent = function (evt) {
+        patchMethod(_etProto, "dispatchEvent", function (_origDispatch, evt) {
             const prev = globalThis.event;
             globalThis.event = evt;
             try {
@@ -302,6 +308,6 @@ Object.defineProperty(win, "fetch", {
             } finally {
                 globalThis.event = prev;
             }
-        };
+        });
     }
 }

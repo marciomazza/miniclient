@@ -15,19 +15,15 @@
         getEntriesByName: () => [],
     };
 
-    globalThis.setTimeout ??= (fn, d, ...a) => {
+    const _stubTimer = (fn, d, ...a) => {
         try {
             fn(...a);
         } catch {}
         return 0;
     };
+    globalThis.setTimeout ??= _stubTimer;
     globalThis.clearTimeout ??= () => {};
-    globalThis.setInterval ??= (fn, d, ...a) => {
-        try {
-            fn(...a);
-        } catch {}
-        return 0;
-    };
+    globalThis.setInterval ??= _stubTimer;
     globalThis.clearInterval ??= () => {};
     globalThis.setImmediate ??= (fn, ...a) => setTimeout(fn, 0, ...a);
     globalThis.clearImmediate ??= () => {};
