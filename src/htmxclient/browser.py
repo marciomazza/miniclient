@@ -42,9 +42,8 @@ _NPM_POLYFILL_FILES: dict[str, str] = {
 }
 
 
-@cache
-def _build_snapshot() -> bytes:
-    builder = SnapshotBuilder()
+def _populate_builder(builder: SnapshotBuilder) -> None:
+    """Add all production scripts to a SnapshotBuilder (shared by prod and test snapshots)."""
     builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
     xpath_src = (_NM / "xpath/xpath.js").read_text()
     builder.execute_script(
@@ -61,6 +60,12 @@ def _build_snapshot() -> bytes:
         .replace("return new Htmx()", "return Htmx", 1)
     )
     builder.execute_script("htmx", htmx_source)
+
+
+@cache
+def _build_snapshot() -> bytes:
+    builder = SnapshotBuilder()
+    _populate_builder(builder)
     return builder.build()
 
 
@@ -114,8 +119,8 @@ async def _fetch_op(req: dict) -> dict:
     }
 
 
-async def build_browser(url: str = "http://localhost/") -> Runtime:
-    r = Runtime(RuntimeConfig(snapshot=_build_snapshot()))
+async def build_browser(url: str = "http://localhost/", snapshot: bytes | None = None) -> Runtime:
+    r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
 
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)

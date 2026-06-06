@@ -1,10 +1,11 @@
 from collections.abc import AsyncGenerator
+from functools import cache
 from pathlib import Path
 
 import pytest
-from jsrun import Runtime
+from jsrun import Runtime, SnapshotBuilder
 
-from htmxclient.browser import build_browser
+from htmxclient.browser import _populate_builder, build_browser
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -28,33 +29,40 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
         # scroll position is always 0 in a headless DOM
     },
 }
-_RUNNER_JS_TEXT = _RUNNER_JS.read_text()
-_CHAI_SETUP_JS = (
-    _CHAI_JS.read_text()
-    + "\nglobalThis.assert = window.chai.assert;"
-    + "\nglobalThis.should = window.chai.should();"
-)
 _INFRA_JS = "\n".join(
     [
-        _FETCH_MOCK_JS.read_text(),
         "document.body.innerHTML = '<div id=\"test-playground\"></div>';",
         _HELPERS_JS.read_text(),
     ]
 )
 
 
+@cache
+def _build_test_snapshot() -> bytes:
+    """Snapshot with production scripts + chai, fetch-mock, and runner pre-loaded."""
+    builder = SnapshotBuilder()
+    _populate_builder(builder)
+    builder.execute_script(
+        "chai",
+        _CHAI_JS.read_text()
+        + "\nglobalThis.assert = globalThis.chai.assert;"
+        + "\nglobalThis.should = globalThis.chai.should();",
+    )
+    builder.execute_script("fetch-mock", _FETCH_MOCK_JS.read_text())
+    builder.execute_script("runner", _RUNNER_JS.read_text())
+    return builder.build()
+
+
 @pytest.fixture
 async def htmx_unit_runtime() -> AsyncGenerator[Runtime, None]:
     """Isolated browser runtime per test — prevents state leakage between JS files."""
-    r = await build_browser("http://localhost/")
-    r.eval(_CHAI_SETUP_JS)
+    r = await build_browser("http://localhost/", snapshot=_build_test_snapshot())
     r.eval(_INFRA_JS)
     yield r
     r.close()
 
 
 async def _run_js_tests(r: Runtime, js_file: Path) -> None:
-    r.eval(_RUNNER_JS_TEXT)  # resets _suites for this file
     r.eval(js_file.read_text())
     results = await r.eval_async("__runAllTests()")
     skip = _SKIP_TESTS.get(js_file.stem, set())
