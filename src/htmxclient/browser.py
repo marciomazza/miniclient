@@ -98,6 +98,15 @@ async def build_browser(url: str = "http://localhost/") -> Runtime:
         globalThis.__xpathLib = __xpathLib;"""
     )
     r.eval((_JS / "pre_globals.js").read_text())
+    r.eval((_JS / "formdata.js").read_text())
+    htmx_source = (
+        _HTMX_SRC.read_text()
+        .replace("var htmx =", "var Htmx =", 1)
+        .replace("return new Htmx()", "return Htmx", 1)
+    )
+
+    await r.eval_async(htmx_source)
+
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
 
@@ -134,13 +143,12 @@ async def build_browser(url: str = "http://localhost/") -> Runtime:
     clear_timer_op_id = r.register_op("clear_timer", _clear_timer_op, mode="async")
     r.eval(f"globalThis.__SLEEP_OP_ID__ = {sleep_op_id};")
     r.eval(f"globalThis.__CLEAR_TIMER_OP_ID__ = {clear_timer_op_id};")
-
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
+
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
     r.add_static_module(_bootstrap_uri, (_JS / "bootstrap.js").read_text())
     await r.eval_module_async(_bootstrap_uri)
-    r.eval((_JS / "formdata.js").read_text())
-    await r.eval_async(_HTMX_SRC.read_text())
+    r.eval("var htmx = new Htmx();")
     # Drain any setTimeout(fn, 0) calls made during htmx init so their
     # _sleep_op coroutines complete before the caller's event loop exits.
     for _ in range(4):
