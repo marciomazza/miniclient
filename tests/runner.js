@@ -39,6 +39,33 @@
         timeout() {},
     };
 
+    // Patch mockSequentialResponses.next() to use event-based resolution instead of
+    // setTimeout(resolve, 0). Under CPU load, asyncio.sleep(0) can deliver its result
+    // to V8 before htmx's microtask chain finishes processing the released response,
+    // causing next() to resolve while elements are still in the disabled state.
+    // Using htmx:finally:request guarantees next() resolves only after htmx fully
+    // processes the response (including __enableElements), making timing deterministic.
+    if (typeof fetchMock !== "undefined") {
+        const _origMockSeq = fetchMock.mockSequentialResponses.bind(fetchMock);
+        fetchMock.mockSequentialResponses = function (method, urlPattern, response, options = {}) {
+            const seq = _origMockSeq(method, urlPattern, response, options);
+            const _origNext = seq.next.bind(seq);
+            seq.next = function () {
+                return new Promise((resolve) => {
+                    // Set up listener BEFORE releasing the request so the event is never missed.
+                    // htmx:finally:request fires synchronously inside htmx's finally block,
+                    // right before __enableElements. resolve() queues the continuation as a
+                    // microtask, and __enableElements runs before that microtask executes.
+                    document.addEventListener("htmx:finally:request", resolve, { once: true });
+                    // Release the pending request (side effect of _origNext).
+                    // The Promise from _origNext() is ignored; we use the event instead.
+                    _origNext();
+                });
+            };
+            return seq;
+        };
+    }
+
     globalThis.__runAllTests = async function () {
         const results = [];
         for (const s of _suites) {

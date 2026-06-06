@@ -1,5 +1,4 @@
-import asyncio
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
@@ -44,17 +43,12 @@ _INFRA_JS = "\n".join(
 )
 
 
-@pytest.fixture(scope="module")
-def htmx_unit_runtime() -> Generator[Runtime, None, None]:
-    """Single browser runtime shared across all unit tests in this module."""
-
-    async def _build() -> Runtime:
-        r = await build_browser("http://localhost/")
-        r.eval(_CHAI_SETUP_JS)
-        r.eval(_INFRA_JS)
-        return r
-
-    r = asyncio.run(_build())
+@pytest.fixture
+async def htmx_unit_runtime() -> AsyncGenerator[Runtime, None]:
+    """Isolated browser runtime per test — prevents state leakage between JS files."""
+    r = await build_browser("http://localhost/")
+    r.eval(_CHAI_SETUP_JS)
+    r.eval(_INFRA_JS)
     yield r
     r.close()
 
