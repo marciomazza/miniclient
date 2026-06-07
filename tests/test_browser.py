@@ -445,7 +445,7 @@ async def test_element_click_hx_get(browser, httpx_mock):
     assert browser.find("#out").innerHTML() == "<b>clicked</b>"
 
 
-async def test_element_dispatch_event_custom(browser, httpx_mock):
+async def test_element_trigger_custom(browser, httpx_mock):
     httpx_mock.add_response(
         url="http://app.example.com/custom",
         text="<i>custom</i>",
@@ -457,7 +457,7 @@ async def test_element_dispatch_event_custom(browser, httpx_mock):
         "</div>"
     )
     btn = browser.find("button")
-    await btn.dispatch_event("my-event")
+    await btn.trigger("my-event")
     assert browser.find("#out").innerHTML() == "<i>custom</i>"
 
 

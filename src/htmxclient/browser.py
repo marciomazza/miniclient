@@ -36,24 +36,45 @@ def _event_class(event_type: str) -> str:
     return mapping.get(event_type, "Event")
 
 
-def _dispatch_js(selector: str, event_type: str, event_init: dict | None) -> str:
-    """Generate JS that dispatches a properly-typed event and waits for htmx settle."""
-    event_cls = _event_class(event_type)
-    init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
+def _htmx_action_js(selector: str, action_js: str) -> str:
+    """Wrap an element action in a Promise that resolves after htmx settles
+    (or immediately if no request fires).
+    """
     return f"""
     new Promise((resolve, reject) => {{
-        document.addEventListener('htmx:after:settle', () => resolve(), {{once: true}});
+        let willRequest = false;
+        document.addEventListener(
+            'htmx:before:request',
+            () => {{ willRequest = true; }},
+            {{once: true}},
+        );
+        document.addEventListener(
+            'htmx:after:settle',
+            () => resolve(),
+            {{once: true}},
+        );
         document.addEventListener('htmx:error', (e) => {{
-            reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
+            reject(new Error(
+                'htmx:error — '
+                + (e.detail?.error ?? e.detail?.ctx?.status)
+            ));
         }}, {{once: true}});
         const el = document.querySelector({json.dumps(selector)});
         if (!el) {{
             reject(new Error('Element not found: {selector}'));
-        }} else {{
-            el.dispatchEvent(new {event_cls}({json.dumps(event_type)}, {init_json}));
+            return;
         }}
+        {action_js}
+        setTimeout(() => {{ if (!willRequest) resolve(); }}, 0);
     }})
     """
+
+
+def _dispatch_js(selector: str, event: str, event_init: dict | None) -> str:
+    event_cls = _event_class(event)
+    init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
+    action = f"el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));"
+    return _htmx_action_js(selector, action)
 
 
 class Element:
@@ -90,37 +111,25 @@ class Element:
     # --- Interactions ---
 
     async def click(self) -> None:
-        """Dispatch a click MouseEvent and wait for htmx to settle."""
-        await self.dispatch_event("click")
+        """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
+        await self.trigger("click")
 
     async def submit(self) -> None:
-        """Submit the form (or the element's form) and wait for htmx to settle."""
-        js = f"""
-        new Promise((resolve, reject) => {{
-            document.addEventListener('htmx:after:settle', () => resolve(), {{once: true}});
-            document.addEventListener('htmx:error', (e) => {{
-                reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
-            }}, {{once: true}});
-            const el = document.querySelector({json.dumps(self.selector)});
-            if (!el) {{
-                reject(new Error('Element not found: {self.selector}'));
-            }} else {{
-                const form = el.form ?? el.closest('form');
-                if (form) {{
-                    const submitter = el.tagName === 'BUTTON' || el.tagName === 'INPUT'
-                        ? el : undefined;
-                    form.requestSubmit(submitter);
-                }} else {{
-                    reject(new Error('No form found for: {self.selector}'));
-                }}
-            }}
-        }})
-        """
-        await self.runtime.eval_async(js)
+        """Submit the form (or the element's form) and wait for htmx to settle if needed."""
+        no_form_msg = json.dumps(f"No form found for: {self.selector}")
+        action = (
+            f"const form = el.form ?? el.closest('form');\n"
+            f"if (!form) {{ reject(new Error({no_form_msg})); return; }}\n"
+            f"const submitter = el.tagName === 'BUTTON' || el.tagName === 'INPUT'"
+            f" ? el : null;\n"
+            f"form.dispatchEvent(new SubmitEvent('submit', "
+            f"{{bubbles: true, cancelable: true, submitter}}));"
+        )
+        await self.runtime.eval_async(_htmx_action_js(self.selector, action))
 
-    async def dispatch_event(self, event_type: str, event_init: dict | None = None) -> None:
+    async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
-        js = _dispatch_js(self.selector, event_type, event_init)
+        js = _dispatch_js(self.selector, event, event_init)
         await self.runtime.eval_async(js)
 
     # --- Internal ---
