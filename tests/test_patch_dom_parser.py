@@ -5,14 +5,14 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def test_regular_html_unchanged(runtime):
+async def test_regular_html_unchanged(runtime):
     result = runtime.eval(
         """new DOMParser().parseFromString('<div><p>hello</p></div>', 'text/html').body.innerHTML"""
     )
     assert result == "<div><p>hello</p></div>"
 
 
-def test_body_wrapping(runtime):
+async def test_body_wrapping(runtime):
     result = runtime.eval("""
         new DOMParser()
             .parseFromString('<body><p>hi</p></body>', 'text/html')
@@ -52,7 +52,7 @@ def test_body_wrapping(runtime):
         ),
     ],
 )
-def test_template_table_tags_in_content(runtime, html, expected_inner):
+async def test_template_table_tags_in_content(runtime, html, expected_inner):
     result = runtime.eval(
         f"""new DOMParser()
             .parseFromString({html!r}, 'text/html')
@@ -66,7 +66,7 @@ def test_template_table_tags_in_content(runtime, html, expected_inner):
 # ---------------------------------------------------------------------------
 
 
-def test_template_with_paragraph(runtime):
+async def test_template_with_paragraph(runtime):
     result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template><p>hello</p></template>', 'text/html')
@@ -75,7 +75,7 @@ def test_template_with_paragraph(runtime):
     assert result == "<p>hello</p>"
 
 
-def test_template_with_list(runtime):
+async def test_template_with_list(runtime):
     result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template><ul><li>a</li><li>b</li></ul></template>', 'text/html')
@@ -89,7 +89,7 @@ def test_template_with_list(runtime):
 # ---------------------------------------------------------------------------
 
 
-def test_template_id_preserved(runtime):
+async def test_template_id_preserved(runtime):
     result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template id="tmpl1"><tr><td>x</td></tr></template>', 'text/html')
@@ -98,7 +98,7 @@ def test_template_id_preserved(runtime):
     assert result == '<template id="tmpl1"><tr><td>x</td></tr></template>'
 
 
-def test_template_data_attribute_preserved(runtime):
+async def test_template_data_attribute_preserved(runtime):
     result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template data-foo="bar"><p>x</p></template>', 'text/html')
@@ -112,7 +112,7 @@ def test_template_data_attribute_preserved(runtime):
 # ---------------------------------------------------------------------------
 
 
-def test_multiple_templates(runtime):
+async def test_multiple_templates(runtime):
     result = runtime.eval("""
         const html =
             '<template id="a"><tr><td>A</td></tr></template>' +
@@ -130,7 +130,7 @@ def test_multiple_templates(runtime):
 # ---------------------------------------------------------------------------
 
 
-def test_nested_template_inner_content(runtime):
+async def test_nested_template_inner_content(runtime):
     result = runtime.eval("""
         const html =
             '<template id="outer">' +
@@ -141,7 +141,7 @@ def test_nested_template_inner_content(runtime):
     assert result == '<template id="inner"><tr><td>deep</td></tr></template>'
 
 
-def test_nested_template_outer_content_preserved(runtime):
+async def test_nested_template_outer_content_preserved(runtime):
     result = runtime.eval("""
         const html =
             '<template id="outer">' +
@@ -159,7 +159,7 @@ def test_nested_template_outer_content_preserved(runtime):
 # ---------------------------------------------------------------------------
 
 
-def test_empty_template(runtime):
+async def test_empty_template(runtime):
     result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template></template>', 'text/html')

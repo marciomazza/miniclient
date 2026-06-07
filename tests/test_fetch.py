@@ -22,30 +22,30 @@ async def js_fetch_status(runtime, url):
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_text(runtime_async, httpx_mock):
+async def test_fetch_text(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/hello", text="hello world")
-    result = await js_fetch_text(runtime_async, "http://api.example.com/hello")
+    result = await js_fetch_text(runtime, "http://api.example.com/hello")
     assert result == "hello world"
 
 
-async def test_fetch_json(runtime_async, httpx_mock):
+async def test_fetch_json(runtime, httpx_mock):
     httpx_mock.add_response(
         url="http://api.example.com/data",
         json={"name": "Alice", "age": 30},
     )
-    result = await js_fetch_json(runtime_async, "http://api.example.com/data")
+    result = await js_fetch_json(runtime, "http://api.example.com/data")
     assert result == {"name": "Alice", "age": 30}
 
 
-async def test_fetch_status_ok(runtime_async, httpx_mock):
+async def test_fetch_status_ok(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/ok", status_code=200)
-    assert await js_fetch_status(runtime_async, "http://api.example.com/ok") == 200
+    assert await js_fetch_status(runtime, "http://api.example.com/ok") == 200
 
 
-async def test_fetch_status_not_found(runtime_async, httpx_mock):
+async def test_fetch_status_not_found(runtime, httpx_mock):
     # fetch does not throw on 4xx — ok is false, status is 404
     httpx_mock.add_response(url="http://api.example.com/missing", status_code=404)
-    result = await runtime_async.eval_async(
+    result = await runtime.eval_async(
         "fetch('http://api.example.com/missing').then(r => ({ok: r.ok, status: r.status}))"
     )
     assert result == {"ok": False, "status": 404}
@@ -66,10 +66,10 @@ async def test_fetch_status_not_found(runtime_async, httpx_mock):
         "PATCH",
     ],
 )
-async def test_fetch_methods(runtime_async, httpx_mock, method):
+async def test_fetch_methods(runtime, httpx_mock, method):
     url = "http://api.example.com/resource"
     httpx_mock.add_response(url=url, text=method)
-    result = await js_fetch_text(runtime_async, url, method=method)
+    result = await js_fetch_text(runtime, url, method=method)
     assert result == method
 
 
@@ -78,10 +78,10 @@ async def test_fetch_methods(runtime_async, httpx_mock, method):
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_sends_custom_headers(runtime_async, httpx_mock):
+async def test_fetch_sends_custom_headers(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/auth", text="ok")
     await js_fetch_text(
-        runtime_async,
+        runtime,
         "http://api.example.com/auth",
         headers={"Authorization": "Bearer token123"},
     )
@@ -94,13 +94,13 @@ async def test_fetch_sends_custom_headers(runtime_async, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_response_headers(runtime_async, httpx_mock):
+async def test_fetch_response_headers(runtime, httpx_mock):
     httpx_mock.add_response(
         url="http://api.example.com/typed",
         headers={"content-type": "application/json; charset=utf-8"},
         text="{}",
     )
-    ct = await runtime_async.eval_async(
+    ct = await runtime.eval_async(
         "fetch('http://api.example.com/typed').then(r => r.headers.get('content-type'))"
     )
     assert "application/json" in ct
@@ -111,9 +111,9 @@ async def test_fetch_response_headers(runtime_async, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_post_json_body(runtime_async, httpx_mock):
+async def test_fetch_post_json_body(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/echo", text="saved")
-    result = await runtime_async.eval_async(
+    result = await runtime.eval_async(
         """
         fetch('http://api.example.com/echo', {
             method: 'POST',
@@ -133,9 +133,7 @@ async def test_fetch_post_json_body(runtime_async, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_empty_body(runtime_async, httpx_mock):
+async def test_fetch_empty_body(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/empty", status_code=204, text="")
-    result = await runtime_async.eval_async(
-        "fetch('http://api.example.com/empty').then(r => r.status)"
-    )
+    result = await runtime.eval_async("fetch('http://api.example.com/empty').then(r => r.status)")
     assert result == 204

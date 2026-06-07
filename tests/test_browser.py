@@ -24,15 +24,15 @@ async def browser(browser_snapshot):
 # ---------------------------------------------------------------------------
 
 
-def test_window_instantiates(runtime):
+async def test_window_instantiates(runtime):
     assert runtime.eval("typeof window") == "object"
 
 
-def test_document_basic(runtime):
+async def test_document_basic(runtime):
     assert runtime.eval("document.createElement('div').tagName") == "DIV"
 
 
-def test_abort_controller(runtime):
+async def test_abort_controller(runtime):
     assert runtime.eval("new AbortController().signal.aborted") is False
 
 
@@ -59,7 +59,7 @@ def test_abort_controller(runtime):
         ("typeof window.URL", "function"),
     ],
 )
-def test_url(runtime, js, expected):
+async def test_url(runtime, js, expected):
     assert runtime.eval(js) == expected
 
 
@@ -96,7 +96,7 @@ def test_url(runtime, js, expected):
         ("new URLSearchParams('a=1&b=2&c=3').size", 3),
     ],
 )
-def test_url_search_params(runtime, js, expected):
+async def test_url_search_params(runtime, js, expected):
     assert runtime.eval(js) == expected
 
 
@@ -132,7 +132,7 @@ def test_url_search_params(runtime, js, expected):
         ("Buffer.from([0x68, 0x69]).toString()", "hi"),
     ],
 )
-def test_buffer(runtime, js, expected):
+async def test_buffer(runtime, js, expected):
     assert runtime.eval(js) == expected
 
 
@@ -167,7 +167,7 @@ def test_buffer(runtime, js, expected):
         ("new TextDecoder().decode(new Uint8Array(0))", ""),
     ],
 )
-def test_text_encoder_decoder(runtime, js, expected):
+async def test_text_encoder_decoder(runtime, js, expected):
     assert runtime.eval(js) == expected
 
 
@@ -176,22 +176,22 @@ def test_text_encoder_decoder(runtime, js, expected):
 # ---------------------------------------------------------------------------
 
 
-def test_query_selector(runtime):
+async def test_query_selector(runtime):
     runtime.eval('document.body.innerHTML = \'<div id="x"><span class="y">hi</span></div>\'')
     assert runtime.eval("document.querySelector('#x .y').textContent") == "hi"
 
 
-def test_query_selector_all(runtime):
+async def test_query_selector_all(runtime):
     runtime.eval("document.body.innerHTML = '<ul><li>a</li><li>b</li><li>c</li></ul>'")
     assert runtime.eval("document.querySelectorAll('li').length") == 3
 
 
-def test_inner_html_round_trip(runtime):
+async def test_inner_html_round_trip(runtime):
     runtime.eval("document.body.innerHTML = '<p id=\"p1\">text</p>'")
     assert runtime.eval("document.getElementById('p1').innerHTML") == "text"
 
 
-def test_create_element_attributes(runtime):
+async def test_create_element_attributes(runtime):
     result = runtime.eval("const a = document.createElement('a'); a.href = 'http://z.com'; a.href")
     assert "z.com" in result
 
@@ -216,18 +216,18 @@ def test_create_element_attributes(runtime):
         "typeof window.DOMParser",
     ],
 )
-def test_globals_are_functions(runtime, expression):
+async def test_globals_are_functions(runtime, expression):
     assert runtime.eval(expression) == "function"
 
 
-def test_headers_basic(runtime):
+async def test_headers_basic(runtime):
     result = runtime.eval(
         "const h = new Headers({'content-type': 'text/html'}); h.get('content-type')"
     )
     assert result == "text/html"
 
 
-def test_dom_parser(runtime):
+async def test_dom_parser(runtime):
     result = runtime.eval(
         "new window.DOMParser().parseFromString('<p>hi</p>', 'text/html')"
         ".querySelector('p').textContent"
@@ -235,18 +235,18 @@ def test_dom_parser(runtime):
     assert result == "hi"
 
 
-def test_form_data_append(runtime):
+async def test_form_data_append(runtime):
     result = runtime.eval("const f = new FormData(); f.append('key', 'val'); f.get('key')")
     assert result == "val"
 
 
-def test_mutation_observer_callable(runtime):
+async def test_mutation_observer_callable(runtime):
     # Verifies MutationObserver can be instantiated without throwing
     result = runtime.eval("typeof new MutationObserver(() => {})")
     assert result == "object"
 
 
-def test_custom_event(runtime):
+async def test_custom_event(runtime):
     result = runtime.eval("new CustomEvent('myevent', {detail: 42}).detail")
     assert result == 42
 
@@ -265,7 +265,7 @@ def test_custom_event(runtime):
         ("atob(btoa('round trip'))", "round trip"),
     ],
 )
-def test_atob_btoa(runtime, js, expected):
+async def test_atob_btoa(runtime, js, expected):
     assert runtime.eval(js) == expected
 
 
@@ -274,29 +274,25 @@ def test_atob_btoa(runtime, js, expected):
 # ---------------------------------------------------------------------------
 
 
-async def test_settimeout_fires(runtime_async):
-    result = await runtime_async.eval_async(
-        "new Promise(resolve => setTimeout(() => resolve('ok'), 10))"
-    )
+async def test_settimeout_fires(runtime):
+    result = await runtime.eval_async("new Promise(resolve => setTimeout(() => resolve('ok'), 10))")
     assert result == "ok"
 
 
-async def test_settimeout_zero_fires(runtime_async):
-    result = await runtime_async.eval_async(
-        "new Promise(resolve => setTimeout(() => resolve(42), 0))"
-    )
+async def test_settimeout_zero_fires(runtime):
+    result = await runtime.eval_async("new Promise(resolve => setTimeout(() => resolve(42), 0))")
     assert result == 42
 
 
-async def test_settimeout_passes_args(runtime_async):
-    result = await runtime_async.eval_async(
+async def test_settimeout_passes_args(runtime):
+    result = await runtime.eval_async(
         "new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))"
     )
     assert result == 7
 
 
-async def test_cleartimeout_cancels(runtime_async):
-    result = await runtime_async.eval_async("""
+async def test_cleartimeout_cancels(runtime):
+    result = await runtime.eval_async("""
         new Promise(resolve => {
             let fired = false;
             const id = setTimeout(() => { fired = true; }, 50);
@@ -307,8 +303,8 @@ async def test_cleartimeout_cancels(runtime_async):
     assert result is False
 
 
-async def test_settimeout_order(runtime_async):
-    result = await runtime_async.eval_async("""
+async def test_settimeout_order(runtime):
+    result = await runtime.eval_async("""
         new Promise(resolve => {
             const log = [];
             setTimeout(() => { log.push(1); if (log.length === 3) resolve(log); }, 10);
@@ -319,8 +315,8 @@ async def test_settimeout_order(runtime_async):
     assert result == [1, 2, 3]
 
 
-async def test_setinterval_fires_multiple_times(runtime_async):
-    result = await runtime_async.eval_async("""
+async def test_setinterval_fires_multiple_times(runtime):
+    result = await runtime.eval_async("""
         new Promise(resolve => {
             let count = 0;
             const id = setInterval(() => {
@@ -335,8 +331,8 @@ async def test_setinterval_fires_multiple_times(runtime_async):
     assert result == 3
 
 
-async def test_clearinterval_stops_firing(runtime_async):
-    result = await runtime_async.eval_async("""
+async def test_clearinterval_stops_firing(runtime):
+    result = await runtime.eval_async("""
         new Promise(resolve => {
             let count = 0;
             const id = setInterval(() => { count++; }, 10);

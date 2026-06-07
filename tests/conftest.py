@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -29,17 +28,8 @@ def browser_snapshot() -> bytes:
     return builder.build()
 
 
-@pytest.fixture()
-def runtime(browser_snapshot):
-    async def _build():
-        return await build_browser(snapshot=browser_snapshot)
-
-    with asyncio.run(_build()) as r:
-        yield r
-
-
 @pytest_asyncio.fixture
-async def runtime_async(browser_snapshot):
+async def runtime(browser_snapshot):
     r = await build_browser(snapshot=browser_snapshot)
     try:
         yield r
