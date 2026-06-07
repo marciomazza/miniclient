@@ -1,7 +1,7 @@
 import pytest
 from jsrun import JavaScriptError
 
-from htmxclient.browser import Browser
+from htmxclient.browser import Browser, build_browser
 
 # ---------------------------------------------------------------------------
 # htmx loading
@@ -107,9 +107,10 @@ async def test_trigger_url_resolves_against_base(app_browser, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_browser_context_manager(httpx_mock):
+async def test_browser_context_manager(httpx_mock, browser_snapshot):
     httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
-    with await Browser.create("http://app.example.com/") as b:
+    r = await build_browser("http://app.example.com/", snapshot=browser_snapshot)
+    with Browser(r) as b:
         await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
         await b.trigger("button")
         assert b.query("#r") == "<b>hi</b>"

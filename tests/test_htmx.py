@@ -1,17 +1,13 @@
 from collections.abc import AsyncGenerator
-from functools import cache
 from pathlib import Path
 
 import pytest
-from jsrun import Runtime, SnapshotBuilder
+from jsrun import Runtime
 
-from htmxclient.browser import _populate_builder, build_browser
+from htmxclient.browser import build_browser
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
-_CHAI_JS = _ROOT / "node_modules/chai/chai.js"
-_RUNNER_JS = Path(__file__).parent / "runner.js"
-_FETCH_MOCK_JS = _HTMX_TEST / "lib/fetch-mock.js"
 _HELPERS_JS = _HTMX_TEST / "lib/helpers.js"
 
 # ---------------------------------------------------------------------------
@@ -37,26 +33,10 @@ _INFRA_JS = "\n".join(
 )
 
 
-@cache
-def _build_test_snapshot() -> bytes:
-    """Snapshot with production scripts + chai, fetch-mock, and runner pre-loaded."""
-    builder = SnapshotBuilder()
-    _populate_builder(builder)
-    builder.execute_script(
-        "chai",
-        _CHAI_JS.read_text()
-        + "\nglobalThis.assert = globalThis.chai.assert;"
-        + "\nglobalThis.should = globalThis.chai.should();",
-    )
-    builder.execute_script("fetch-mock", _FETCH_MOCK_JS.read_text())
-    builder.execute_script("runner", _RUNNER_JS.read_text())
-    return builder.build()
-
-
 @pytest.fixture
-async def htmx_unit_runtime() -> AsyncGenerator[Runtime, None]:
+async def htmx_unit_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     """Isolated browser runtime per test — prevents state leakage between JS files."""
-    r = await build_browser("http://localhost/", snapshot=_build_test_snapshot())
+    r = await build_browser("http://localhost/", snapshot=browser_snapshot)
     r.eval(_INFRA_JS)
     yield r
     r.close()

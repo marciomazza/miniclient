@@ -11,9 +11,9 @@ from htmxclient.browser import build_browser
 
 
 @pytest.fixture(scope="module")
-def fd_runtime() -> Generator[Runtime, None, None]:
+def fd_runtime(browser_snapshot) -> Generator[Runtime, None, None]:
     async def _build() -> Runtime:
-        return await build_browser("http://localhost/")
+        return await build_browser("http://localhost/", snapshot=browser_snapshot)
 
     r = asyncio.run(_build())
     yield r
