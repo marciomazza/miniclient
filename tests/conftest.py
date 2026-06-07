@@ -10,7 +10,7 @@ _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
 _CHAI_JS = _ROOT / "node_modules/chai/chai.js"
 _RUNNER_JS = Path(__file__).parent / "runner.js"
-_FETCH_MOCK_JS = _HTMX_TEST / "lib/fetch-mock.js"
+_FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
 
 @pytest.fixture(scope="session")
@@ -23,7 +23,7 @@ def browser_snapshot() -> bytes:
         + "\nglobalThis.assert = globalThis.chai.assert;"
         + "\nglobalThis.should = globalThis.chai.should();",
     )
-    builder.execute_script("fetch-mock", _FETCH_MOCK_JS.read_text())
+    builder.execute_script("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text())
     builder.execute_script("runner", _RUNNER_JS.read_text())
     return builder.build()
 

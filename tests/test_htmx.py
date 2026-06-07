@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
+from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
 from htmxclient.browser import build_browser, cancel_pending_timers
@@ -35,7 +36,14 @@ _INFRA_JS = "\n".join(
 
 @pytest.fixture(scope="module")
 async def htmx_unit_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
-    r = await build_browser("http://localhost/", snapshot=browser_snapshot)
+    fetch_mock = HttpxFetchMock()
+    r = await build_browser(
+        "http://localhost/",
+        snapshot=browser_snapshot,
+        before_fetch=fetch_mock.before_fetch,
+        httpx_transport=fetch_mock.transport,
+    )
+    fetch_mock.install(r)
     r.eval(_INFRA_JS)
     yield r
     r.close()

@@ -120,6 +120,29 @@ async def _fetch_op(req: dict) -> dict:
     }
 
 
+def _make_fetch_op(before_fetch=None, httpx_transport=None):
+    async def _fetch_op_impl(req: dict) -> dict:
+        if before_fetch is not None:
+            await before_fetch(req)
+        body = req.get("body")
+        content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
+        async with httpx.AsyncClient(transport=httpx_transport) as client:
+            r = await client.request(
+                req["method"],
+                req["url"],
+                headers=req.get("headers", {}),
+                content=content,
+            )
+        return {
+            "status": r.status_code,
+            "statusText": "",
+            "headers": dict(r.headers),
+            "body": r.content,
+        }
+
+    return _fetch_op_impl
+
+
 _pending_timers_registry: dict[int, dict[int, asyncio.Event]] = {}
 
 
@@ -129,13 +152,20 @@ async def cancel_pending_timers(r: Runtime) -> None:
         event.set()
 
 
-async def build_browser(url: str = "http://localhost/", snapshot: bytes | None = None) -> Runtime:
+async def build_browser(
+    url: str = "http://localhost/",
+    snapshot: bytes | None = None,
+    before_fetch=None,
+    httpx_transport=None,
+) -> Runtime:
     r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
 
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
 
-    fetch_op_id = r.register_op("fetch", _fetch_op, mode="async")
+    fetch_op_id = r.register_op(
+        "fetch", _make_fetch_op(before_fetch, httpx_transport), mode="async"
+    )
     r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
 
     pending_timers: dict[int, asyncio.Event] = {}
