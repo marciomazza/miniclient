@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import weakref
 from functools import cache
 from pathlib import Path
 from urllib.parse import urljoin
@@ -119,6 +120,15 @@ async def _fetch_op(req: dict) -> dict:
     }
 
 
+_pending_timers_registry: dict[int, dict[int, asyncio.Event]] = {}
+
+
+async def cancel_pending_timers(r: Runtime) -> None:
+    """Cancel all pending timers for a runtime (useful between reused test fixtures)."""
+    for event in list(_pending_timers_registry.get(id(r), {}).values()):
+        event.set()
+
+
 async def build_browser(url: str = "http://localhost/", snapshot: bytes | None = None) -> Runtime:
     r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
 
@@ -129,6 +139,8 @@ async def build_browser(url: str = "http://localhost/", snapshot: bytes | None =
     r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
 
     pending_timers: dict[int, asyncio.Event] = {}
+    _pending_timers_registry[id(r)] = pending_timers
+    weakref.finalize(r, _pending_timers_registry.pop, id(r), None)
 
     async def _sleep_op(req: dict[str, int]) -> dict:
         timer_id = req["id"]

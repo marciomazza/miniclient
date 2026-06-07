@@ -66,6 +66,8 @@
         };
     }
 
+    globalThis.__resetRunner = () => { _suites.length = 0; };
+
     globalThis.__runAllTests = async function () {
         const results = [];
         for (const s of _suites) {

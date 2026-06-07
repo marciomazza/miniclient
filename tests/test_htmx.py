@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from jsrun import Runtime
 
-from htmxclient.browser import build_browser
+from htmxclient.browser import build_browser, cancel_pending_timers
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -33,13 +33,23 @@ _INFRA_JS = "\n".join(
 )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 async def htmx_unit_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
-    """Isolated browser runtime per test — prevents state leakage between JS files."""
     r = await build_browser("http://localhost/", snapshot=browser_snapshot)
     r.eval(_INFRA_JS)
     yield r
     r.close()
+
+
+@pytest.fixture(autouse=True)
+async def _reset_htmx(htmx_unit_runtime: Runtime) -> AsyncGenerator[None, None]:
+    yield
+    await cancel_pending_timers(htmx_unit_runtime)
+    htmx_unit_runtime.eval("""\
+        __resetRunner();
+        cleanupTest();
+        htmx = new Htmx();
+    """)
 
 
 async def _run_js_tests(r: Runtime, js_file: Path) -> None:
