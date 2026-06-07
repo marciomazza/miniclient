@@ -44,7 +44,8 @@ filterwarnings = [
   "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]
 markers = [
-  "hypo: mark a test as a hypothesis based test",
+  "cross: mark a test as a hypothesis cross check test",
+  "hypo: mark a test as a general hypothesis test",
 ]
 pythonpath = ["src"]
 testpaths = ["tests"]

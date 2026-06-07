@@ -11,7 +11,10 @@ from htmxclient.runtime import build_runtime
 
 def _extract_body_html(html: str) -> str:
     m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
-    return m.group(1) if m else html
+    body = m.group(1) if m else html
+    # happy-dom executes scripts in innerHTML (unlike real browsers); strip them to prevent
+    # side-effects when navigating to pages that load scripts already present in the snapshot.
+    return re.sub(r"<script\b[^>]*>.*?</script>", "", body, flags=re.DOTALL | re.IGNORECASE)
 
 
 def _event_class(event_type: str) -> str:
