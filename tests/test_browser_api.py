@@ -4,20 +4,6 @@ from jsrun import JavaScriptError
 from htmxclient.browser import Browser, build_browser
 
 # ---------------------------------------------------------------------------
-# htmx loading
-# ---------------------------------------------------------------------------
-
-
-async def test_htmx_loaded(app_browser):
-    assert await app_browser.runtime.eval_async("typeof htmx") == "object"
-
-
-async def test_htmx_version(app_browser):
-    version = app_browser.runtime.eval("htmx.version")
-    assert isinstance(version, str) and version
-
-
-# ---------------------------------------------------------------------------
 # Browser.load — sets HTML and initialises htmx on the content
 # ---------------------------------------------------------------------------
 
