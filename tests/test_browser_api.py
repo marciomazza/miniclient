@@ -1,7 +1,19 @@
 import pytest
+import pytest_asyncio
 from jsrun import JavaScriptError
 
 from htmxclient.browser import Browser, build_browser
+
+
+@pytest_asyncio.fixture(scope="module")
+async def app_browser(browser_snapshot):
+    r = await build_browser("http://app.example.com/", snapshot=browser_snapshot)
+    b = Browser(r)
+    try:
+        yield b
+    finally:
+        b.close()
+
 
 # ---------------------------------------------------------------------------
 # Browser.load — sets HTML and initialises htmx on the content

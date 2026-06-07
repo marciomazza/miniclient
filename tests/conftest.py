@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 from jsrun import SnapshotBuilder
 
-from htmxclient.browser import Browser, _populate_builder, build_browser
+from htmxclient.browser import _populate_builder, build_browser
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -45,13 +45,3 @@ async def browser_async(browser_snapshot):
         yield r
     finally:
         r.close()
-
-
-@pytest_asyncio.fixture
-async def app_browser(browser_snapshot):
-    r = await build_browser("http://app.example.com/", snapshot=browser_snapshot)
-    b = Browser(r)
-    try:
-        yield b
-    finally:
-        b.close()
