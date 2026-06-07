@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 from jsrun import SnapshotBuilder
 
-from htmxclient.browser import _populate_builder, build_browser
+from htmxclient.runtime import _populate_builder, build_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -30,7 +30,7 @@ def browser_snapshot() -> bytes:
 
 @pytest_asyncio.fixture
 async def runtime(browser_snapshot):
-    r = await build_browser(snapshot=browser_snapshot)
+    r = await build_runtime(snapshot=browser_snapshot)
     try:
         yield r
     finally:

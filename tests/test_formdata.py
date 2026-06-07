@@ -7,13 +7,13 @@ from collections.abc import Generator
 import pytest
 from jsrun import Runtime
 
-from htmxclient.browser import build_browser
+from htmxclient.runtime import build_runtime
 
 
 @pytest.fixture(scope="module")
-def fd_runtime(browser_snapshot) -> Generator[Runtime, None, None]:
+def formdata_runtime(browser_snapshot) -> Generator[Runtime, None, None]:
     async def _build() -> Runtime:
-        return await build_browser("http://localhost/", snapshot=browser_snapshot)
+        return await build_runtime("http://localhost/", snapshot=browser_snapshot)
 
     r = asyncio.run(_build())
     yield r
@@ -104,8 +104,8 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ),
     ],
 )
-def test_collects_successful_controls(fd_runtime: Runtime, html: str, expected: list) -> None:
-    assert _pairs(fd_runtime, html) == expected
+def test_collects_successful_controls(formdata_runtime: Runtime, html: str, expected: list) -> None:
+    assert _pairs(formdata_runtime, html) == expected
 
 
 @pytest.mark.parametrize(
@@ -128,5 +128,5 @@ def test_collects_successful_controls(fd_runtime: Runtime, html: str, expected: 
         '<form><select name="x" multiple><option value="a">A</option></select></form>',
     ],
 )
-def test_excludes_unsuccessful_controls(fd_runtime: Runtime, html: str) -> None:
-    assert _pairs(fd_runtime, html) == []
+def test_excludes_unsuccessful_controls(formdata_runtime: Runtime, html: str) -> None:
+    assert _pairs(formdata_runtime, html) == []

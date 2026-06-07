@@ -5,7 +5,7 @@ import pytest
 from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
-from htmxclient.browser import build_browser, cancel_pending_timers
+from htmxclient.runtime import build_runtime, cancel_pending_timers
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -35,9 +35,9 @@ _INFRA_JS = "\n".join(
 
 
 @pytest.fixture(scope="module")
-async def htmx_unit_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
+async def htmx_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
-    r = await build_browser(
+    r = await build_runtime(
         "http://localhost/",
         snapshot=browser_snapshot,
         before_fetch=fetch_mock.before_fetch,
@@ -50,10 +50,10 @@ async def htmx_unit_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, 
 
 
 @pytest.fixture(autouse=True)
-async def _reset_htmx(htmx_unit_runtime: Runtime) -> AsyncGenerator[None, None]:
+async def _reset_htmx(htmx_runtime: Runtime) -> AsyncGenerator[None, None]:
     yield
-    await cancel_pending_timers(htmx_unit_runtime)
-    htmx_unit_runtime.eval("""\
+    await cancel_pending_timers(htmx_runtime)
+    htmx_runtime.eval("""\
         __resetRunner();
         cleanupTest();
         htmx = new Htmx();
@@ -78,15 +78,15 @@ _end2end_files = sorted((_HTMX_TEST / "tests/end2end").glob("*.js"))
 
 
 @pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
-async def test_htmx_unit(js_file: Path, htmx_unit_runtime: Runtime) -> None:
-    await _run_js_tests(htmx_unit_runtime, js_file)
+async def test_htmx_unit(js_file: Path, htmx_runtime: Runtime) -> None:
+    await _run_js_tests(htmx_runtime, js_file)
 
 
 @pytest.mark.parametrize("js_file", _attributes_files, ids=lambda f: f.stem)
-async def test_htmx_attributes(js_file: Path, htmx_unit_runtime: Runtime) -> None:
-    await _run_js_tests(htmx_unit_runtime, js_file)
+async def test_htmx_attributes(js_file: Path, htmx_runtime: Runtime) -> None:
+    await _run_js_tests(htmx_runtime, js_file)
 
 
 @pytest.mark.parametrize("js_file", _end2end_files, ids=lambda f: f.stem)
-async def test_htmx_e2e(js_file: Path, htmx_unit_runtime: Runtime) -> None:
-    await _run_js_tests(htmx_unit_runtime, js_file)
+async def test_htmx_e2e(js_file: Path, htmx_runtime: Runtime) -> None:
+    await _run_js_tests(htmx_runtime, js_file)

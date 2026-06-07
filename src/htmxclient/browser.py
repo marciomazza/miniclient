@@ -1,223 +1,140 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import weakref
-from functools import cache
-from pathlib import Path
-from urllib.parse import urljoin
 
-import httpx
-from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
+from jsrun import Runtime
 
-_ROOT = Path(__file__).parent.parent.parent
-_NM = _ROOT / "node_modules"
-_JS = Path(__file__).parent / "js"
-_POLYFILLS = _JS / "polyfills"
-_HD_LIB = (_NM / "happy-dom/lib").resolve()
-_ENTITIES_ESM = (_NM / "entities/dist/esm/index.js").resolve()
-_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
-
-_NODE_POLYFILL_FILES: dict[str, str] = {
-    "buffer": "node-buffer.js",
-    "child_process": "node-child-process.js",
-    "console": "node-console.js",
-    "crypto": "node-crypto.js",
-    "fs": "node-fs.js",
-    "http": "node-http.js",
-    "https": "node-http.js",
-    "net": "node-net.js",
-    "path": "node-path.js",
-    "perf_hooks": "node-perf-hooks.js",
-    "stream": "node-stream.js",
-    "stream/web": "node-stream-web.js",
-    "url": "node-url.js",
-    "util": "node-util.js",
-    "vm": "node-vm.js",
-    "zlib": "node-zlib.js",
-}
-
-_NPM_POLYFILL_FILES: dict[str, str] = {
-    "whatwg-mimetype": "npm-whatwg-mimetype.js",
-    "ws": "npm-ws.js",
-}
+from htmxclient.runtime import build_runtime
 
 
-def _populate_builder(builder: SnapshotBuilder) -> None:
-    """Add all production scripts to a SnapshotBuilder (shared by prod and test snapshots)."""
-    builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
-    xpath_src = (_NM / "xpath/xpath.js").read_text()
-    builder.execute_script(
-        "xpath",
-        f"""const __xpathLib = {{}};
-        (function(exports){{{xpath_src}}})(__xpathLib);
-        globalThis.__xpathLib = __xpathLib;""",
-    )
-    builder.execute_script("pre_globals", (_JS / "pre_globals.js").read_text())
-    builder.execute_script("formdata", (_JS / "formdata.js").read_text())
-    htmx_source = (
-        _HTMX_SRC.read_text()
-        .replace("var htmx =", "var Htmx =", 1)
-        .replace("return new Htmx()", "return Htmx", 1)
-    )
-    builder.execute_script("htmx", htmx_source)
-
-
-@cache
-def _build_snapshot() -> bytes:
-    builder = SnapshotBuilder()
-    _populate_builder(builder)
-    return builder.build()
-
-
-@cache
-def _read_cached(path: Path) -> str:
-    return path.read_text()
-
-
-def _resolver(spec: str, ref: str) -> str | None:
-    bare = spec.removeprefix("node:")
-    if bare in _NODE_POLYFILL_FILES:
-        return f"node:{bare}"
-    if spec.startswith("./") or spec.startswith("../"):
-        return urljoin(ref, spec)
-    if spec == "happy-dom":
-        return (_HD_LIB / "index.js").as_uri()
-    if spec == "entities":
-        return _ENTITIES_ESM.as_uri()
-    if spec in _NPM_POLYFILL_FILES:
-        return f"npm:{spec}"
-    if spec.startswith("file://"):
-        return spec
-    return None
-
-
-async def _loader(spec: str) -> str:
-    if spec.startswith("node:"):
-        return _read_cached(_POLYFILLS / _NODE_POLYFILL_FILES[spec.removeprefix("node:")])
-    if spec.startswith("npm:"):
-        return _read_cached(_POLYFILLS / _NPM_POLYFILL_FILES[spec.removeprefix("npm:")])
-    if spec.startswith("file://"):
-        return _read_cached(Path(spec[7:]))
-    raise ValueError(f"Cannot load module: {spec!r}")
-
-
-async def _fetch_op(req: dict) -> dict:
-    body = req.get("body")
-    content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
-    async with httpx.AsyncClient() as client:
-        r = await client.request(
-            req["method"],
-            req["url"],
-            headers=req.get("headers", {}),
-            content=content,
-        )
-    return {
-        "status": r.status_code,
-        "statusText": "",
-        "headers": dict(r.headers),
-        "body": r.content,
+def _event_class(event_type: str) -> str:
+    """Map common event types to their proper DOM event constructors."""
+    mapping = {
+        "click": "MouseEvent",
+        "dblclick": "MouseEvent",
+        "mousedown": "MouseEvent",
+        "mouseup": "MouseEvent",
+        "mousemove": "MouseEvent",
+        "mouseover": "MouseEvent",
+        "mouseout": "MouseEvent",
+        "mouseenter": "MouseEvent",
+        "mouseleave": "MouseEvent",
+        "keydown": "KeyboardEvent",
+        "keyup": "KeyboardEvent",
+        "keypress": "KeyboardEvent",
+        "focus": "FocusEvent",
+        "blur": "FocusEvent",
+        "input": "InputEvent",
+        "change": "Event",
+        "submit": "SubmitEvent",
+        "reset": "Event",
+        "scroll": "Event",
+        "resize": "Event",
+        "load": "Event",
+        "error": "Event",
     }
+    return mapping.get(event_type, "Event")
 
 
-def _make_fetch_op(before_fetch=None, httpx_transport=None):
-    async def _fetch_op_impl(req: dict) -> dict:
-        if before_fetch is not None:
-            await before_fetch(req)
-        body = req.get("body")
-        content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
-        async with httpx.AsyncClient(transport=httpx_transport) as client:
-            r = await client.request(
-                req["method"],
-                req["url"],
-                headers=req.get("headers", {}),
-                content=content,
-            )
-        return {
-            "status": r.status_code,
-            "statusText": "",
-            "headers": dict(r.headers),
-            "body": r.content,
-        }
-
-    return _fetch_op_impl
+def _dispatch_js(selector: str, event_type: str, event_init: dict | None) -> str:
+    """Generate JS that dispatches a properly-typed event and waits for htmx settle."""
+    event_cls = _event_class(event_type)
+    init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
+    return f"""
+    new Promise((resolve, reject) => {{
+        document.addEventListener('htmx:after:settle', () => resolve(), {{once: true}});
+        document.addEventListener('htmx:error', (e) => {{
+            reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
+        }}, {{once: true}});
+        const el = document.querySelector({json.dumps(selector)});
+        if (!el) {{
+            reject(new Error('Element not found: {selector}'));
+        }} else {{
+            el.dispatchEvent(new {event_cls}({json.dumps(event_type)}, {init_json}));
+        }}
+    }})
+    """
 
 
-_pending_timers_registry: dict[int, dict[int, asyncio.Event]] = {}
+class Element:
+    """Represents a DOM element found via Browser.find() or Browser.find_all()."""
 
+    def __init__(self, selector: str, runtime: Runtime) -> None:
+        self.selector = selector
+        self.runtime = runtime
 
-async def cancel_pending_timers(r: Runtime) -> None:
-    """Cancel all pending timers for a runtime (useful between reused test fixtures)."""
-    for event in list(_pending_timers_registry.get(id(r), {}).values()):
-        event.set()
+    # --- Queries ---
 
+    def html(self) -> str:
+        """Return outerHTML of the element."""
+        return self._eval("el.outerHTML")  # type: ignore[return-value]
 
-async def build_browser(
-    url: str = "http://localhost/",
-    snapshot: bytes | None = None,
-    before_fetch=None,
-    httpx_transport=None,
-) -> Runtime:
-    r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
+    def innerHTML(self) -> str:
+        """Return innerHTML of the element."""
+        return self._eval("el.innerHTML")  # type: ignore[return-value]
 
-    r.set_module_resolver(_resolver)
-    r.set_module_loader(_loader)
+    def text(self) -> str:
+        """Return textContent of the element."""
+        return self._eval("el.textContent")  # type: ignore[return-value]
 
-    fetch_op_id = r.register_op(
-        "fetch", _make_fetch_op(before_fetch, httpx_transport), mode="async"
-    )
-    r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
+    def attr(self, name: str) -> str | None:
+        """Return an attribute value, or None if absent."""
+        return self._eval(f"el.getAttribute({json.dumps(name)})")  # type: ignore[return-value]
 
-    pending_timers: dict[int, asyncio.Event] = {}
-    _pending_timers_registry[id(r)] = pending_timers
-    weakref.finalize(r, _pending_timers_registry.pop, id(r), None)
+    # --- Form / Input ---
 
-    async def _sleep_op(req: dict[str, int]) -> dict:
-        timer_id = req["id"]
-        ms = req.get("ms", 0)
-        cancel = asyncio.Event()
-        pending_timers[timer_id] = cancel
-        try:
-            sleep_task = asyncio.ensure_future(asyncio.sleep(max(ms, 0) / 1000))
-            cancel_task = asyncio.ensure_future(cancel.wait())
-            done, pending = await asyncio.wait(
-                [sleep_task, cancel_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for t in pending:
-                t.cancel()
-            return {"cancelled": cancel.is_set()}
-        finally:
-            pending_timers.pop(timer_id, None)
+    def fill(self, value: str) -> None:
+        """Set the element's value (for input, textarea, select)."""
+        self._eval(f"el.value = {json.dumps(value)}")
 
-    async def _clear_timer_op(req: dict[str, int]) -> dict:
-        timer_id = req.get("id")
-        if cancel := timer_id and pending_timers.get(timer_id):
-            cancel.set()
-        return {}
+    # --- Interactions ---
 
-    sleep_op_id = r.register_op("sleep", _sleep_op, mode="async")
-    clear_timer_op_id = r.register_op("clear_timer", _clear_timer_op, mode="async")
-    r.eval(f"globalThis.__SLEEP_OP_ID__ = {sleep_op_id};")
-    r.eval(f"globalThis.__CLEAR_TIMER_OP_ID__ = {clear_timer_op_id};")
-    r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
+    async def click(self) -> None:
+        """Dispatch a click MouseEvent and wait for htmx to settle."""
+        await self.dispatch_event("click")
 
-    for bare, fname in _NODE_POLYFILL_FILES.items():
-        r.add_static_module(f"node:{bare}", _read_cached(_POLYFILLS / fname))
-    for name, fname in _NPM_POLYFILL_FILES.items():
-        r.add_static_module(f"npm:{name}", _read_cached(_POLYFILLS / fname))
-    for js_path in [_JS / "urlsearch-dom-patches.js", _JS / "patch-dom-parser.js"]:
-        r.add_static_module(js_path.as_uri(), _read_cached(js_path))
+    async def submit(self) -> None:
+        """Submit the form (or the element's form) and wait for htmx to settle."""
+        js = f"""
+        new Promise((resolve, reject) => {{
+            document.addEventListener('htmx:after:settle', () => resolve(), {{once: true}});
+            document.addEventListener('htmx:error', (e) => {{
+                reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
+            }}, {{once: true}});
+            const el = document.querySelector({json.dumps(self.selector)});
+            if (!el) {{
+                reject(new Error('Element not found: {self.selector}'));
+            }} else {{
+                const form = el.form ?? el.closest('form');
+                if (form) {{
+                    const submitter = el.tagName === 'BUTTON' || el.tagName === 'INPUT'
+                        ? el : undefined;
+                    form.requestSubmit(submitter);
+                }} else {{
+                    reject(new Error('No form found for: {self.selector}'));
+                }}
+            }}
+        }})
+        """
+        await self.runtime.eval_async(js)
 
-    _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
-    r.add_static_module(_bootstrap_uri, _read_cached(_JS / "bootstrap.js"))
-    await r.eval_module_async(_bootstrap_uri)
-    r.eval("var htmx = new Htmx();")
-    # Drain any setTimeout(fn, 0) calls made during htmx init so their
-    # _sleep_op coroutines complete before the caller's event loop exits.
-    for _ in range(4):
-        await asyncio.sleep(0)
-    return r
+    async def dispatch_event(self, event_type: str, event_init: dict | None = None) -> None:
+        """Dispatch a DOM event and wait for htmx to settle."""
+        js = _dispatch_js(self.selector, event_type, event_init)
+        await self.runtime.eval_async(js)
+
+    # --- Internal ---
+
+    def _eval(self, expr: str) -> object:
+        """Evaluate an expression with `el` bound to the selected element."""
+        js = f"""
+        (() => {{
+            const el = document.querySelector({json.dumps(self.selector)});
+            if (!el) throw new Error('Element not found: {self.selector}');
+            return {expr};
+        }})()
+        """
+        return self.runtime.eval(js)
 
 
 class Browser:
@@ -226,35 +143,49 @@ class Browser:
 
     @classmethod
     async def create(cls, url: str = "http://localhost/") -> Browser:
-        r = await build_browser(url)
+        r = await build_runtime(url)
         return cls(r)
+
+    # --- Element queries ---
+
+    def find(self, selector: str) -> Element | None:
+        """Return the first matching element, or None if not found."""
+        js = f"document.querySelector({json.dumps(selector)}) !== null"
+        if not self.runtime.eval(js):
+            return None
+        return Element(selector, self.runtime)
+
+    def find_all(self, selector: str) -> list[Element]:
+        """Return all matching elements."""
+        js = f"""
+        (() => {{
+            const nodes = document.querySelectorAll({json.dumps(selector)});
+            const selectors = [];
+            for (let i = 0; i < nodes.length; i++) {{
+                if (nodes[i].id) {{
+                    selectors.push('#' + CSS.escape(nodes[i].id));
+                }} else {{
+                    const tag = nodes[i].tagName.toLowerCase();
+                    const sameTag = nodes[i].parentNode
+                        ? Array.from(nodes[i].parentNode.children)
+                            .filter(c => c.tagName === nodes[i].tagName)
+                        : [];
+                    const idx = sameTag.indexOf(nodes[i]) + 1;
+                    selectors.push(tag + ':nth-of-type(' + idx + ')');
+                }}
+            }}
+            return selectors;
+        }})()
+        """
+        selectors = self.runtime.eval(js)
+        return [Element(sel, self.runtime) for sel in selectors]
+
+    # --- Page operations ---
 
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""
         self.runtime.eval(f"document.body.innerHTML = {json.dumps(html)};")
         self.runtime.eval("htmx.process(document.body);")
-
-    async def trigger(self, selector: str, event: str = "click") -> None:
-        """Dispatch a DOM event and wait for htmx to settle."""
-        js = f"""
-        new Promise((resolve, reject) => {{
-            document.addEventListener('htmx:after:settle', () => resolve(), {{once: true}});
-            document.addEventListener('htmx:error', (e) => {{
-                reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
-            }}, {{once: true}});
-            const el = document.querySelector({json.dumps(selector)});
-            if (!el) {{
-                reject(new Error('Element not found: {selector}'));
-            }} else {{
-                el.dispatchEvent(new Event({json.dumps(event)}, {{bubbles: true}}));
-            }}
-        }})
-        """
-        await self.runtime.eval_async(js)
-
-    def query(self, selector: str) -> str:
-        """Return innerHTML of the first matching element."""
-        return self.runtime.eval(f"document.querySelector({json.dumps(selector)}).innerHTML")
 
     def close(self) -> None:
         self.runtime.close()
