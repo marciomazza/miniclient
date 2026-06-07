@@ -5,15 +5,15 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def test_regular_html_unchanged(browser):
-    result = browser.eval(
+def test_regular_html_unchanged(runtime):
+    result = runtime.eval(
         """new DOMParser().parseFromString('<div><p>hello</p></div>', 'text/html').body.innerHTML"""
     )
     assert result == "<div><p>hello</p></div>"
 
 
-def test_body_wrapping(browser):
-    result = browser.eval("""
+def test_body_wrapping(runtime):
+    result = runtime.eval("""
         new DOMParser()
             .parseFromString('<body><p>hi</p></body>', 'text/html')
             .documentElement.outerHTML
@@ -52,8 +52,8 @@ def test_body_wrapping(browser):
         ),
     ],
 )
-def test_template_table_tags_in_content(browser, html, expected_inner):
-    result = browser.eval(
+def test_template_table_tags_in_content(runtime, html, expected_inner):
+    result = runtime.eval(
         f"""new DOMParser()
             .parseFromString({html!r}, 'text/html')
             .querySelector('template').innerHTML"""
@@ -66,8 +66,8 @@ def test_template_table_tags_in_content(browser, html, expected_inner):
 # ---------------------------------------------------------------------------
 
 
-def test_template_with_paragraph(browser):
-    result = browser.eval("""
+def test_template_with_paragraph(runtime):
+    result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template><p>hello</p></template>', 'text/html')
             .querySelector('template').innerHTML
@@ -75,8 +75,8 @@ def test_template_with_paragraph(browser):
     assert result == "<p>hello</p>"
 
 
-def test_template_with_list(browser):
-    result = browser.eval("""
+def test_template_with_list(runtime):
+    result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template><ul><li>a</li><li>b</li></ul></template>', 'text/html')
             .querySelector('template').innerHTML
@@ -89,8 +89,8 @@ def test_template_with_list(browser):
 # ---------------------------------------------------------------------------
 
 
-def test_template_id_preserved(browser):
-    result = browser.eval("""
+def test_template_id_preserved(runtime):
+    result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template id="tmpl1"><tr><td>x</td></tr></template>', 'text/html')
             .body.innerHTML
@@ -98,8 +98,8 @@ def test_template_id_preserved(browser):
     assert result == '<template id="tmpl1"><tr><td>x</td></tr></template>'
 
 
-def test_template_data_attribute_preserved(browser):
-    result = browser.eval("""
+def test_template_data_attribute_preserved(runtime):
+    result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template data-foo="bar"><p>x</p></template>', 'text/html')
             .body.innerHTML
@@ -112,8 +112,8 @@ def test_template_data_attribute_preserved(browser):
 # ---------------------------------------------------------------------------
 
 
-def test_multiple_templates(browser):
-    result = browser.eval("""
+def test_multiple_templates(runtime):
+    result = runtime.eval("""
         const html =
             '<template id="a"><tr><td>A</td></tr></template>' +
             '<template id="b"><tr><td>B</td></tr></template>';
@@ -130,8 +130,8 @@ def test_multiple_templates(browser):
 # ---------------------------------------------------------------------------
 
 
-def test_nested_template_inner_content(browser):
-    result = browser.eval("""
+def test_nested_template_inner_content(runtime):
+    result = runtime.eval("""
         const html =
             '<template id="outer">' +
             '<template id="inner"><tr><td>deep</td></tr></template>' +
@@ -141,8 +141,8 @@ def test_nested_template_inner_content(browser):
     assert result == '<template id="inner"><tr><td>deep</td></tr></template>'
 
 
-def test_nested_template_outer_content_preserved(browser):
-    result = browser.eval("""
+def test_nested_template_outer_content_preserved(runtime):
+    result = runtime.eval("""
         const html =
             '<template id="outer">' +
             '<p>before</p>' +
@@ -159,8 +159,8 @@ def test_nested_template_outer_content_preserved(browser):
 # ---------------------------------------------------------------------------
 
 
-def test_empty_template(browser):
-    result = browser.eval("""
+def test_empty_template(runtime):
+    result = runtime.eval("""
         new DOMParser()
             .parseFromString('<template></template>', 'text/html')
             .querySelector('template').innerHTML

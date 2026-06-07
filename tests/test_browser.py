@@ -10,7 +10,7 @@ from htmxclient.browser import Browser, build_browser
 
 
 @pytest_asyncio.fixture(scope="module")
-async def app_browser(browser_snapshot):
+async def browser(browser_snapshot):
     r = await build_browser("http://app.example.com/", snapshot=browser_snapshot)
     b = Browser(r)
     try:
@@ -24,16 +24,16 @@ async def app_browser(browser_snapshot):
 # ---------------------------------------------------------------------------
 
 
-def test_window_instantiates(browser):
-    assert browser.eval("typeof window") == "object"
+def test_window_instantiates(runtime):
+    assert runtime.eval("typeof window") == "object"
 
 
-def test_document_basic(browser):
-    assert browser.eval("document.createElement('div').tagName") == "DIV"
+def test_document_basic(runtime):
+    assert runtime.eval("document.createElement('div').tagName") == "DIV"
 
 
-def test_abort_controller(browser):
-    assert browser.eval("new AbortController().signal.aborted") is False
+def test_abort_controller(runtime):
+    assert runtime.eval("new AbortController().signal.aborted") is False
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +59,8 @@ def test_abort_controller(browser):
         ("typeof window.URL", "function"),
     ],
 )
-def test_url(browser, js, expected):
-    assert browser.eval(js) == expected
+def test_url(runtime, js, expected):
+    assert runtime.eval(js) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +96,8 @@ def test_url(browser, js, expected):
         ("new URLSearchParams('a=1&b=2&c=3').size", 3),
     ],
 )
-def test_url_search_params(browser, js, expected):
-    assert browser.eval(js) == expected
+def test_url_search_params(runtime, js, expected):
+    assert runtime.eval(js) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +132,8 @@ def test_url_search_params(browser, js, expected):
         ("Buffer.from([0x68, 0x69]).toString()", "hi"),
     ],
 )
-def test_buffer(browser, js, expected):
-    assert browser.eval(js) == expected
+def test_buffer(runtime, js, expected):
+    assert runtime.eval(js) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +167,8 @@ def test_buffer(browser, js, expected):
         ("new TextDecoder().decode(new Uint8Array(0))", ""),
     ],
 )
-def test_text_encoder_decoder(browser, js, expected):
-    assert browser.eval(js) == expected
+def test_text_encoder_decoder(runtime, js, expected):
+    assert runtime.eval(js) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -176,23 +176,23 @@ def test_text_encoder_decoder(browser, js, expected):
 # ---------------------------------------------------------------------------
 
 
-def test_query_selector(browser):
-    browser.eval('document.body.innerHTML = \'<div id="x"><span class="y">hi</span></div>\'')
-    assert browser.eval("document.querySelector('#x .y').textContent") == "hi"
+def test_query_selector(runtime):
+    runtime.eval('document.body.innerHTML = \'<div id="x"><span class="y">hi</span></div>\'')
+    assert runtime.eval("document.querySelector('#x .y').textContent") == "hi"
 
 
-def test_query_selector_all(browser):
-    browser.eval("document.body.innerHTML = '<ul><li>a</li><li>b</li><li>c</li></ul>'")
-    assert browser.eval("document.querySelectorAll('li').length") == 3
+def test_query_selector_all(runtime):
+    runtime.eval("document.body.innerHTML = '<ul><li>a</li><li>b</li><li>c</li></ul>'")
+    assert runtime.eval("document.querySelectorAll('li').length") == 3
 
 
-def test_inner_html_round_trip(browser):
-    browser.eval("document.body.innerHTML = '<p id=\"p1\">text</p>'")
-    assert browser.eval("document.getElementById('p1').innerHTML") == "text"
+def test_inner_html_round_trip(runtime):
+    runtime.eval("document.body.innerHTML = '<p id=\"p1\">text</p>'")
+    assert runtime.eval("document.getElementById('p1').innerHTML") == "text"
 
 
-def test_create_element_attributes(browser):
-    result = browser.eval("const a = document.createElement('a'); a.href = 'http://z.com'; a.href")
+def test_create_element_attributes(runtime):
+    result = runtime.eval("const a = document.createElement('a'); a.href = 'http://z.com'; a.href")
     assert "z.com" in result
 
 
@@ -216,38 +216,38 @@ def test_create_element_attributes(browser):
         "typeof window.DOMParser",
     ],
 )
-def test_globals_are_functions(browser, expression):
-    assert browser.eval(expression) == "function"
+def test_globals_are_functions(runtime, expression):
+    assert runtime.eval(expression) == "function"
 
 
-def test_headers_basic(browser):
-    result = browser.eval(
+def test_headers_basic(runtime):
+    result = runtime.eval(
         "const h = new Headers({'content-type': 'text/html'}); h.get('content-type')"
     )
     assert result == "text/html"
 
 
-def test_dom_parser(browser):
-    result = browser.eval(
+def test_dom_parser(runtime):
+    result = runtime.eval(
         "new window.DOMParser().parseFromString('<p>hi</p>', 'text/html')"
         ".querySelector('p').textContent"
     )
     assert result == "hi"
 
 
-def test_form_data_append(browser):
-    result = browser.eval("const f = new FormData(); f.append('key', 'val'); f.get('key')")
+def test_form_data_append(runtime):
+    result = runtime.eval("const f = new FormData(); f.append('key', 'val'); f.get('key')")
     assert result == "val"
 
 
-def test_mutation_observer_callable(browser):
+def test_mutation_observer_callable(runtime):
     # Verifies MutationObserver can be instantiated without throwing
-    result = browser.eval("typeof new MutationObserver(() => {})")
+    result = runtime.eval("typeof new MutationObserver(() => {})")
     assert result == "object"
 
 
-def test_custom_event(browser):
-    result = browser.eval("new CustomEvent('myevent', {detail: 42}).detail")
+def test_custom_event(runtime):
+    result = runtime.eval("new CustomEvent('myevent', {detail: 42}).detail")
     assert result == 42
 
 
@@ -265,8 +265,8 @@ def test_custom_event(browser):
         ("atob(btoa('round trip'))", "round trip"),
     ],
 )
-def test_atob_btoa(browser, js, expected):
-    assert browser.eval(js) == expected
+def test_atob_btoa(runtime, js, expected):
+    assert runtime.eval(js) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -274,29 +274,29 @@ def test_atob_btoa(browser, js, expected):
 # ---------------------------------------------------------------------------
 
 
-async def test_settimeout_fires(browser_async):
-    result = await browser_async.eval_async(
+async def test_settimeout_fires(runtime_async):
+    result = await runtime_async.eval_async(
         "new Promise(resolve => setTimeout(() => resolve('ok'), 10))"
     )
     assert result == "ok"
 
 
-async def test_settimeout_zero_fires(browser_async):
-    result = await browser_async.eval_async(
+async def test_settimeout_zero_fires(runtime_async):
+    result = await runtime_async.eval_async(
         "new Promise(resolve => setTimeout(() => resolve(42), 0))"
     )
     assert result == 42
 
 
-async def test_settimeout_passes_args(browser_async):
-    result = await browser_async.eval_async(
+async def test_settimeout_passes_args(runtime_async):
+    result = await runtime_async.eval_async(
         "new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))"
     )
     assert result == 7
 
 
-async def test_cleartimeout_cancels(browser_async):
-    result = await browser_async.eval_async("""
+async def test_cleartimeout_cancels(runtime_async):
+    result = await runtime_async.eval_async("""
         new Promise(resolve => {
             let fired = false;
             const id = setTimeout(() => { fired = true; }, 50);
@@ -307,8 +307,8 @@ async def test_cleartimeout_cancels(browser_async):
     assert result is False
 
 
-async def test_settimeout_order(browser_async):
-    result = await browser_async.eval_async("""
+async def test_settimeout_order(runtime_async):
+    result = await runtime_async.eval_async("""
         new Promise(resolve => {
             const log = [];
             setTimeout(() => { log.push(1); if (log.length === 3) resolve(log); }, 10);
@@ -319,8 +319,8 @@ async def test_settimeout_order(browser_async):
     assert result == [1, 2, 3]
 
 
-async def test_setinterval_fires_multiple_times(browser_async):
-    result = await browser_async.eval_async("""
+async def test_setinterval_fires_multiple_times(runtime_async):
+    result = await runtime_async.eval_async("""
         new Promise(resolve => {
             let count = 0;
             const id = setInterval(() => {
@@ -335,8 +335,8 @@ async def test_setinterval_fires_multiple_times(browser_async):
     assert result == 3
 
 
-async def test_clearinterval_stops_firing(browser_async):
-    result = await browser_async.eval_async("""
+async def test_clearinterval_stops_firing(runtime_async):
+    result = await runtime_async.eval_async("""
         new Promise(resolve => {
             let count = 0;
             const id = setInterval(() => { count++; }, 10);
@@ -355,17 +355,17 @@ async def test_clearinterval_stops_firing(browser_async):
 # ---------------------------------------------------------------------------
 
 
-async def test_load_sets_body(app_browser):
-    await app_browser.load("<p id='msg'>hello</p>")
-    assert app_browser.query("#msg") == "hello"
+async def test_load_sets_body(browser):
+    await browser.load("<p id='msg'>hello</p>")
+    assert browser.query("#msg") == "hello"
 
 
-async def test_load_replaces_body(app_browser):
-    await app_browser.load("<span id='a'>first</span>")
-    await app_browser.load("<span id='b'>second</span>")
-    assert app_browser.query("#b") == "second"
+async def test_load_replaces_body(browser):
+    await browser.load("<span id='a'>first</span>")
+    await browser.load("<span id='b'>second</span>")
+    assert browser.query("#b") == "second"
     # first load is gone
-    result = app_browser.runtime.eval("document.querySelector('#a')")
+    result = browser.runtime.eval("document.querySelector('#a')")
     assert result is None
 
 
@@ -374,15 +374,15 @@ async def test_load_replaces_body(app_browser):
 # ---------------------------------------------------------------------------
 
 
-async def test_query_inner_html(app_browser):
-    await app_browser.load("<ul><li>a</li><li>b</li></ul>")
-    assert "<li>a</li>" in app_browser.query("ul")
+async def test_query_inner_html(browser):
+    await browser.load("<ul><li>a</li><li>b</li></ul>")
+    assert "<li>a</li>" in browser.query("ul")
 
 
-async def test_query_missing_element_raises(app_browser):
-    await app_browser.load("<p>hi</p>")
+async def test_query_missing_element_raises(browser):
+    await browser.load("<p>hi</p>")
     with pytest.raises(JavaScriptError):
-        app_browser.query("#does-not-exist")
+        browser.query("#does-not-exist")
 
 
 # ---------------------------------------------------------------------------
@@ -390,48 +390,46 @@ async def test_query_missing_element_raises(app_browser):
 # ---------------------------------------------------------------------------
 
 
-async def test_trigger_hx_get(app_browser, httpx_mock):
+async def test_trigger_hx_get(browser, httpx_mock):
     httpx_mock.add_response(
         url="http://app.example.com/fragment",
         text="<span>loaded</span>",
     )
-    await app_browser.load(
+    await browser.load(
         '<div id="target">'
         '<button hx-get="/fragment" hx-target="#target" hx-swap="innerHTML">load</button>'
         "</div>"
     )
-    await app_browser.trigger("button")
-    assert app_browser.query("#target") == "<span>loaded</span>"
+    await browser.trigger("button")
+    assert browser.query("#target") == "<span>loaded</span>"
 
 
-async def test_trigger_hx_post(app_browser, httpx_mock):
+async def test_trigger_hx_post(browser, httpx_mock):
     httpx_mock.add_response(
         url="http://app.example.com/submit",
         text="<p>saved</p>",
     )
-    await app_browser.load(
+    await browser.load(
         '<div id="result">'
         '<button hx-post="/submit" hx-target="#result" hx-swap="innerHTML">save</button>'
         "</div>"
     )
-    await app_browser.trigger("button")
-    assert app_browser.query("#result") == "<p>saved</p>"
+    await browser.trigger("button")
+    assert browser.query("#result") == "<p>saved</p>"
 
 
-async def test_trigger_request_sends_correct_method(app_browser, httpx_mock):
+async def test_trigger_request_sends_correct_method(browser, httpx_mock):
     httpx_mock.add_response(url="http://app.example.com/api", text="ok")
-    await app_browser.load(
-        '<div id="out"><button hx-post="/api" hx-target="#out">go</button></div>'
-    )
-    await app_browser.trigger("button")
+    await browser.load('<div id="out"><button hx-post="/api" hx-target="#out">go</button></div>')
+    await browser.trigger("button")
     assert httpx_mock.get_request().method == "POST"
 
 
-async def test_trigger_url_resolves_against_base(app_browser, httpx_mock):
+async def test_trigger_url_resolves_against_base(browser, httpx_mock):
     # hx-get="/path" should resolve to http://app.example.com/path
     httpx_mock.add_response(url="http://app.example.com/path", text="ok")
-    await app_browser.load('<div id="r"><button hx-get="/path" hx-target="#r">go</button></div>')
-    await app_browser.trigger("button")
+    await browser.load('<div id="r"><button hx-get="/path" hx-target="#r">go</button></div>')
+    await browser.trigger("button")
     assert httpx_mock.get_request().url == "http://app.example.com/path"
 
 

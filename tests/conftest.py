@@ -30,7 +30,7 @@ def browser_snapshot() -> bytes:
 
 
 @pytest.fixture()
-def browser(browser_snapshot):
+def runtime(browser_snapshot):
     async def _build():
         return await build_browser(snapshot=browser_snapshot)
 
@@ -39,7 +39,7 @@ def browser(browser_snapshot):
 
 
 @pytest_asyncio.fixture
-async def browser_async(browser_snapshot):
+async def runtime_async(browser_snapshot):
     r = await build_browser(snapshot=browser_snapshot)
     try:
         yield r
