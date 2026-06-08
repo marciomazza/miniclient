@@ -152,22 +152,25 @@ Object.defineProperty(win, "fetch", {
     enumerable: true,
 });
 
-// Timer implementation backed by asyncio.sleep — integrates with the real event loop.
+// Timer implementation using Atomics.waitAsync — pure ECMAScript, no Python ops.
 // win.setTimeout (happy-dom) never fires in this runtime because its internal timer
-// queue is never drained; these ops replace it entirely.
+// queue is never drained; these replace it entirely.
 {
-    const _SLEEP = globalThis.__SLEEP_OP_ID__;
-    const _CLEAR = globalThis.__CLEAR_TIMER_OP_ID__;
     let _nextId = 1;
-    const _active = {}; // timerId  -> true
+    const _active = {}; // timerId -> true
     const _intervals = {}; // intervalId -> current timerId
+
+    const _wait = (ms) => {
+        const view = new Int32Array(new SharedArrayBuffer(4));
+        const r = Atomics.waitAsync(view, 0, 0, ms || 0);
+        return r.async ? r.value : Promise.resolve();
+    };
 
     globalThis.setTimeout = (fn, ms = 0, ...args) => {
         const id = _nextId++;
         _active[id] = true;
-        // floating promise — resolves when sleep completes or is cancelled
-        __host_op_async__(_SLEEP, { id, ms: ms || 0 }).then(({ cancelled }) => {
-            if (!cancelled && _active[id]) {
+        _wait(ms).then(() => {
+            if (_active[id]) {
                 delete _active[id];
                 fn(...args);
             }
@@ -176,9 +179,7 @@ Object.defineProperty(win, "fetch", {
     };
 
     globalThis.clearTimeout = (id) => {
-        if (id == null) return;
-        delete _active[id];
-        __host_op_async__(_CLEAR, { id });
+        if (id != null) delete _active[id];
     };
 
     globalThis.setInterval = (fn, ms = 0, ...args) => {
@@ -187,9 +188,9 @@ Object.defineProperty(win, "fetch", {
             const timerId = _nextId++;
             _intervals[intervalId] = timerId;
             _active[timerId] = true;
-            __host_op_async__(_SLEEP, { id: timerId, ms: ms || 0 }).then(({ cancelled }) => {
+            _wait(ms).then(() => {
                 delete _active[timerId];
-                if (!cancelled && intervalId in _intervals) {
+                if (intervalId in _intervals) {
                     fn(...args);
                     schedule();
                 }
@@ -202,10 +203,14 @@ Object.defineProperty(win, "fetch", {
     globalThis.clearInterval = (intervalId) => {
         const timerId = _intervals[intervalId];
         delete _intervals[intervalId];
-        if (timerId != null) {
-            delete _active[timerId];
-            __host_op_async__(_CLEAR, { id: timerId });
-        }
+        if (timerId != null) delete _active[timerId];
+    };
+
+    // Silently drop all pending timer callbacks — used between tests to prevent
+    // stale timers from a previous test firing into the next one's context.
+    globalThis.__clearAllTimers = () => {
+        for (const k of Object.keys(_active)) delete _active[k];
+        for (const k of Object.keys(_intervals)) delete _intervals[k];
     };
 }
 // happy-dom does not execute <script> elements when they are inserted into the DOM.

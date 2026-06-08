@@ -5,7 +5,7 @@ import pytest
 from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
-from htmxclient.runtime import build_runtime, cancel_pending_timers
+from htmxclient.runtime import build_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -52,8 +52,8 @@ async def htmx_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]
 @pytest.fixture(autouse=True)
 async def _reset_htmx(htmx_runtime: Runtime) -> AsyncGenerator[None, None]:
     yield
-    await cancel_pending_timers(htmx_runtime)
     htmx_runtime.eval("""\
+        __clearAllTimers();
         __resetRunner();
         cleanupTest();
         htmx = new Htmx();

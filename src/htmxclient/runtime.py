@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import weakref
 from functools import cache
 from pathlib import Path
 from urllib.parse import urljoin
@@ -126,15 +124,6 @@ def _make_fetch_op(before_fetch=None, httpx_transport=None):
     return _fetch_op_impl
 
 
-_pending_timers_registry: dict[int, dict[int, asyncio.Event]] = {}
-
-
-async def cancel_pending_timers(r: Runtime) -> None:
-    """Cancel all pending timers for a runtime (useful between reused test fixtures)."""
-    for event in list(_pending_timers_registry.get(id(r), {}).values()):
-        event.set()
-
-
 async def build_runtime(
     url: str = "http://localhost/",
     snapshot: bytes | None = None,
@@ -150,39 +139,6 @@ async def build_runtime(
         "fetch", _make_fetch_op(before_fetch, httpx_transport), mode="async"
     )
     r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
-
-    pending_timers: dict[int, asyncio.Event] = {}
-    _pending_timers_registry[id(r)] = pending_timers
-    weakref.finalize(r, _pending_timers_registry.pop, id(r), None)
-
-    async def _sleep_op(req: dict[str, int]) -> dict:
-        timer_id = req["id"]
-        ms = req.get("ms", 0)
-        cancel = asyncio.Event()
-        pending_timers[timer_id] = cancel
-        try:
-            sleep_task = asyncio.ensure_future(asyncio.sleep(max(ms, 0) / 1000))
-            cancel_task = asyncio.ensure_future(cancel.wait())
-            done, pending = await asyncio.wait(
-                [sleep_task, cancel_task],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for t in pending:
-                t.cancel()
-            return {"cancelled": cancel.is_set()}
-        finally:
-            pending_timers.pop(timer_id, None)
-
-    async def _clear_timer_op(req: dict[str, int]) -> dict:
-        timer_id = req.get("id")
-        if cancel := timer_id and pending_timers.get(timer_id):
-            cancel.set()
-        return {}
-
-    sleep_op_id = r.register_op("sleep", _sleep_op, mode="async")
-    clear_timer_op_id = r.register_op("clear_timer", _clear_timer_op, mode="async")
-    r.eval(f"globalThis.__SLEEP_OP_ID__ = {sleep_op_id};")
-    r.eval(f"globalThis.__CLEAR_TIMER_OP_ID__ = {clear_timer_op_id};")
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
 
     for bare, fname in _NODE_POLYFILL_FILES.items():
@@ -196,8 +152,4 @@ async def build_runtime(
     r.add_static_module(_bootstrap_uri, _read_cached(_JS / "bootstrap.js"))
     await r.eval_module_async(_bootstrap_uri)
     r.eval("var htmx = new Htmx();")
-    # Drain any setTimeout(fn, 0) calls made during htmx init so their
-    # _sleep_op coroutines complete before the caller's event loop exits.
-    for _ in range(4):
-        await asyncio.sleep(0)
     return r
