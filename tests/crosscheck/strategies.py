@@ -10,9 +10,7 @@ from hypothesis import assume, strategies as st
 from hypothesis.strategies import SearchStrategy
 from more_itertools import collapse, map_reduce
 
-# fixme: hx-put was behaving bad
-# HxMethod = Literal["hx-get", "hx-post", "hx-put", "hx-patch", "hx-delete"]
-HxMethod = Literal["hx-get", "hx-post", "hx-delete"]
+HxMethod = Literal["hx-get", "hx-post", "hx-put", "hx-patch", "hx-delete"]
 HxSwap = Literal["innerHTML", "outerHTML", "beforebegin", "afterbegin", "beforeend", "afterend"]
 
 
