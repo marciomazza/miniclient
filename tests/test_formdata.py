@@ -82,6 +82,8 @@ def _pairs(r: HxRuntime, form_html: str) -> list[tuple[str, str]]:
         ),
         # checkbox — checked, no value attribute → "on"
         ('<form><input type="checkbox" name="ok" checked></form>', [("ok", "on")]),
+        # checkbox — checked, explicit empty value attribute → ""
+        ('<form><input type="checkbox" name="x" value="" checked></form>', [("x", "")]),
         # multiple checkboxes with same name
         (
             "<form>"
@@ -90,6 +92,8 @@ def _pairs(r: HxRuntime, form_html: str) -> list[tuple[str, str]]:
             "</form>",
             [("hobby", "read"), ("hobby", "game")],
         ),
+        # radio — checked, explicit empty value attribute → ""
+        ('<form><input type="radio" name="x" value="" checked></form>', [("x", "")]),
         # radio — checked one
         ('<form><input type="radio" name="color" value="red" checked></form>', [("color", "red")]),
         # multiple radios — only the checked one is collected

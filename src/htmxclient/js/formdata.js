@@ -28,7 +28,7 @@
 
         if (tag === "INPUT") {
             if (type === "checkbox" || type === "radio") {
-                if (el.checked) data.push([name, el.value !== "" ? el.value : "on"]);
+                if (el.checked) data.push([name, el.getAttribute("value") !== null ? el.value : "on"]);
             } else if (!_SUBMIT_TYPES.has(type) && type !== "file") {
                 data.push([name, el.value ?? ""]);
             }
