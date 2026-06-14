@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 import httpx
-from jsrun import Runtime
+
+from htmxclient.runtime import HxRuntime
 
 
 @dataclass
@@ -58,7 +59,7 @@ class HttpxFetchMock:
         self._next_seq_id = 0
         self.transport = _MockTransport(self)
 
-    def install(self, runtime: Runtime) -> None:
+    def install(self, runtime: HxRuntime) -> None:
         register_id = runtime.register_op("fetch_mock_register", self._op_register)
         reset_id = runtime.register_op("fetch_mock_reset", self._op_reset)
         register_seq_id = runtime.register_op("fetch_mock_register_seq", self._op_register_seq)

@@ -4,9 +4,8 @@ import json
 import re
 
 import httpx
-from jsrun import Runtime
 
-from htmxclient.runtime import build_runtime
+from htmxclient.runtime import HxRuntime, build_runtime
 
 
 def _extract_body_html(html: str) -> str:
@@ -90,7 +89,7 @@ def _dispatch_js(selector: str, event: str, event_init: dict | None) -> str:
 class Element:
     """Represents a DOM element found via Browser.find() or Browser.find_all()."""
 
-    def __init__(self, selector: str, runtime: Runtime) -> None:
+    def __init__(self, selector: str, runtime: HxRuntime) -> None:
         self.selector = selector
         self.runtime = runtime
 
@@ -157,11 +156,8 @@ class Element:
 
 
 class Browser:
-    def __init__(
-        self, runtime: Runtime, httpx_transport: httpx.AsyncBaseTransport | None = None
-    ) -> None:
+    def __init__(self, runtime: HxRuntime) -> None:
         self.runtime = runtime
-        self._httpx_transport = httpx_transport
 
     @classmethod
     async def create(
@@ -169,8 +165,7 @@ class Browser:
         url: str = "http://localhost/",
         httpx_transport: httpx.AsyncBaseTransport | None = None,
     ) -> Browser:
-        r = await build_runtime(url, httpx_transport=httpx_transport)
-        return cls(r, httpx_transport)
+        return cls(await build_runtime(url, httpx_transport=httpx_transport))
 
     # --- Element queries ---
 
@@ -210,7 +205,7 @@ class Browser:
 
     async def goto(self, url: str) -> None:
         """Fetch url, load its body into the document, and process htmx."""
-        async with httpx.AsyncClient(transport=self._httpx_transport) as client:
+        async with httpx.AsyncClient(transport=self.runtime.httpx_transport) as client:
             response = await client.get(url)
         await self.load(_extract_body_html(response.text))
 

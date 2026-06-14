@@ -1,13 +1,15 @@
 import asyncio
 import threading
 from dataclasses import dataclass
+from http.server import HTTPServer
 from pathlib import Path
+from typing import Iterable, cast
 from urllib.parse import urlparse
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 from wsgiref.types import WSGIApplication
 
 import httpx
-from playwright.async_api import Page
+from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
 from htmxclient.browser import Browser
@@ -154,7 +156,7 @@ class _AsyncWSGITransport(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         loop = asyncio.get_running_loop()
         sync_response = await loop.run_in_executor(None, self._sync.handle_request, request)
-        body = b"".join(sync_response.stream)
+        body = b"".join(cast(Iterable[bytes], sync_response.stream))
         response = httpx.Response(
             status_code=sync_response.status_code,
             headers=sync_response.headers,
@@ -186,23 +188,28 @@ _pages_initialized: set[int] = set()
 
 
 class CrossCheck:
-    def __init__(self) -> None:
-        self.client_talk = Talk()
+    def __init__(
+        self,
+        browser: Browser,
+        page: Page,
+        server: HTTPServer,
+        port: int,
+        client_talk: Talk,
+    ) -> None:
+        self.client_talk = client_talk
         self.page_talk = Talk()
-        self._page_raw_request = None
+        self._page_raw_request: Request | None = None
+        self._browser = browser
+        self._page = page
+        self._server = server
+        self._port = port
 
     @classmethod
     async def create(cls, wsgi_app: WSGIApplication, page: Page) -> "CrossCheck":
-        cc = cls()
-
-        # --- client (Browser + V8) ---
-        wsgi_transport = _AsyncWSGITransport(wsgi_app)
-        capturing_transport = _CapturingTransport(wsgi_transport, cc.client_talk)
+        client_talk = Talk()
+        capturing_transport = _CapturingTransport(_AsyncWSGITransport(wsgi_app), client_talk)
         runtime = await build_runtime("http://testserver/", httpx_transport=capturing_transport)
-        cc._browser = Browser(runtime, httpx_transport=wsgi_transport)
-
-        # --- page (Playwright + real browser) ---
-        cc._page = page
+        browser = Browser(runtime)
 
         def _wrapped_wsgi(environ, start_response):
             if environ["PATH_INFO"] == "/htmx.js":
@@ -210,16 +217,17 @@ class CrossCheck:
                 return [_HTMX_JS]
             return wsgi_app(environ, start_response)
 
-        cc._server = make_server("127.0.0.1", 0, _wrapped_wsgi, handler_class=_SilentHandler)
-        cc._port = cc._server.server_address[1]
-        threading.Thread(target=cc._server.serve_forever, daemon=True).start()
+        server = make_server("127.0.0.1", 0, _wrapped_wsgi, handler_class=_SilentHandler)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
 
         if id(page) not in _pages_initialized:
             await page.add_init_script(_SETTLE_INIT_SCRIPT)
             _pages_initialized.add(id(page))
+
+        cc = cls(browser, page, server, port, client_talk)
         page.on("request", cc._hook_request_page)
         page.on("response", cc._hook_response_page)
-
         return cc
 
     # --- page event hooks (sync, called by Playwright internally) ---
@@ -282,9 +290,11 @@ class CrossCheck:
 
     async def click(self, selector: str) -> None:
         self._reset_capture()
+        el = self._browser.find(selector)
+        assert el is not None, f"Element not found: {selector!r}"
         await self._page.evaluate("window.__htmxSettled = false;")
         await asyncio.gather(
-            self._browser.find(selector).click(),
+            el.click(),
             self._page.locator(selector).click(),
         )
         if self.client_talk.request is not None:

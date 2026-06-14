@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from functools import cache
 from pathlib import Path
+from typing import Any
 from urllib.parse import urljoin
 
 import httpx
@@ -129,7 +130,7 @@ async def build_runtime(
     snapshot: bytes | None = None,
     before_fetch=None,
     httpx_transport=None,
-) -> Runtime:
+) -> HxRuntime:
     r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
 
     r.set_module_resolver(_resolver)
@@ -152,4 +153,15 @@ async def build_runtime(
     r.add_static_module(_bootstrap_uri, _read_cached(_JS / "bootstrap.js"))
     await r.eval_module_async(_bootstrap_uri)
     r.eval("var htmx = new Htmx();")
-    return r
+    return HxRuntime(r, httpx_transport)
+
+
+class HxRuntime:
+    def __init__(
+        self, runtime: Runtime, httpx_transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
+        self._runtime = runtime
+        self.httpx_transport = httpx_transport
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._runtime, name)

@@ -82,9 +82,7 @@ async def test_dom_stateful(page: Page, form, data):
         n_steps = data.draw(st.integers(0, 5))
         for _ in range(n_steps):
             interactable = {
-                k: v
-                for k, v in form.ids_by_interaction.items()
-                if k in ("fill", "click")
+                k: v for k, v in form.ids_by_interaction.items() if k in ("fill", "click")
             }
             if not interactable:
                 break
@@ -98,3 +96,7 @@ async def test_dom_stateful(page: Page, form, data):
             await dc.assert_same_dom()
     finally:
         dc.close()
+        del dc
+        import gc
+
+        gc.collect()
