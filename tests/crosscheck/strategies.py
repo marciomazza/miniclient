@@ -344,6 +344,8 @@ def st_html_form(draw) -> SimpleNamespace:
     attrs = {
         "hx-target": draw(st.sampled_from(("this", "#result"))),
         "hx-swap": draw(st_maybe_from_type(HxSwap)),
+        "hx-vals": draw(st_maybe_dicts),
+        "hx-headers": draw(st_maybe_dicts),
     }
     controls, ids_by_interaction = _draw_form_controls(draw)
     return _build_form(f"{method}='/fragment' {_attrs_str(attrs)}", controls, ids_by_interaction)
