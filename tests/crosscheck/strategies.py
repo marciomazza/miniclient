@@ -372,11 +372,19 @@ def st_plain_html_form(draw) -> SimpleNamespace:
 @st.composite
 def st_html_form(draw) -> SimpleNamespace:
     method = draw(st.from_type(HxMethod))
+    controls, ids_by_interaction = _draw_form_controls(draw)
+    names = [name for c in controls if (name := c.attrs.get("name"))]
+    hx_params = draw(
+        st.none()
+        | st.just("none")
+        | st.just("*")
+        | st.lists(st.sampled_from(names), min_size=1, unique=True).map(" ".join)
+    ) if names else None
     attrs = {
         "hx-target": draw(st.sampled_from(("this", "#result"))),
         "hx-swap": draw(st_maybe_from_type(HxSwap)),
         "hx-vals": draw(st_maybe_dicts),
         "hx-headers": draw(st_maybe_dicts),
+        "hx-params": hx_params,
     }
-    controls, ids_by_interaction = _draw_form_controls(draw)
     return _build_form(f"{method}='/fragment' {_attrs_str(attrs)}", controls, ids_by_interaction)
