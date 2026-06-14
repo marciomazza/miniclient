@@ -165,7 +165,7 @@ def st_wsgi_app(draw, st_node_strategy: Callable[..., SearchStrategy]):
             is_htmx = environ.get("HTTP_HX_REQUEST") == "true"
             extra = list((hx_response_headers or {}).items()) if is_htmx else []
             start_response(status_phrase, [("Content-Type", "text/html"), *extra])
-            return [b"<span>Hello</span>"]
+            return [b'<div id="a"><span id="b">Hello</span></div>']
         start_response("404 Not Found", [("Content-Type", "text/plain")])
         return [b"Not found"]
 
@@ -386,5 +386,6 @@ def st_html_form(draw) -> SimpleNamespace:
         "hx-vals": draw(st_maybe_dicts),
         "hx-headers": draw(st_maybe_dicts),
         "hx-params": hx_params,
+        "hx-select": draw(st.none() | st.sampled_from(["#a", "#b", "span"])),
     }
     return _build_form(f"{method}='/fragment' {_attrs_str(attrs)}", controls, ids_by_interaction)
