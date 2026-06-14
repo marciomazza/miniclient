@@ -348,6 +348,45 @@ async def test_clearinterval_stops_firing(runtime):
 
 
 # ---------------------------------------------------------------------------
+# Browser.goto
+# ---------------------------------------------------------------------------
+
+
+async def test_goto_loads_body(browser, httpx_mock):
+    httpx_mock.add_response(
+        url="http://app.example.com/page",
+        text="<html><head></head><body><p id='msg'>hello</p></body></html>",
+    )
+    await browser.goto("http://app.example.com/page")
+    assert browser.find("#msg").innerHTML() == "hello"
+
+
+async def test_goto_strips_head_and_body_tags(browser, httpx_mock):
+    httpx_mock.add_response(
+        url="http://app.example.com/page",
+        text="<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
+    )
+    await browser.goto("http://app.example.com/page")
+    assert browser.runtime.eval("document.querySelector('title')") is None
+    assert browser.find("#s").innerHTML() == "ok"
+
+
+async def test_goto_processes_htmx(browser, httpx_mock):
+    httpx_mock.add_response(
+        url="http://app.example.com/page",
+        text="""\
+        <html><body>
+        <div id="out"><button hx-get="/frag" hx-target="#out" hx-swap="innerHTML">go</button></div>
+        </body></html>""",
+    )
+    httpx_mock.add_response(url="http://app.example.com/frag", text="<b>done</b>")
+    await browser.goto("http://app.example.com/page")
+    btn = browser.find("button")
+    await btn.click()
+    assert browser.find("#out").innerHTML() == "<b>done</b>"
+
+
+# ---------------------------------------------------------------------------
 # Browser.load
 # ---------------------------------------------------------------------------
 

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import re
 
+import httpx
 from jsrun import Runtime
 
 from htmxclient.runtime import build_runtime
+
+
+def _extract_body_html(html: str) -> str:
+    m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
+    return m.group(1) if m else html
 
 
 def _event_class(event_type: str) -> str:
@@ -147,13 +154,20 @@ class Element:
 
 
 class Browser:
-    def __init__(self, runtime: Runtime) -> None:
+    def __init__(
+        self, runtime: Runtime, httpx_transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self.runtime = runtime
+        self._httpx_transport = httpx_transport
 
     @classmethod
-    async def create(cls, url: str = "http://localhost/") -> Browser:
-        r = await build_runtime(url)
-        return cls(r)
+    async def create(
+        cls,
+        url: str = "http://localhost/",
+        httpx_transport: httpx.AsyncBaseTransport | None = None,
+    ) -> Browser:
+        r = await build_runtime(url, httpx_transport=httpx_transport)
+        return cls(r, httpx_transport)
 
     # --- Element queries ---
 
@@ -190,6 +204,12 @@ class Browser:
         return [Element(sel, self.runtime) for sel in selectors]
 
     # --- Page operations ---
+
+    async def goto(self, url: str) -> None:
+        """Fetch url, load its body into the document, and process htmx."""
+        async with httpx.AsyncClient(transport=self._httpx_transport) as client:
+            response = await client.get(url)
+        await self.load(_extract_body_html(response.text))
 
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""
