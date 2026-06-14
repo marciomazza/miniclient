@@ -392,11 +392,12 @@ def st_html_form(draw) -> SimpleNamespace:
         "hx-vals": draw(st_maybe_dicts),
         "hx-headers": draw(st_maybe_dicts),
         "hx-params": hx_params,
+        "hx-encoding": draw(st.none() | st.just("multipart/form-data")),
         "hx-select": draw(st.none() | st.sampled_from(["#a", "#b", "span"])),
         "hx-include": draw(
             st.none()
             | st.lists(
-                st.sampled_from(["#out-a", "#out-b", "[name='out_a']", "[name='out_b']"]),
+                st.sampled_from(["#out-a", "#out-b", "[name=out_a]", "[name=out_b]"]),
                 min_size=1,
                 unique=True,
             ).map(", ".join)
