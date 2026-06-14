@@ -217,6 +217,12 @@ class Browser:
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""
         self.runtime.eval(f"document.body.innerHTML = {json.dumps(html)};")
+        # happy-dom does not reflect the `selected` HTML attribute onto the .selected
+        # IDL property when parsing via innerHTML — re-apply it before htmx.process.
+        self.runtime.eval(
+            "document.querySelectorAll('option[selected]')"
+            ".forEach(opt => { opt.selected = true; });"
+        )
         self.runtime.eval("htmx.process(document.body);")
 
     def close(self) -> None:
