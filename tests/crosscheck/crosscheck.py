@@ -16,7 +16,7 @@ from htmxclient.browser import Browser
 from htmxclient.runtime import build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
-_KEEP_RESPONSE_HEADERS = {"content-type", "hx-retarget", "hx-reswap"}
+_SKIP_RESPONSE_HEADERS = {"date", "server", "content-length"}
 _HX_PREFIX = "hx-"
 
 _SETTLE_INIT_SCRIPT = """\
@@ -98,6 +98,10 @@ def _normalize_headers(headers: dict[str, str], keep: set[str]) -> dict[str, str
     return result
 
 
+def _normalize_response_headers(headers: dict[str, str]) -> dict[str, str]:
+    return {k.lower(): v for k, v in headers.items() if k.lower() not in _SKIP_RESPONSE_HEADERS}
+
+
 class CapturedRequest(BaseModel):
     method: str
     path: str
@@ -121,7 +125,7 @@ class CapturedResponse(BaseModel):
     @field_validator("headers", mode="before")
     @classmethod
     def _normalize(cls, v) -> dict[str, str]:
-        return _normalize_headers(dict(v), _KEEP_RESPONSE_HEADERS)
+        return _normalize_response_headers(dict(v))
 
 
 class _SilentHandler(WSGIRequestHandler):
