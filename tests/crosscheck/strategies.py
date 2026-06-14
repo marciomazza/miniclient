@@ -386,6 +386,15 @@ def st_html_form(draw) -> SimpleNamespace:
         if names
         else None
     )
+    hx_trigger = (
+        draw(
+            st.none()
+            | st.just("change")
+            | st.sampled_from(names).map(lambda n: f"change from:[name={n}]")
+        )
+        if names
+        else None
+    )
     attrs = {
         "hx-target": draw(st.sampled_from(("this", "#result"))),
         "hx-swap": draw(st_maybe_from_type(HxSwap)),
@@ -393,6 +402,7 @@ def st_html_form(draw) -> SimpleNamespace:
         "hx-headers": draw(st_maybe_dicts),
         "hx-params": hx_params,
         "hx-encoding": draw(st.none() | st.just("multipart/form-data")),
+        "hx-trigger": hx_trigger,
         "hx-select": draw(st.none() | st.sampled_from(["#a", "#b", "span"])),
         "hx-include": draw(
             st.none()
