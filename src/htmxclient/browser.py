@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlencode
 
 import httpx
 
@@ -207,6 +208,42 @@ class Browser:
         """Fetch url, load its body into the document, and process htmx."""
         async with httpx.AsyncClient(transport=self.runtime.httpx_transport) as client:
             response = await client.get(url)
+        await self.load(_extract_body_html(response.text))
+
+    async def submit_form(self, selector: str) -> None:
+        """
+        Submit the form containing selector:
+        serialize its data, fetch the action URL, load the response.
+        """
+        info = self.runtime.eval(f"""
+        (() => {{
+            const el = document.querySelector({json.dumps(selector)});
+            const form = el?.tagName === 'FORM' ? el : el?.closest('form');
+            if (!form) throw new Error('No form found for: {selector}');
+            const submitter = (el.tagName === 'INPUT' || el.tagName === 'BUTTON') ? el : null;
+            const fd = new FormData(form, submitter);
+            const entries = [];
+            for (const [k, v] of fd.entries()) entries.push([k, String(v)]);
+            return {{
+                action: form.action,
+                method: (form.method || 'get').toLowerCase(),
+                entries,
+            }};
+        }})()
+        """)
+        action = info["action"]
+        method = info["method"]
+        entries = [(k, v) for k, v in info["entries"]]
+        async with httpx.AsyncClient(transport=self.runtime.httpx_transport) as client:
+            if method == "post":
+                body = urlencode(entries).encode("utf-8")
+                response = await client.post(
+                    action,
+                    content=body,
+                    headers={"content-type": "application/x-www-form-urlencoded"},
+                )
+            else:
+                response = await client.get(action, params=entries)
         await self.load(_extract_body_html(response.text))
 
     async def load(self, html: str) -> None:

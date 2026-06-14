@@ -3,7 +3,7 @@ import threading
 from dataclasses import dataclass
 from http.server import HTTPServer
 from pathlib import Path
-from typing import Iterable, cast
+from typing import Iterable, Literal, cast
 from urllib.parse import urlparse
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 from wsgiref.types import WSGIApplication
@@ -29,22 +29,25 @@ document.addEventListener("htmx:before:request", () => { window.__htmxWillReques
 _JS_SERIALIZE = """\
 () => {
     // Use prototype getters to avoid shadowing by named form controls (e.g. name="tagName").
-    const _tagName = Object.getOwnPropertyDescriptor(Element.prototype, 'tagName').get;
-    const _nodeType = Object.getOwnPropertyDescriptor(Node.prototype, 'nodeType').get;
-    const _childNodes = Object.getOwnPropertyDescriptor(Node.prototype, 'childNodes').get;
-    const _attributes = Object.getOwnPropertyDescriptor(Element.prototype, 'attributes').get;
+    const _getDescriptor = Object.getOwnPropertyDescriptor;
+
+    const _tagName = _getDescriptor(Element.prototype, 'tagName').get;
+    const _nodeType = _getDescriptor(Node.prototype, 'nodeType').get;
+    const _childNodes = _getDescriptor(Node.prototype, 'childNodes').get;
+    const _attributes = _getDescriptor(Element.prototype, 'attributes').get;
     const _getAttribute = Element.prototype.getAttribute;
-    const _value = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').get;
-    const _inputType = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'type').get;
-    const _checked = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked').get;
-    const _textareaValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').get;
-    const _selectValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').get;
-    const _optionSelected = Object.getOwnPropertyDescriptor(window.HTMLOptionElement.prototype, 'selected').get;
+    const _value = _getDescriptor(HTMLInputElement.prototype, 'value').get;
+    const _inputType = _getDescriptor(HTMLInputElement.prototype, 'type').get;
+    const _checked = _getDescriptor(HTMLInputElement.prototype, 'checked').get;
+    const _textareaValue = _getDescriptor(HTMLTextAreaElement.prototype, 'value').get;
+    const _selectValue = _getDescriptor(HTMLSelectElement.prototype, 'value').get;
+    const _optionSelected = _getDescriptor(window.HTMLOptionElement.prototype, 'selected').get;
 
     function serializeNode(node) {
         const nodeType = _nodeType.call(node);
         if (nodeType === Node.TEXT_NODE) {
-            // node.data is the reliable property for text nodes in both happy-dom and real browsers;
+            // node.data is the reliable property for text nodes
+            //   in both happy-dom and real browsers;
             // Node.prototype.textContent getter returns '' for Text nodes in happy-dom.
             const data = node.data.trim();
             return data ? {type: "text", data} : null;
@@ -195,6 +198,7 @@ class CrossCheck:
         server: HTTPServer,
         port: int,
         client_talk: Talk,
+        mode: Literal["htmx", "plain"] = "htmx",
     ) -> None:
         self.client_talk = client_talk
         self.page_talk = Talk()
@@ -203,9 +207,12 @@ class CrossCheck:
         self._page = page
         self._server = server
         self._port = port
+        self._mode = mode
 
     @classmethod
-    async def create(cls, wsgi_app: WSGIApplication, page: Page) -> "CrossCheck":
+    async def create(
+        cls, wsgi_app: WSGIApplication, page: Page, mode: Literal["htmx", "plain"] = "htmx"
+    ) -> "CrossCheck":
         client_talk = Talk()
         capturing_transport = _CapturingTransport(_AsyncWSGITransport(wsgi_app), client_talk)
         runtime = await build_runtime("http://testserver/", httpx_transport=capturing_transport)
@@ -225,7 +232,7 @@ class CrossCheck:
             await page.add_init_script(_SETTLE_INIT_SCRIPT)
             _pages_initialized.add(id(page))
 
-        cc = cls(browser, page, server, port, client_talk)
+        cc = cls(browser, page, server, port, client_talk, mode=mode)
         page.on("request", cc._hook_request_page)
         page.on("response", cc._hook_response_page)
         return cc
@@ -288,7 +295,19 @@ class CrossCheck:
         )
         await self.assert_same_dom()
 
-    async def click(self, selector: str) -> None:
+    async def _page_click_navigate(self, selector: str) -> None:
+        async with self._page.expect_navigation(wait_until="domcontentloaded", timeout=5000):
+            await self._page.locator(selector).click()
+
+    async def click(self, selector: str, is_submit: bool = False) -> None:
+        if self._mode == "plain" and is_submit:
+            await asyncio.gather(
+                self._browser.submit_form(selector),
+                self._page_click_navigate(selector),
+            )
+            await self.assert_same_dom()
+            return
+
         self._reset_capture()
         el = self._browser.find(selector)
         assert el is not None, f"Element not found: {selector!r}"

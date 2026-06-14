@@ -310,6 +310,34 @@ def flat(iterables):
     return list(collapse(iterables))
 
 
+def _draw_form_controls(draw):
+    controls: list[SimpleElement] = flat(draw(st.lists(st_form_control, min_size=1, max_size=10)))
+    all_ids = [e.id for c in controls for e in c.all_elements]
+    assume(len(all_ids) == len(set(all_ids)))
+    ids_by_interaction = map_reduce(
+        collapse(c.all_elements for c in controls),
+        keyfunc=lambda c: c.interaction,
+        valuefunc=lambda c: c.id,
+    )
+    return controls, ids_by_interaction
+
+
+def _build_form(extra_attrs: str, controls, ids_by_interaction) -> SimpleNamespace:
+    html = dedent(f"""\
+        <form id='focus' {extra_attrs}>
+            {"\n".join(c.html for c in controls)}
+        </form>
+    """)
+    return SimpleNamespace(html=html, ids_by_interaction=ids_by_interaction)
+
+
+@st.composite
+def st_plain_html_form(draw) -> SimpleNamespace:
+    method = draw(st.sampled_from(("get", "post")))
+    controls, ids_by_interaction = _draw_form_controls(draw)
+    return _build_form(f"method='{method}' action='/fragment'", controls, ids_by_interaction)
+
+
 @st.composite
 def st_html_form(draw) -> SimpleNamespace:
     method = draw(st.from_type(HxMethod))
@@ -317,17 +345,5 @@ def st_html_form(draw) -> SimpleNamespace:
         "hx-target": draw(st.sampled_from(("this", "#result"))),
         "hx-swap": draw(st_maybe_from_type(HxSwap)),
     }
-    controls: list[SimpleElement] = flat(draw(st.lists(st_form_control, min_size=1, max_size=10)))
-    all_ids = [e.id for c in controls for e in c.all_elements]
-    assume(len(all_ids) == len(set(all_ids)))
-    html = dedent(f"""\
-        <form id='focus' {method}='/fragment' {_attrs_str(attrs)}>
-            {"\n".join(c.html for c in controls)}
-        </form>
-""")
-    ids_by_interaction = map_reduce(
-        collapse(c.all_elements for c in controls),
-        keyfunc=lambda c: c.interaction,
-        valuefunc=lambda c: c.id,
-    )
-    return SimpleNamespace(html=html, ids_by_interaction=ids_by_interaction)
+    controls, ids_by_interaction = _draw_form_controls(draw)
+    return _build_form(f"{method}='/fragment' {_attrs_str(attrs)}", controls, ids_by_interaction)

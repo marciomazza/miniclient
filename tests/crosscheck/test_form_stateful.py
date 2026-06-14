@@ -1,22 +1,32 @@
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, Verbosity, given, settings, strategies as st
 from playwright.async_api import Page
 
 from crosscheck.crosscheck import CrossCheck
-from crosscheck.strategies import st_html_form, st_some_text_maybe_empty, st_wsgi_app
+from crosscheck.strategies import (
+    st_html_form,
+    st_plain_html_form,
+    st_some_text_maybe_empty,
+    st_wsgi_app,
+)
 
 pytestmark = pytest.mark.cross
 
 
+@pytest.mark.parametrize(
+    "form_strategy,mode",
+    [(st_html_form, "htmx"), (st_plain_html_form, "plain")],
+)
 @given(data=st.data())
 @settings(
     max_examples=3,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
+    verbosity=Verbosity.debug,
 )
-async def test_form_stateful(page: Page, data):
-    app, form = data.draw(st_wsgi_app(st_html_form))
-    cc = await CrossCheck.create(app, page)
+async def test_form_stateful(page: Page, data, form_strategy, mode):
+    app, form = data.draw(st_wsgi_app(form_strategy))
+    cc = await CrossCheck.create(app, page, mode=mode)
     try:
         await cc.goto("/")
         ids = form.ids_by_interaction
@@ -31,7 +41,7 @@ async def test_form_stateful(page: Page, data):
             if kind == "fill":
                 await cc.fill(f"#{el_id}", data.draw(st_some_text_maybe_empty))
             else:
-                await cc.click(f"#{el_id}")
+                await cc.click(f"#{el_id}", is_submit=(kind == "submit"))
             if kind == "submit":
                 break
     finally:
