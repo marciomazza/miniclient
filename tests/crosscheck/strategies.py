@@ -2,6 +2,7 @@ import json
 import string
 from dataclasses import dataclass
 from http import HTTPStatus
+from itertools import count
 from textwrap import dedent
 from types import SimpleNamespace
 from typing import Callable, Literal
@@ -65,8 +66,7 @@ def st_maybe_from_type(type):
 
 Interaction = Literal["fill", "click", "submit", "option", "select"]
 
-_st_id = st.integers(min_value=0, max_value=2**20).map(lambda n: f"id_{n:x}")
-_st_op_id = st.integers(min_value=0, max_value=2**20).map(lambda n: f"op_{n:x}")
+unique_ids = (f"id_{i}" for i in count())
 
 
 @dataclass
@@ -227,7 +227,7 @@ def st_input(draw) -> SimpleElement:
     type = draw(st.none() | st.sampled_from(("", "text", "submit")))
     return SimpleElement(
         tag="input",
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={
             "type": type,
             **_attrs_name_value(draw),
@@ -240,7 +240,7 @@ def st_input(draw) -> SimpleElement:
 def st_button_submit(draw) -> SimpleElement:
     return SimpleElement(
         tag="button",
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={
             "type": "submit",
             **_attrs_name_value(draw),
@@ -256,7 +256,7 @@ def st_checkbox_group(draw) -> list[SimpleElement]:
     return [
         SimpleElement(
             tag="input",
-            id=draw(_st_id),
+            id=next(unique_ids),
             attrs={
                 "type": "checkbox",
                 **_attrs_name_value(draw),
@@ -277,7 +277,7 @@ def st_radio_group(draw) -> list[SimpleElement]:
     return [
         SimpleElement(
             tag="input",
-            id=draw(_st_id),
+            id=next(unique_ids),
             attrs={
                 "type": "radio",
                 **_attrs_name_value(draw),
@@ -293,7 +293,7 @@ def st_radio_group(draw) -> list[SimpleElement]:
 def st_textarea(draw) -> SimpleElement:
     return SimpleElement(
         tag="textarea",
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={"name": _draw_safe_name(draw)},
         content=draw(st_some_text_maybe_empty),
         interaction="fill",
@@ -310,7 +310,7 @@ def st_select(draw) -> SimpleElement:
     options = [
         SimpleElement(
             tag="option",
-            id=draw(_st_op_id),
+            id=next(unique_ids),
             attrs={
                 "value": draw(st_value),
                 "selected": "selected" if i in selected_indices else None,
@@ -322,7 +322,7 @@ def st_select(draw) -> SimpleElement:
     ]
     return SimpleElement(
         tag="select",
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={"name": _draw_safe_name(draw), "multiple": multiple},
         content=options,
         interaction="select",
@@ -345,8 +345,6 @@ def flat(iterables):
 
 def _draw_form_controls(draw):
     controls: list[SimpleElement] = flat(draw(st.lists(st_form_control, min_size=1, max_size=10)))
-    all_ids = [e.id for c in controls for e in c.all_elements]
-    assume(len(all_ids) == len(set(all_ids)))
     ids_by_interaction = map_reduce(
         collapse(c.all_elements for c in controls),
         keyfunc=lambda c: c.interaction,
@@ -425,7 +423,7 @@ def st_html_form(draw) -> SimpleNamespace:
 def _st_plain_inline(draw) -> SimpleElement:
     return SimpleElement(
         tag=draw(st.sampled_from(("span", "em", "strong"))),
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={},
         content=draw(st_some_text),
         interaction="click",
@@ -444,7 +442,7 @@ def st_htmx_element(draw) -> SimpleElement:
     content = draw(st_some_text | st.lists(_st_plain_inline(), min_size=1, max_size=2))
     return SimpleElement(
         tag=tag,
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={
             method: "/fragment",
             "hx-trigger": hx_trigger,
@@ -463,7 +461,7 @@ def st_plain_element(draw) -> SimpleElement:
     tag = draw(st.sampled_from(("div", "span", "p", "li")))
     return SimpleElement(
         tag=tag,
-        id=draw(_st_id),
+        id=next(unique_ids),
         attrs={},
         content=draw(st_some_text_maybe_empty),
         interaction="click",
@@ -482,7 +480,6 @@ def st_rich_page(draw) -> SimpleNamespace:
     all_leaf_elements: list[SimpleElement] = flat(e.all_elements for e in all_elements)
 
     all_element_ids = [e.id for e in all_leaf_elements]
-    assume(len(all_element_ids) == len(set(all_element_ids)))
 
     id_selectors = [f"#{eid}" for eid in all_element_ids]
     extended = ["this", "closest div", "closest li", "find span", "next", "previous"]
