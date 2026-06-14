@@ -342,6 +342,22 @@ class CrossCheck:
         else:
             await self.assert_same_dom()
 
+    async def dispatch_event(self, selector: str, event: str) -> None:
+        el = self._browser.find(selector)
+        if el is None:
+            raise LookupError(f"No element matches {selector!r}")
+        self._reset_capture()
+        await self._page.evaluate("window.__htmxSettled = false;")
+        await asyncio.gather(
+            el.trigger(event),
+            self._page.locator(selector).dispatch_event(event),
+        )
+        if self.client_talk.request is not None:
+            await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
+            await self.assert_same_same()
+        else:
+            await self.assert_same_dom()
+
     async def stop(self) -> None:
         self._page.remove_listener("request", self._hook_request_page)
         self._page.remove_listener("response", self._hook_response_page)

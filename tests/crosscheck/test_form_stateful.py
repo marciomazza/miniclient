@@ -19,7 +19,7 @@ pytestmark = pytest.mark.cross
 )
 @given(data=st.data())
 @settings(
-    max_examples=3,
+    max_examples=20,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
     verbosity=Verbosity.debug,

@@ -376,21 +376,21 @@ def st_html_form(draw) -> SimpleNamespace:
     method = draw(st.from_type(HxMethod))
     controls, ids_by_interaction = _draw_form_controls(draw)
     names = [name for c in controls if (name := c.attrs.get("name"))]
+    hx_trigger = (
+        draw(
+            st.none()
+            | st.just("change")
+            | st.sampled_from(names).map(lambda n: f"change from:[name={n}]")
+        )
+        if names
+        else None
+    )
     hx_params = (
         draw(
             st.none()
             | st.just("none")
             | st.just("*")
             | st.lists(st.sampled_from(names), min_size=1, unique=True).map(" ".join)
-        )
-        if names
-        else None
-    )
-    hx_trigger = (
-        draw(
-            st.none()
-            | st.just("change")
-            | st.sampled_from(names).map(lambda n: f"change from:[name={n}]")
         )
         if names
         else None
@@ -414,3 +414,115 @@ def st_html_form(draw) -> SimpleNamespace:
         ),
     }
     return _build_form(f"{method}='/fragment' {_attrs_str(attrs)}", controls, ids_by_interaction)
+
+
+# --------------------------------------------------------------------------------
+# rich page (non-form elements)
+# --------------------------------------------------------------------------------
+
+
+@st.composite
+def _st_plain_inline(draw) -> SimpleElement:
+    return SimpleElement(
+        tag=draw(st.sampled_from(("span", "em", "strong"))),
+        id=draw(_st_id),
+        attrs={},
+        content=draw(st_some_text),
+        interaction="click",
+    )
+
+
+@st.composite
+def st_htmx_element(draw) -> SimpleElement:
+    tag = draw(st.sampled_from(("div", "span", "button", "a", "li", "p")))
+    method = draw(st.from_type(HxMethod))
+    hx_trigger = draw(
+        st.sampled_from(
+            ("click", "mouseenter", "focus", "dblclick", "mouseover", "change", "blur", "input")
+        )
+    )
+    content = draw(st_some_text | st.lists(_st_plain_inline(), min_size=1, max_size=2))
+    return SimpleElement(
+        tag=tag,
+        id=draw(_st_id),
+        attrs={
+            method: "/fragment",
+            "hx-trigger": hx_trigger,
+            "hx-target": None,  # assigned in st_rich_page
+            "hx-swap": draw(st_maybe_from_type(HxSwap)),
+            "hx-vals": draw(st_maybe_dicts),
+            "hx-headers": draw(st_maybe_dicts),
+        },
+        content=content,
+        interaction="click",
+    )
+
+
+@st.composite
+def st_plain_element(draw) -> SimpleElement:
+    tag = draw(st.sampled_from(("div", "span", "p", "li")))
+    return SimpleElement(
+        tag=tag,
+        id=draw(_st_id),
+        attrs={},
+        content=draw(st_some_text_maybe_empty),
+        interaction="click",
+    )
+
+
+@st.composite
+def st_rich_page(draw) -> SimpleNamespace:
+    htmx_elements: list[SimpleElement] = draw(st.lists(st_htmx_element(), min_size=1, max_size=8))
+    fillable_controls: list[SimpleElement] = draw(
+        st.lists(st_input() | st_textarea() | st_select(), min_size=0, max_size=4)
+    )
+    plain_elements: list[SimpleElement] = draw(st.lists(st_plain_element(), min_size=0, max_size=3))
+
+    all_elements = htmx_elements + fillable_controls + plain_elements
+    all_leaf_elements: list[SimpleElement] = flat(e.all_elements for e in all_elements)
+
+    all_element_ids = [e.id for e in all_leaf_elements]
+    assume(len(all_element_ids) == len(set(all_element_ids)))
+
+    id_selectors = [f"#{eid}" for eid in all_element_ids]
+    extended = ["this", "closest div", "closest li", "find span", "next", "previous"]
+    st_target = st.sampled_from(id_selectors + extended) | st.none()
+    for e in htmx_elements:
+        e.attrs["hx-target"] = draw(st_target)
+
+    all_ids = [e.id for e in all_leaf_elements if e.interaction != "option"]
+    fillable_ids = [e.id for e in all_leaf_elements if e.interaction == "fill"]
+
+    elements_html = "\n  ".join(e.html for e in all_elements)
+    html = dedent(f"""\
+        <html><head></head><body>
+          <script src="/htmx.js"></script>
+          {elements_html}
+          <div id="result"></div>
+        </body></html>
+        """)
+
+    return SimpleNamespace(html=html, all_ids=all_ids, fillable_ids=fillable_ids)
+
+
+@st.composite
+def st_wsgi_rich_page(draw):
+    page = draw(st_rich_page())
+    status_list = draw(st.sampled_from([HTTP_GOOD_STATUS, HTTP_BAD_STATUS]))
+    status_phrase = draw(st.sampled_from(status_list))
+    hx_response_headers = draw(st_hx_response_headers())
+
+    def app(environ, start_response):
+        path = environ["PATH_INFO"]
+        if path == "/":
+            start_response("200 OK", [("Content-Type", "text/html")])
+            return [page.html.encode()]
+        if path == "/fragment":
+            is_htmx = environ.get("HTTP_HX_REQUEST") == "true"
+            extra = list((hx_response_headers or {}).items()) if is_htmx else []
+            start_response(status_phrase, [("Content-Type", "text/html"), *extra])
+            return [b'<div id="a"><span id="b">Hello</span></div>']
+        start_response("404 Not Found", [("Content-Type", "text/plain")])
+        return [b"Not found"]
+
+    return app, page
