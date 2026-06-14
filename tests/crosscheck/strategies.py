@@ -12,6 +12,26 @@ from more_itertools import collapse, map_reduce
 
 HxMethod = Literal["hx-get", "hx-post", "hx-put", "hx-patch", "hx-delete"]
 HxSwap = Literal["innerHTML", "outerHTML", "beforebegin", "afterbegin", "beforeend", "afterend"]
+HxRequestHeader = Literal[
+    "HX-Request",
+    "HX-Source",
+    "HX-Target",
+    "HX-Current-URL",
+    "HX-Request-Type",
+    "HX-Boosted",
+    "HX-History-Restore-Request",
+]
+HxResponseHeader = Literal[
+    "HX-Trigger",
+    "HX-Push-Url",
+    "HX-Replace-Url",
+    "HX-Redirect",
+    "HX-Location",
+    "HX-Refresh",
+    "HX-Retarget",
+    "HX-Reswap",
+    "HX-Reselect",
+]
 
 
 def _attr_val(v):
@@ -121,10 +141,19 @@ HTTP_GOOD_STATUS, HTTP_BAD_STATUS = (
 
 
 @st.composite
+def st_hx_response_headers(draw) -> dict[str, str] | None:
+    retarget = draw(st.none() | st.sampled_from(["#result", "#focus"]))
+    reswap = draw(st.none() | st_maybe_from_type(HxSwap))
+    headers = {k: v for k, v in [("HX-Retarget", retarget), ("HX-Reswap", reswap)] if v}
+    return headers or None
+
+
+@st.composite
 def st_wsgi_app(draw, st_node_strategy: Callable[..., SearchStrategy]):
     node = draw(st_node_strategy())
     status_list = draw(st.sampled_from([HTTP_GOOD_STATUS, HTTP_BAD_STATUS]))
     status_phrase = draw(st.sampled_from(status_list))
+    hx_response_headers = draw(st_hx_response_headers())
 
     def app(environ, start_response):
         path = environ["PATH_INFO"]
@@ -133,7 +162,9 @@ def st_wsgi_app(draw, st_node_strategy: Callable[..., SearchStrategy]):
             start_response("200 OK", [("Content-Type", "text/html")])
             return [body]
         if path == "/fragment":
-            start_response(status_phrase, [("Content-Type", "text/html")])
+            is_htmx = environ.get("HTTP_HX_REQUEST") == "true"
+            extra = list((hx_response_headers or {}).items()) if is_htmx else []
+            start_response(status_phrase, [("Content-Type", "text/html"), *extra])
             return [b"<span>Hello</span>"]
         start_response("404 Not Found", [("Content-Type", "text/plain")])
         return [b"Not found"]

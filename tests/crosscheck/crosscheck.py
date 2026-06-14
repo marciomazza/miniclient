@@ -16,7 +16,7 @@ from htmxclient.browser import Browser
 from htmxclient.runtime import build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
-_KEEP_RESPONSE_HEADERS = {"content-type"}
+_KEEP_RESPONSE_HEADERS = {"content-type", "hx-retarget", "hx-reswap"}
 _HX_PREFIX = "hx-"
 
 _SETTLE_INIT_SCRIPT = """\
