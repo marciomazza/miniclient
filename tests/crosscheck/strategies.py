@@ -130,6 +130,8 @@ def _page_with_node(node) -> bytes:
           <script src="/htmx.js"></script>
           {node.html}
           <div id="result"></div>
+          <input id="out-a" name="out_a" value="1">
+          <input id="out-b" name="out_b" value="2">
         </body></html>
         """).encode()
 
@@ -374,12 +376,16 @@ def st_html_form(draw) -> SimpleNamespace:
     method = draw(st.from_type(HxMethod))
     controls, ids_by_interaction = _draw_form_controls(draw)
     names = [name for c in controls if (name := c.attrs.get("name"))]
-    hx_params = draw(
-        st.none()
-        | st.just("none")
-        | st.just("*")
-        | st.lists(st.sampled_from(names), min_size=1, unique=True).map(" ".join)
-    ) if names else None
+    hx_params = (
+        draw(
+            st.none()
+            | st.just("none")
+            | st.just("*")
+            | st.lists(st.sampled_from(names), min_size=1, unique=True).map(" ".join)
+        )
+        if names
+        else None
+    )
     attrs = {
         "hx-target": draw(st.sampled_from(("this", "#result"))),
         "hx-swap": draw(st_maybe_from_type(HxSwap)),
@@ -387,5 +393,13 @@ def st_html_form(draw) -> SimpleNamespace:
         "hx-headers": draw(st_maybe_dicts),
         "hx-params": hx_params,
         "hx-select": draw(st.none() | st.sampled_from(["#a", "#b", "span"])),
+        "hx-include": draw(
+            st.none()
+            | st.lists(
+                st.sampled_from(["#out-a", "#out-b", "[name='out_a']", "[name='out_b']"]),
+                min_size=1,
+                unique=True,
+            ).map(", ".join)
+        ),
     }
     return _build_form(f"{method}='/fragment' {_attrs_str(attrs)}", controls, ids_by_interaction)
