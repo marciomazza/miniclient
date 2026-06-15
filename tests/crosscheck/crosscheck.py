@@ -1,4 +1,5 @@
 import asyncio
+import json
 import threading
 from dataclasses import dataclass
 from http.server import HTTPServer
@@ -337,8 +338,15 @@ class CrossCheck:
         await self._page.evaluate("window.__htmxSettled = false;")
         el.fill(value)
         await el.trigger("change")
-        await self._page.locator(selector).fill(value)
-        await self._page.locator(selector).dispatch_event("change")
+        # todo: perhaps we should emulate the browser behaviour instead
+        # Use evaluate instead of locator.fill() + dispatch_event() to avoid Playwright's CDP
+        # focus causing Chrome to fire a native trusted change event when htmx's swap removes
+        # the focused element from the DOM, which would queue a second spurious htmx request.
+        await self._page.evaluate(
+            f"() => {{ const el = document.querySelector({json.dumps(selector)});"
+            f" el.value = {json.dumps(value)};"
+            f" el.dispatchEvent(new Event('change', {{bubbles: true}})); }}"
+        )
         if self.client_talk.request is not None:
             await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
             await self.assert_same_same()
