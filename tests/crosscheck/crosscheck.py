@@ -290,6 +290,9 @@ class CrossCheck:
         self.assert_same_talk()
         await self.assert_same_dom()
 
+    def has_element(self, selector: str) -> bool:
+        return self._browser.find(selector) is not None
+
     # --- navigation / interaction ---
 
     async def goto(self, path: str) -> None:

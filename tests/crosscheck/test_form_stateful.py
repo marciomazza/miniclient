@@ -33,7 +33,12 @@ async def test_form_stateful(page: Page, data, form_strategy, mode):
 
         n_steps = data.draw(st.integers(0, 5))
         for _ in range(n_steps):
-            available = {k: ids[k] for k in ("fill", "click", "submit") if ids.get(k)}
+            available = {}
+            for k in ("fill", "click", "submit"):
+                if ids.get(k):
+                    existing = [eid for eid in ids[k] if cc.has_element(f"#{eid}")]
+                    if existing:
+                        available[k] = existing
             if not available:
                 break
             kind = data.draw(st.sampled_from(list(available.keys())))
