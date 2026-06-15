@@ -249,12 +249,30 @@ class Browser:
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""
         self.runtime.eval(f"document.body.innerHTML = {json.dumps(html)};")
+        # todo: file a bug or PR in happy-dom
         # happy-dom does not reflect the `selected` HTML attribute onto the .selected
         # IDL property when parsing via innerHTML — re-apply it before htmx.process.
         self.runtime.eval(
             "document.querySelectorAll('option[selected]')"
             ".forEach(opt => { opt.selected = true; });"
         )
+        # todo: file a bug or PR in happy-dom
+        # happy-dom does not enforce radio button mutual exclusion when parsing via
+        # innerHTML — browsers keep only the last checked radio in each name group.
+        self.runtime.eval("""
+            (() => {
+                const groups = {};
+                document.querySelectorAll('input[type="radio"]').forEach(r => {
+                    if (!groups[r.name]) groups[r.name] = [];
+                    groups[r.name].push(r);
+                });
+                Object.values(groups).forEach(group => {
+                    const checked = group.filter(r => r.checked);
+                    if (checked.length > 1)
+                        checked.slice(0, -1).forEach(r => { r.checked = false; });
+                });
+            })();
+        """)
         self.runtime.eval("htmx.process(document.body);")
 
     def close(self) -> None:
