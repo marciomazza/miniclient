@@ -59,7 +59,7 @@ def _htmx_action_js(selector: str, action_js: str) -> str:
             {{once: true}},
         );
         document.addEventListener(
-            'htmx:after:settle',
+            'htmx:finally:request',
             () => resolve(),
             {{once: true}},
         );

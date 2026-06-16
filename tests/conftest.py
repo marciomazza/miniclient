@@ -2,9 +2,16 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from hypothesis import Phase, settings
 from jsrun import SnapshotBuilder
 
 from htmxclient.runtime import _populate_builder, build_runtime
+
+settings.register_profile(
+    "noshrink",
+    phases=[Phase.explicit, Phase.reuse, Phase.generate, Phase.target],
+)
+
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"

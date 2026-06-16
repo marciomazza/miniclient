@@ -23,7 +23,7 @@ _HX_PREFIX = "hx-"
 _SETTLE_INIT_SCRIPT = """\
 window.__htmxSettled = false;
 window.__htmxWillRequest = false;
-document.addEventListener("htmx:after:settle", () => { window.__htmxSettled = true; });
+document.addEventListener("htmx:finally:request", () => { window.__htmxSettled = true; });
 document.addEventListener("htmx:before:request", () => { window.__htmxWillRequest = true; });
 """
 
