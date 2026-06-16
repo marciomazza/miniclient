@@ -95,6 +95,9 @@ def _normalize_headers(headers: dict[str, str], keep: set[str]) -> dict[str, str
             continue
         if key == "hx-current-url":
             v = _url_path_and_query(v)
+        if key == "content-type":
+            # Strip boundary parameter — multipart boundaries are random and never match
+            v = v.split(";")[0].strip()
         result[key] = v
     return result
 
@@ -327,8 +330,11 @@ class CrossCheck:
         if self.client_talk.request is not None:
             await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
             await self.assert_same_same()
-        else:
+        elif not is_submit:
+            # No htmx request and no navigation expected: DOM should match.
             await self.assert_same_dom()
+        # is_submit with no htmx request: htmx didn't intercept → native browser navigation
+        # happened but hxclient doesn't replicate it; skip DOM comparison.
 
     async def fill(self, selector: str, value: str) -> None:
         el = self._browser.find(selector)

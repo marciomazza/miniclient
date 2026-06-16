@@ -124,14 +124,43 @@ patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
 applyPatchDomParser(win);
 const _fetchOpId = globalThis.__FETCH_OP_ID__;
 globalThis.fetch = async (input, init = {}) => {
-    const req = input instanceof Request ? input : new Request(input, init);
-    const body = req.body ? new Uint8Array(await req.arrayBuffer()) : null;
-    const res = await __host_op_async__(_fetchOpId, {
-        url: req.url,
-        method: req.method,
-        headers: Object.fromEntries(req.headers.entries()),
-        body,
-    });
+    let url, method, headers, body;
+    if (!(input instanceof Request) && init.body instanceof FormData) {
+        // happy-dom's Request constructor doesn't recognise our custom FormData and
+        // would serialise it as "[object Object]" with content-type text/plain.
+        // Serialize manually as multipart/form-data so the wire format matches browsers.
+        const boundary = "----HxClientBoundary" + Math.random().toString(36).slice(2, 18);
+        const enc = new TextEncoder();
+        const chunks = [];
+        for (const [name, value] of init.body) {
+            chunks.push(
+                enc.encode(
+                    `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+                ),
+            );
+        }
+        chunks.push(enc.encode(`--${boundary}--`));
+        const total = chunks.reduce((s, c) => s + c.length, 0);
+        body = new Uint8Array(total);
+        let off = 0;
+        for (const c of chunks) {
+            body.set(c, off);
+            off += c.length;
+        }
+        url = new URL(typeof input === "string" ? input : String(input), location.href).href;
+        method = (init.method ?? "GET").toUpperCase();
+        headers = {
+            ...(init.headers ?? {}),
+            "content-type": `multipart/form-data; boundary=${boundary}`,
+        };
+    } else {
+        const req = input instanceof Request ? input : new Request(input, init);
+        body = req.body ? new Uint8Array(await req.arrayBuffer()) : null;
+        url = req.url;
+        method = req.method;
+        headers = Object.fromEntries(req.headers.entries());
+    }
+    const res = await __host_op_async__(_fetchOpId, { url, method, headers, body });
     return new Response(res.body != null ? new Uint8Array(res.body) : null, {
         status: res.status,
         statusText: res.statusText ?? "",
