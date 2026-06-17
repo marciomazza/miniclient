@@ -41,6 +41,22 @@ class DomCheck:
             "document.querySelectorAll('option[selected]')"
             ".forEach(opt => { opt.selected = true; });"
         )
+        # happy-dom does not enforce radio button mutual exclusion when parsing via
+        # innerHTML — browsers keep only the last checked radio in each name group.
+        browser.runtime.eval("""
+            (() => {
+                const groups = {};
+                document.querySelectorAll('input[type="radio"]').forEach(r => {
+                    if (!groups[r.name]) groups[r.name] = [];
+                    groups[r.name].push(r);
+                });
+                Object.values(groups).forEach(group => {
+                    const checked = group.filter(r => r.checked);
+                    if (checked.length > 1)
+                        checked.slice(0, -1).forEach(r => { r.checked = false; });
+                });
+            })();
+        """)
         await page.set_content(html, wait_until="domcontentloaded")
         return cls(browser, page)
 

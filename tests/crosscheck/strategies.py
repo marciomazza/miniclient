@@ -494,6 +494,9 @@ def st_rich_page(draw) -> SimpleNamespace:
     html = dedent(f"""\
         <html><head></head><body>
           <script src="/htmx.js"></script>
+          <!-- anchor: ensures hx-target="previous" on the first generated element
+               resolves here rather than to the <script> tag above -->
+          <div id="anchor"></div>
           {elements_html}
           <div id="result"></div>
         </body></html>

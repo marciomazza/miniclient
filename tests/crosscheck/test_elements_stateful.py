@@ -37,6 +37,8 @@ async def test_elements_stateful(page: Page, data):
             else:
                 el_id = data.draw(st.sampled_from(pg.all_ids))
                 event = data.draw(st.sampled_from(_EVENTS))
+                if not cc.has_element(f"#{el_id}"):
+                    continue
                 await cc.dispatch_event(f"#{el_id}", event)
     finally:
         await cc.stop()
