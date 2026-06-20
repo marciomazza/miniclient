@@ -1,9 +1,8 @@
 import json
 
 import pytest
+from fetch_helpers import js_fetch_json, js_fetch_text
 from hypothesis import HealthCheck, given, settings, strategies as st
-
-from fetch_helpers import js_fetch_json, js_fetch_status, js_fetch_text
 
 pytestmark = pytest.mark.hypo
 

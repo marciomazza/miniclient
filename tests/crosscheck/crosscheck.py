@@ -263,8 +263,10 @@ class CrossCheck:
 
     async def click(self, selector: str, is_submit: bool = False) -> None:
         if self._mode == "plain" and is_submit:
+            el = self._browser.find(selector)
+            assert el is not None, f"Element not found: {selector!r}"
             await asyncio.gather(
-                self._browser.find(selector).submit(),
+                el.submit(),
                 self._page_click_navigate(selector),
             )
             await self.assert_same_dom()

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 from htmx_fetch_mock import HttpxFetchMock
-
 from jsrun import Runtime
+
 from htmxclient.runtime import build_runtime
 
 _ROOT = Path(__file__).parent.parent

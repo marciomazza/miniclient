@@ -1,9 +1,7 @@
 import json
 
 import pytest
-
 from fetch_helpers import js_fetch_json, js_fetch_status, js_fetch_text
-
 
 # ---------------------------------------------------------------------------
 # Basic response reading

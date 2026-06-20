@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 import httpx
-
 from jsrun import Runtime
 
 

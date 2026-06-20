@@ -9,7 +9,7 @@ from jsrun import Runtime
 from htmxclient.runtime import build_runtime
 
 
-def _extract_body_html(html: str) -> str:
+def extract_body_html(html: str) -> str:
     m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
     body = m.group(1) if m else html
     # happy-dom executes scripts in innerHTML (unlike real browsers); strip them to prevent
@@ -80,7 +80,7 @@ def _htmx_action_js(selector: str, action_js: str) -> str:
     """
 
 
-def _apply_innerhtml_quirks(runtime: Runtime) -> None:
+def apply_innerhtml_quirks(runtime: Runtime) -> None:
     """Fix two happy-dom bugs that appear after setting innerHTML."""
     runtime.eval("""
         // happy-dom does not reflect the `selected` HTML attribute onto the .selected
@@ -109,7 +109,7 @@ def _apply_innerhtml_quirks(runtime: Runtime) -> None:
 
 def _load(runtime: Runtime, html: str) -> None:
     runtime.eval(f"document.body.innerHTML = {json.dumps(html)}")
-    _apply_innerhtml_quirks(runtime)
+    apply_innerhtml_quirks(runtime)
     runtime.eval("htmx.process(document.body)")
 
 
@@ -165,7 +165,7 @@ class Element:
         """
         html = await self.runtime.eval_async(f"__zzz_submit({json.dumps(self.selector)})")
         if html is not None:
-            _load(self.runtime, _extract_body_html(html))
+            _load(self.runtime, extract_body_html(html))
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
@@ -238,7 +238,7 @@ class Browser:
     async def goto(self, url: str) -> None:
         """Fetch url, load its body into the document, and process htmx."""
         html = await self.runtime.eval_async(f"fetch({json.dumps(url)}).then(r => r.text())")
-        await self.load(_extract_body_html(html))
+        await self.load(extract_body_html(html))
 
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""
