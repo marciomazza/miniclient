@@ -5,8 +5,8 @@ import json
 from collections.abc import Generator
 
 import pytest
-
 from jsrun import Runtime
+
 from htmxclient.runtime import build_runtime
 
 
@@ -108,9 +108,7 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ),
     ],
 )
-def test_collects_successful_controls(
-    formdata_runtime: Runtime, html: str, expected: list
-) -> None:
+def test_collects_successful_controls(formdata_runtime: Runtime, html: str, expected: list) -> None:
     assert _pairs(formdata_runtime, html) == expected
 
 
@@ -139,7 +137,7 @@ def test_excludes_unsuccessful_controls(formdata_runtime: Runtime, html: str) ->
 
 
 def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
-    """Serialize a form's FormData via URLSearchParams, as submit_form would do in JS."""
+    """Serialize a form's FormData via URLSearchParams, as Element.submit does in JS."""
     return r.eval(
         f"""
         (function() {{
@@ -177,7 +175,5 @@ def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
         ('<form><input name="x" value=""></form>', "x="),
     ],
 )
-def test_urlsearchparams_from_formdata(
-    formdata_runtime: Runtime, html: str, expected: str
-) -> None:
+def test_urlsearchparams_from_formdata(formdata_runtime: Runtime, html: str, expected: str) -> None:
     assert _urlsearchparams_string(formdata_runtime, html) == expected

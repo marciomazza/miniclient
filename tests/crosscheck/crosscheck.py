@@ -320,7 +320,7 @@ class CrossCheck:
     async def click(self, selector: str, is_submit: bool = False) -> None:
         if self._mode == "plain" and is_submit:
             await asyncio.gather(
-                self._browser.submit_form(selector),
+                self._browser.find(selector).submit(),
                 self._page_click_navigate(selector),
             )
             await self.assert_same_dom()

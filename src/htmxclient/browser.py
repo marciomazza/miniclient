@@ -103,6 +103,12 @@ def _apply_innerhtml_quirks(runtime: Runtime) -> None:
     """)
 
 
+def _load(runtime: Runtime, html: str) -> None:
+    runtime.eval(f"document.body.innerHTML = {json.dumps(html)};")
+    _apply_innerhtml_quirks(runtime)
+    runtime.eval("htmx.process(document.body);")
+
+
 def _dispatch_js(selector: str, event: str, event_init: dict | None) -> str:
     event_cls = _event_class(event)
     init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
@@ -148,17 +154,54 @@ class Element:
         await self.trigger("click")
 
     async def submit(self) -> None:
-        """Submit the form (or the element's form) and wait for htmx to settle if needed."""
+        """Submit the form (or the element's form).
+
+        If htmx handles the submission, waits for htmx to settle.
+        If the form is not htmx-wired, performs a plain fetch and reloads the page.
+        """
         no_form_msg = json.dumps(f"No form found for: {self.selector}")
-        action = (
-            f"const form = el.form ?? el.closest('form');\n"
-            f"if (!form) {{ reject(new Error({no_form_msg})); return; }}\n"
-            f"const submitter = el.tagName === 'BUTTON' || el.tagName === 'INPUT'"
-            f" ? el : null;\n"
-            f"form.dispatchEvent(new SubmitEvent('submit', "
-            f"{{bubbles: true, cancelable: true, submitter}}));"
-        )
-        await self.runtime.eval_async(_htmx_action_js(self.selector, action))
+        html = await self.runtime.eval_async(f"""
+        new Promise((resolve, reject) => {{
+            let willRequest = false;
+            document.addEventListener('htmx:before:request', () => {{ willRequest = true; }}, {{once: true}});
+            document.addEventListener('htmx:finally:request', () => resolve(null), {{once: true}});
+            document.addEventListener('htmx:error', (e) => {{
+                reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
+            }}, {{once: true}});
+
+            const el = document.querySelector({json.dumps(self.selector)});
+            if (!el) {{ reject(new Error('Element not found: {self.selector}')); return; }}
+
+            const form = el.form ?? el.closest('form');
+            if (!form) {{ reject(new Error({no_form_msg})); return; }}
+            const submitter = el.tagName === 'BUTTON' || el.tagName === 'INPUT' ? el : null;
+
+            form.dispatchEvent(new SubmitEvent('submit', {{bubbles: true, cancelable: true, submitter}}));
+
+            setTimeout(() => {{
+                if (!willRequest) {{
+                    // htmx didn't intercept — plain form submission
+                    const fd = new FormData(form, submitter);
+                    const method = (form.method || 'get').toLowerCase();
+                    const action = form.action;
+                    let p;
+                    if (method === 'post') {{
+                        p = fetch(action, {{
+                            method: 'POST',
+                            body: new URLSearchParams(fd).toString(),
+                            headers: {{'content-type': 'application/x-www-form-urlencoded'}},
+                        }});
+                    }} else {{
+                        const params = new URLSearchParams(fd).toString();
+                        p = fetch(params ? action + '?' + params : action);
+                    }}
+                    p.then(r => r.text()).then(resolve).catch(reject);
+                }}
+            }}, 0);
+        }})
+        """)
+        if html is not None:
+            _load(self.runtime, _extract_body_html(html))
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
@@ -234,36 +277,9 @@ class Browser:
         )
         await self.load(_extract_body_html(html))
 
-    async def submit_form(self, selector: str) -> None:
-        """Submit the form containing selector and load the response."""
-        html = await self.runtime.eval_async(f"""
-        (() => {{
-            const el = document.querySelector({json.dumps(selector)});
-            const form = el?.tagName === 'FORM' ? el : el?.closest('form');
-            if (!form) throw new Error('No form found for: {selector}');
-            const submitter = (el.tagName === 'INPUT' || el.tagName === 'BUTTON') ? el : null;
-            const fd = new FormData(form, submitter);
-            const method = (form.method || 'get').toLowerCase();
-            const action = form.action;
-            if (method === 'post') {{
-                return fetch(action, {{
-                    method: 'POST',
-                    body: new URLSearchParams(fd).toString(),
-                    headers: {{'content-type': 'application/x-www-form-urlencoded'}},
-                }}).then(r => r.text());
-            }} else {{
-                const params = new URLSearchParams(fd).toString();
-                return fetch(params ? action + '?' + params : action).then(r => r.text());
-            }}
-        }})()
-        """)
-        await self.load(_extract_body_html(html))
-
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""
-        self.runtime.eval(f"document.body.innerHTML = {json.dumps(html)};")
-        _apply_innerhtml_quirks(self.runtime)
-        self.runtime.eval("htmx.process(document.body);")
+        _load(self.runtime, html)
 
     def close(self) -> None:
         self.runtime.close()
