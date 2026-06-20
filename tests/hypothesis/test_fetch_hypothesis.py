@@ -3,21 +3,9 @@ import json
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
+from fetch_helpers import js_fetch_json, js_fetch_status, js_fetch_text
+
 pytestmark = pytest.mark.hypo
-
-
-async def js_fetch_text(runtime, url, **opts):
-    js_opts = json.dumps(opts, ensure_ascii=False) if opts else "{}"
-    return await runtime.eval_async(f"fetch({json.dumps(url)}, {js_opts}).then(r => r.text())")
-
-
-async def js_fetch_json(runtime, url, **opts):
-    js_opts = json.dumps(opts, ensure_ascii=False) if opts else "{}"
-    return await runtime.eval_async(f"fetch({json.dumps(url)}, {js_opts}).then(r => r.json())")
-
-
-async def js_fetch_status(runtime, url):
-    return await runtime.eval_async(f"fetch({json.dumps(url)}).then(r => r.status)")
 
 
 # ASCII printable characters only — the jsrun bridge has encoding issues
