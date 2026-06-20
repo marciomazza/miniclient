@@ -539,7 +539,8 @@ async def test_element_submit_input(browser, httpx_mock):
     assert browser.find("#result").innerHTML() == "<p>sent</p>"
 
 
-async def test_element_submit_plain_post(browser, httpx_mock):
+@pytest.mark.parametrize("selector", ["#btn", "form"])
+async def test_element_submit_plain_post(browser, httpx_mock, selector):
     httpx_mock.add_response(
         url="http://app.example.com/action",
         text="<body><p>done</p></body>",
@@ -550,7 +551,7 @@ async def test_element_submit_plain_post(browser, httpx_mock):
         '<button type="submit" id="btn">go</button>'
         "</form>"
     )
-    await browser.find("#btn").submit()
+    await browser.find(selector).submit()
     request = httpx_mock.get_request()
     assert request.method == "POST"
     assert request.content == b"x=42"
@@ -558,7 +559,8 @@ async def test_element_submit_plain_post(browser, httpx_mock):
     assert browser.find("p").text() == "done"
 
 
-async def test_element_submit_plain_get(browser, httpx_mock):
+@pytest.mark.parametrize("selector", ["#btn", "form"])
+async def test_element_submit_plain_get(browser, httpx_mock, selector):
     httpx_mock.add_response(
         url="http://app.example.com/search?q=hello+world",
         text="<body><p>results</p></body>",
@@ -569,7 +571,7 @@ async def test_element_submit_plain_get(browser, httpx_mock):
         '<button type="submit" id="btn">go</button>'
         "</form>"
     )
-    await browser.find("#btn").submit()
+    await browser.find(selector).submit()
     request = httpx_mock.get_request()
     assert request.method == "GET"
     assert str(request.url) == "http://app.example.com/search?q=hello+world"
