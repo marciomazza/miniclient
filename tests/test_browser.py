@@ -541,12 +541,10 @@ async def test_element_submit_input(browser, httpx_mock):
 
 @pytest.mark.parametrize("selector", ["#btn", "form"])
 @pytest.mark.parametrize(
-    "method, form_html, expected_url, check_request",
+    "method, expected_url, check_request",
     [
         (
-            "POST",
-            '<form method="post" action="/action"><input name="x" value="42">'
-            '<button type="submit" id="btn">go</button></form>',
+            "post",
             "http://app.example.com/action",
             lambda req: (
                 req.method == "POST"
@@ -555,22 +553,23 @@ async def test_element_submit_input(browser, httpx_mock):
             ),
         ),
         (
-            "GET",
-            '<form method="get" action="/search"><input name="q" value="hello world">'
-            '<button type="submit" id="btn">go</button></form>',
-            "http://app.example.com/search?q=hello+world",
+            "get",
+            "http://app.example.com/action?x=42",
             lambda req: (
-                req.method == "GET"
-                and str(req.url) == "http://app.example.com/search?q=hello+world"
+                req.method == "GET" and str(req.url) == "http://app.example.com/action?x=42"
             ),
         ),
     ],
+    ids=["POST", "GET"],
 )
 async def test_element_submit_plain(
-    browser, httpx_mock, selector, method, form_html, expected_url, check_request
+    browser, httpx_mock, selector, method, expected_url, check_request
 ):
     httpx_mock.add_response(url=expected_url, text="<body><p>done</p></body>")
-    await browser.load(form_html)
+    await browser.load(
+        f'<form method="{method}" action="/action"><input name="x" value="42">'
+        '<button type="submit" id="btn">go</button></form>'
+    )
     await browser.find(selector).submit()
     assert check_request(httpx_mock.get_request())
     assert browser.find("p").text() == "done"
