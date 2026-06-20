@@ -1,6 +1,9 @@
 import json
 
+import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
+
+pytestmark = pytest.mark.hypo
 
 
 async def js_fetch_text(runtime, url, **opts):

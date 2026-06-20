@@ -310,6 +310,13 @@ class CrossCheck:
         async with self._page.expect_navigation(wait_until="domcontentloaded", timeout=5000):
             await self._page.locator(selector).click()
 
+    async def _assert_after_interaction(self) -> None:
+        if self.client_talk.request is not None:
+            await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
+            await self.assert_same_same()
+        else:
+            await self.assert_same_dom()
+
     async def click(self, selector: str, is_submit: bool = False) -> None:
         if self._mode == "plain" and is_submit:
             await asyncio.gather(
@@ -328,8 +335,7 @@ class CrossCheck:
             self._page.locator(selector).click(),
         )
         if self.client_talk.request is not None:
-            await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
-            await self.assert_same_same()
+            await self._assert_after_interaction()
         elif not is_submit:
             # No htmx request and no navigation expected: DOM should match.
             await self.assert_same_dom()
@@ -353,11 +359,7 @@ class CrossCheck:
             f" el.value = {json.dumps(value)};"
             f" el.dispatchEvent(new Event('change', {{bubbles: true}})); }}"
         )
-        if self.client_talk.request is not None:
-            await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
-            await self.assert_same_same()
-        else:
-            await self.assert_same_dom()
+        await self._assert_after_interaction()
 
     async def dispatch_event(self, selector: str, event: str) -> None:
         el = self._browser.find(selector)
@@ -369,11 +371,7 @@ class CrossCheck:
             el.trigger(event),
             self._page.locator(selector).dispatch_event(event),
         )
-        if self.client_talk.request is not None:
-            await self._page.wait_for_function("() => window.__htmxSettled", timeout=5000)
-            await self.assert_same_same()
-        else:
-            await self.assert_same_dom()
+        await self._assert_after_interaction()
 
     async def stop(self) -> None:
         self._page.remove_listener("request", self._hook_request_page)

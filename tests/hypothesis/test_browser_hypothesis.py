@@ -1,6 +1,9 @@
 import json
 
+import pytest
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
+
+pytestmark = pytest.mark.hypo
 
 
 def _js_str(s: str) -> str:
