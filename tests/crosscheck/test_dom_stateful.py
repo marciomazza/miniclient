@@ -7,7 +7,7 @@ from playwright.async_api import Page
 
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
-from htmxclient.browser import Browser, _extract_body_html
+from htmxclient.browser import Browser, _apply_innerhtml_quirks, _extract_body_html
 from htmxclient.runtime import build_runtime
 
 pytestmark = pytest.mark.cross
@@ -35,28 +35,7 @@ class DomCheck:
         # Set innerHTML directly without htmx.process so that neither side adds
         # htmx-specific attributes (e.g. data-htmx-powered) during setup.
         browser.runtime.eval(f"document.body.innerHTML = {json.dumps(body_html)};")
-        # happy-dom does not reflect the `selected` HTML attribute onto the .selected
-        # IDL property when parsing via innerHTML — re-apply it explicitly.
-        browser.runtime.eval(
-            "document.querySelectorAll('option[selected]')"
-            ".forEach(opt => { opt.selected = true; });"
-        )
-        # happy-dom does not enforce radio button mutual exclusion when parsing via
-        # innerHTML — browsers keep only the last checked radio in each name group.
-        browser.runtime.eval("""
-            (() => {
-                const groups = {};
-                document.querySelectorAll('input[type="radio"]').forEach(r => {
-                    if (!groups[r.name]) groups[r.name] = [];
-                    groups[r.name].push(r);
-                });
-                Object.values(groups).forEach(group => {
-                    const checked = group.filter(r => r.checked);
-                    if (checked.length > 1)
-                        checked.slice(0, -1).forEach(r => { r.checked = false; });
-                });
-            })();
-        """)
+        _apply_innerhtml_quirks(browser.runtime)
         await page.set_content(html, wait_until="domcontentloaded")
         return cls(browser, page)
 
