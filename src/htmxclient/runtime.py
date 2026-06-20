@@ -140,15 +140,7 @@ async def build_runtime(
     r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
 
-    for bare, fname in _NODE_POLYFILL_FILES.items():
-        r.add_static_module(f"node:{bare}", _read_cached(_POLYFILLS / fname))
-    for name, fname in _NPM_POLYFILL_FILES.items():
-        r.add_static_module(f"npm:{name}", _read_cached(_POLYFILLS / fname))
-    for js_path in [_JS / "urlsearch-dom-patches.js", _JS / "patch-dom-parser.js"]:
-        r.add_static_module(js_path.as_uri(), _read_cached(js_path))
-
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
-    r.add_static_module(_bootstrap_uri, _read_cached(_JS / "bootstrap.js"))
     await r.eval_module_async(_bootstrap_uri)
     r.eval("var htmx = new Htmx();")
     return r
