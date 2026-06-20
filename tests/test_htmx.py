@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 from htmx_fetch_mock import HttpxFetchMock
 
-from htmxclient.runtime import HxRuntime, build_runtime
+from jsrun import Runtime
+from htmxclient.runtime import build_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -34,7 +35,7 @@ _INFRA_JS = "\n".join(
 
 
 @pytest.fixture(scope="module")
-async def htmx_runtime(browser_snapshot: bytes) -> AsyncGenerator[HxRuntime, None]:
+async def htmx_runtime(browser_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
     r = await build_runtime(
         "http://localhost/",
@@ -49,7 +50,7 @@ async def htmx_runtime(browser_snapshot: bytes) -> AsyncGenerator[HxRuntime, Non
 
 
 @pytest.fixture(autouse=True)
-async def _reset_htmx(htmx_runtime: HxRuntime) -> AsyncGenerator[None, None]:
+async def _reset_htmx(htmx_runtime: Runtime) -> AsyncGenerator[None, None]:
     yield
     htmx_runtime.eval("""\
         __clearAllTimers();
@@ -59,7 +60,7 @@ async def _reset_htmx(htmx_runtime: HxRuntime) -> AsyncGenerator[None, None]:
     """)
 
 
-async def _run_js_tests(r: HxRuntime, js_file: Path) -> None:
+async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     r.eval(js_file.read_text())
     results = await r.eval_async("__runAllTests()")
     skip = _SKIP_TESTS.get(js_file.stem, set())
@@ -77,15 +78,15 @@ _end2end_files = sorted((_HTMX_TEST / "tests/end2end").glob("*.js"))
 
 
 @pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
-async def test_htmx_unit(js_file: Path, htmx_runtime: HxRuntime) -> None:
+async def test_htmx_unit(js_file: Path, htmx_runtime: Runtime) -> None:
     await _run_js_tests(htmx_runtime, js_file)
 
 
 @pytest.mark.parametrize("js_file", _attributes_files, ids=lambda f: f.stem)
-async def test_htmx_attributes(js_file: Path, htmx_runtime: HxRuntime) -> None:
+async def test_htmx_attributes(js_file: Path, htmx_runtime: Runtime) -> None:
     await _run_js_tests(htmx_runtime, js_file)
 
 
 @pytest.mark.parametrize("js_file", _end2end_files, ids=lambda f: f.stem)
-async def test_htmx_e2e(js_file: Path, htmx_runtime: HxRuntime) -> None:
+async def test_htmx_e2e(js_file: Path, htmx_runtime: Runtime) -> None:
     await _run_js_tests(htmx_runtime, js_file)

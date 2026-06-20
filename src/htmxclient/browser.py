@@ -5,7 +5,8 @@ import re
 
 import httpx
 
-from htmxclient.runtime import HxRuntime, build_runtime
+from jsrun import Runtime
+from htmxclient.runtime import build_runtime
 
 
 def _extract_body_html(html: str) -> str:
@@ -79,7 +80,7 @@ def _htmx_action_js(selector: str, action_js: str) -> str:
     """
 
 
-def _apply_innerhtml_quirks(runtime: HxRuntime) -> None:
+def _apply_innerhtml_quirks(runtime: Runtime) -> None:
     """Fix two happy-dom bugs that appear after setting innerHTML."""
     runtime.eval("""
         // happy-dom does not reflect the `selected` HTML attribute onto the .selected
@@ -112,7 +113,7 @@ def _dispatch_js(selector: str, event: str, event_init: dict | None) -> str:
 class Element:
     """Represents a DOM element found via Browser.find() or Browser.find_all()."""
 
-    def __init__(self, selector: str, runtime: HxRuntime) -> None:
+    def __init__(self, selector: str, runtime: Runtime) -> None:
         self.selector = selector
         self.runtime = runtime
 
@@ -179,7 +180,7 @@ class Element:
 
 
 class Browser:
-    def __init__(self, runtime: HxRuntime) -> None:
+    def __init__(self, runtime: Runtime) -> None:
         self.runtime = runtime
 
     @classmethod

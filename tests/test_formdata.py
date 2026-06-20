@@ -6,12 +6,13 @@ from collections.abc import Generator
 
 import pytest
 
-from htmxclient.runtime import HxRuntime, build_runtime
+from jsrun import Runtime
+from htmxclient.runtime import build_runtime
 
 
 @pytest.fixture(scope="module")
-def formdata_runtime(browser_snapshot) -> Generator[HxRuntime, None, None]:
-    async def _build() -> HxRuntime:
+def formdata_runtime(browser_snapshot) -> Generator[Runtime, None, None]:
+    async def _build() -> Runtime:
         return await build_runtime("http://localhost/", snapshot=browser_snapshot)
 
     r = asyncio.run(_build())
@@ -19,7 +20,7 @@ def formdata_runtime(browser_snapshot) -> Generator[HxRuntime, None, None]:
     r.close()
 
 
-def _pairs(r: HxRuntime, form_html: str) -> list[tuple[str, str]]:
+def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
     """Create a form from HTML, collect FormData, return list of (name, value) pairs."""
     result = r.eval(
         f"""
@@ -108,7 +109,7 @@ def _pairs(r: HxRuntime, form_html: str) -> list[tuple[str, str]]:
     ],
 )
 def test_collects_successful_controls(
-    formdata_runtime: HxRuntime, html: str, expected: list
+    formdata_runtime: Runtime, html: str, expected: list
 ) -> None:
     assert _pairs(formdata_runtime, html) == expected
 
@@ -133,11 +134,11 @@ def test_collects_successful_controls(
         '<form><select name="x" multiple><option value="a">A</option></select></form>',
     ],
 )
-def test_excludes_unsuccessful_controls(formdata_runtime: HxRuntime, html: str) -> None:
+def test_excludes_unsuccessful_controls(formdata_runtime: Runtime, html: str) -> None:
     assert _pairs(formdata_runtime, html) == []
 
 
-def _urlsearchparams_string(r: HxRuntime, form_html: str) -> str:
+def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
     """Serialize a form's FormData via URLSearchParams, as submit_form would do in JS."""
     return r.eval(
         f"""
@@ -177,6 +178,6 @@ def _urlsearchparams_string(r: HxRuntime, form_html: str) -> str:
     ],
 )
 def test_urlsearchparams_from_formdata(
-    formdata_runtime: HxRuntime, html: str, expected: str
+    formdata_runtime: Runtime, html: str, expected: str
 ) -> None:
     assert _urlsearchparams_string(formdata_runtime, html) == expected
