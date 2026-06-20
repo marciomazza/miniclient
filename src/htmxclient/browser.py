@@ -252,3 +252,9 @@ class Browser:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+    async def __aenter__(self) -> Browser:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        self.close()

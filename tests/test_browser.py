@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 import pytest_asyncio
 from jsrun import JavaScriptError
@@ -596,4 +598,22 @@ async def test_browser_context_manager(httpx_mock, browser_snapshot):
         btn = b.find("button")
         assert btn is not None
         await btn.click()
-        assert b.find("#r").innerHTML() == "<b>hi</b>"
+        result = b.find("#r")
+        assert result is not None
+        assert result.innerHTML() == "<b>hi</b>"
+
+
+async def test_browser_async_context_manager(httpx_mock, browser_snapshot):
+    httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
+    r = await build_runtime("http://app.example.com/", snapshot=browser_snapshot)
+    b = Browser(r)
+    with patch.object(b, "close", wraps=b.close) as close_mock:
+        async with b:
+            await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
+            btn = b.find("button")
+            assert btn is not None
+            await btn.click()
+            result = b.find("#r")
+            assert result is not None
+            assert result.innerHTML() == "<b>hi</b>"
+    close_mock.assert_called_once()
