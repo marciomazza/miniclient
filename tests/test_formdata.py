@@ -135,3 +135,48 @@ def test_collects_successful_controls(
 )
 def test_excludes_unsuccessful_controls(formdata_runtime: HxRuntime, html: str) -> None:
     assert _pairs(formdata_runtime, html) == []
+
+
+def _urlsearchparams_string(r: HxRuntime, form_html: str) -> str:
+    """Serialize a form's FormData via URLSearchParams, as submit_form would do in JS."""
+    return r.eval(
+        f"""
+        (function() {{
+            const wrap = document.createElement('div');
+            wrap.innerHTML = {json.dumps(form_html)};
+            const form = wrap.querySelector('form');
+            const fd = new FormData(form);
+            return new URLSearchParams(fd).toString();
+        }})()
+        """
+    )
+
+
+@pytest.mark.parametrize(
+    "html,expected",
+    [
+        # single field
+        ('<form><input name="x" value="hello"></form>', "x=hello"),
+        # multiple fields
+        (
+            '<form><input name="a" value="1"><input name="b" value="2"></form>',
+            "a=1&b=2",
+        ),
+        # values requiring encoding
+        ('<form><input name="q" value="hello world"></form>', "q=hello+world"),
+        # multiple values for same name
+        (
+            "<form>"
+            '<input type="checkbox" name="c" value="x" checked>'
+            '<input type="checkbox" name="c" value="y" checked>'
+            "</form>",
+            "c=x&c=y",
+        ),
+        # empty value
+        ('<form><input name="x" value=""></form>', "x="),
+    ],
+)
+def test_urlsearchparams_from_formdata(
+    formdata_runtime: HxRuntime, html: str, expected: str
+) -> None:
+    assert _urlsearchparams_string(formdata_runtime, html) == expected

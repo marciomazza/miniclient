@@ -101,7 +101,6 @@ async def _loader(spec: str) -> str:
     raise ValueError(f"Cannot load module: {spec!r}")
 
 
-
 def _make_fetch_op(before_fetch=None, httpx_transport=None):
     async def _fetch_op_impl(req: dict) -> dict:
         if before_fetch is not None:

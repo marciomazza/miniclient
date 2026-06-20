@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.parse import urlencode
 
 import httpx
 
@@ -229,45 +228,35 @@ class Browser:
 
     async def goto(self, url: str) -> None:
         """Fetch url, load its body into the document, and process htmx."""
-        async with httpx.AsyncClient(transport=self.runtime.httpx_transport) as client:
-            response = await client.get(url)
-        await self.load(_extract_body_html(response.text))
+        html = await self.runtime.eval_async(
+            f"fetch({json.dumps(url)}).then(r => r.text())"
+        )
+        await self.load(_extract_body_html(html))
 
     async def submit_form(self, selector: str) -> None:
-        """
-        Submit the form containing selector:
-        serialize its data, fetch the action URL, load the response.
-        """
-        info = self.runtime.eval(f"""
+        """Submit the form containing selector and load the response."""
+        html = await self.runtime.eval_async(f"""
         (() => {{
             const el = document.querySelector({json.dumps(selector)});
             const form = el?.tagName === 'FORM' ? el : el?.closest('form');
             if (!form) throw new Error('No form found for: {selector}');
             const submitter = (el.tagName === 'INPUT' || el.tagName === 'BUTTON') ? el : null;
             const fd = new FormData(form, submitter);
-            const entries = [];
-            for (const [k, v] of fd.entries()) entries.push([k, String(v)]);
-            return {{
-                action: form.action,
-                method: (form.method || 'get').toLowerCase(),
-                entries,
-            }};
+            const method = (form.method || 'get').toLowerCase();
+            const action = form.action;
+            if (method === 'post') {{
+                return fetch(action, {{
+                    method: 'POST',
+                    body: new URLSearchParams(fd).toString(),
+                    headers: {{'content-type': 'application/x-www-form-urlencoded'}},
+                }}).then(r => r.text());
+            }} else {{
+                const params = new URLSearchParams(fd).toString();
+                return fetch(params ? action + '?' + params : action).then(r => r.text());
+            }}
         }})()
         """)
-        action = info["action"]
-        method = info["method"]
-        entries = [(k, v) for k, v in info["entries"]]
-        async with httpx.AsyncClient(transport=self.runtime.httpx_transport) as client:
-            if method == "post":
-                body = urlencode(entries).encode("utf-8")
-                response = await client.post(
-                    action,
-                    content=body,
-                    headers={"content-type": "application/x-www-form-urlencoded"},
-                )
-            else:
-                response = await client.get(action, params=entries)
-        await self.load(_extract_body_html(response.text))
+        await self.load(_extract_body_html(html))
 
     async def load(self, html: str) -> None:
         """Set document body and initialize htmx on the new content."""

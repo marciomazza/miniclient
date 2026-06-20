@@ -44,6 +44,10 @@ export default function apply(win) {
                 super(init);
             }
         }
+        toString() {
+            // happy-dom encodes spaces as %20; application/x-www-form-urlencoded requires +
+            return super.toString().replaceAll("%20", "+");
+        }
     }
     globalThis.URLSearchParams = _PatchedUSP;
 }
