@@ -539,6 +539,43 @@ async def test_element_submit_input(browser, httpx_mock):
     assert browser.find("#result").innerHTML() == "<p>sent</p>"
 
 
+async def test_element_submit_plain_post(browser, httpx_mock):
+    httpx_mock.add_response(
+        url="http://app.example.com/action",
+        text="<body><p>done</p></body>",
+    )
+    await browser.load(
+        '<form method="post" action="/action">'
+        '<input name="x" value="42">'
+        '<button type="submit" id="btn">go</button>'
+        "</form>"
+    )
+    await browser.find("#btn").submit()
+    request = httpx_mock.get_request()
+    assert request.method == "POST"
+    assert request.content == b"x=42"
+    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    assert browser.find("p").text() == "done"
+
+
+async def test_element_submit_plain_get(browser, httpx_mock):
+    httpx_mock.add_response(
+        url="http://app.example.com/search?q=hello+world",
+        text="<body><p>results</p></body>",
+    )
+    await browser.load(
+        '<form method="get" action="/search">'
+        '<input name="q" value="hello world">'
+        '<button type="submit" id="btn">go</button>'
+        "</form>"
+    )
+    await browser.find("#btn").submit()
+    request = httpx_mock.get_request()
+    assert request.method == "GET"
+    assert str(request.url) == "http://app.example.com/search?q=hello+world"
+    assert browser.find("p").text() == "results"
+
+
 async def test_element_submit_no_form_raises(browser):
     await browser.load("<button id='btn'>orphan</button>")
     btn = browser.find("#btn")
