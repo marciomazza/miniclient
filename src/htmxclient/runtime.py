@@ -59,6 +59,7 @@ def _populate_builder(builder: SnapshotBuilder) -> None:
         .replace("return new Htmx()", "return Htmx", 1)
     )
     builder.execute_script("htmx", htmx_source)
+    builder.execute_script("htmxclient-submit", (_JS / "submit.js").read_text())
 
 
 @cache

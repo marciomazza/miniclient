@@ -4,8 +4,8 @@ import json
 import re
 
 import httpx
-
 from jsrun import Runtime
+
 from htmxclient.runtime import build_runtime
 
 
@@ -85,28 +85,32 @@ def _apply_innerhtml_quirks(runtime: Runtime) -> None:
     runtime.eval("""
         // happy-dom does not reflect the `selected` HTML attribute onto the .selected
         // IDL property when parsing via innerHTML — re-apply it before htmx.process.
-        document.querySelectorAll('option[selected]').forEach(opt => { opt.selected = true; });
+        document.querySelectorAll('option[selected]').forEach(opt => {
+          opt.selected = true;
+        });
         // happy-dom does not enforce radio button mutual exclusion when parsing via
         // innerHTML — browsers keep only the last checked radio in each name group.
         (() => {
-            const groups = {};
-            document.querySelectorAll('input[type="radio"]').forEach(r => {
-                if (!groups[r.name]) groups[r.name] = [];
-                groups[r.name].push(r);
-            });
-            Object.values(groups).forEach(group => {
-                const checked = group.filter(r => r.checked);
-                if (checked.length > 1)
-                    checked.slice(0, -1).forEach(r => { r.checked = false; });
-            });
+          const groups = {};
+          document.querySelectorAll('input[type="radio"]').forEach(r => {
+            if (!groups[r.name]) groups[r.name] = [];
+            groups[r.name].push(r);
+          });
+          Object.values(groups).forEach(group => {
+            const checked = group.filter(r => r.checked);
+            if (checked.length > 1)
+              checked.slice(0, -1).forEach(r => {
+                r.checked = false;
+              });
+          });
         })();
     """)
 
 
 def _load(runtime: Runtime, html: str) -> None:
-    runtime.eval(f"document.body.innerHTML = {json.dumps(html)};")
+    runtime.eval(f"document.body.innerHTML = {json.dumps(html)}")
     _apply_innerhtml_quirks(runtime)
-    runtime.eval("htmx.process(document.body);")
+    runtime.eval("htmx.process(document.body)")
 
 
 def _dispatch_js(selector: str, event: str, event_init: dict | None) -> str:
@@ -159,47 +163,7 @@ class Element:
         If htmx handles the submission, waits for htmx to settle.
         If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
-        no_form_msg = json.dumps(f"No form found for: {self.selector}")
-        html = await self.runtime.eval_async(f"""
-        new Promise((resolve, reject) => {{
-            let willRequest = false;
-            document.addEventListener('htmx:before:request', () => {{ willRequest = true; }}, {{once: true}});
-            document.addEventListener('htmx:finally:request', () => resolve(null), {{once: true}});
-            document.addEventListener('htmx:error', (e) => {{
-                reject(new Error('htmx:error — ' + (e.detail?.error ?? e.detail?.ctx?.status)));
-            }}, {{once: true}});
-
-            const el = document.querySelector({json.dumps(self.selector)});
-            if (!el) {{ reject(new Error('Element not found: {self.selector}')); return; }}
-
-            const form = el.form ?? el.closest('form');
-            if (!form) {{ reject(new Error({no_form_msg})); return; }}
-            const submitter = el.tagName === 'BUTTON' || el.tagName === 'INPUT' ? el : null;
-
-            form.dispatchEvent(new SubmitEvent('submit', {{bubbles: true, cancelable: true, submitter}}));
-
-            setTimeout(() => {{
-                if (!willRequest) {{
-                    // htmx didn't intercept — plain form submission
-                    const fd = new FormData(form, submitter);
-                    const method = (form.method || 'get').toLowerCase();
-                    const action = form.action;
-                    let p;
-                    if (method === 'post') {{
-                        p = fetch(action, {{
-                            method: 'POST',
-                            body: new URLSearchParams(fd).toString(),
-                            headers: {{'content-type': 'application/x-www-form-urlencoded'}},
-                        }});
-                    }} else {{
-                        const params = new URLSearchParams(fd).toString();
-                        p = fetch(params ? action + '?' + params : action);
-                    }}
-                    p.then(r => r.text()).then(resolve).catch(reject);
-                }}
-            }}, 0);
-        }})
-        """)
+        html = await self.runtime.eval_async(f"__zzz_submit({json.dumps(self.selector)})")
         if html is not None:
             _load(self.runtime, _extract_body_html(html))
 
@@ -214,10 +178,10 @@ class Element:
         """Evaluate an expression with `el` bound to the selected element."""
         js = f"""
         (() => {{
-            const el = document.querySelector({json.dumps(self.selector)});
-            if (!el) throw new Error('Element not found: {self.selector}');
-            return {expr};
-        }})()
+          const el = document.querySelector({json.dumps(self.selector)});
+          if (!el) throw new Error('Element not found: {self.selector}');
+          return {expr};
+        }})();
         """
         return self.runtime.eval(js)
 
@@ -247,23 +211,24 @@ class Browser:
         """Return all matching elements."""
         js = f"""
         (() => {{
-            const nodes = document.querySelectorAll({json.dumps(selector)});
-            const selectors = [];
-            for (let i = 0; i < nodes.length; i++) {{
-                if (nodes[i].id) {{
-                    selectors.push('#' + CSS.escape(nodes[i].id));
-                }} else {{
-                    const tag = nodes[i].tagName.toLowerCase();
-                    const sameTag = nodes[i].parentNode
-                        ? Array.from(nodes[i].parentNode.children)
-                            .filter(c => c.tagName === nodes[i].tagName)
-                        : [];
-                    const idx = sameTag.indexOf(nodes[i]) + 1;
-                    selectors.push(tag + ':nth-of-type(' + idx + ')');
-                }}
+          const nodes = document.querySelectorAll({json.dumps(selector)});
+          const selectors = [];
+          for (let i = 0; i < nodes.length; i++) {{
+            if (nodes[i].id) {{
+              selectors.push('#' + CSS.escape(nodes[i].id));
+            }} else {{
+              const tag = nodes[i].tagName.toLowerCase();
+              const sameTag = nodes[i].parentNode
+                ? Array.from(nodes[i].parentNode.children).filter(
+                    c => c.tagName === nodes[i].tagName,
+                  )
+                : [];
+              const idx = sameTag.indexOf(nodes[i]) + 1;
+              selectors.push(tag + ':nth-of-type(' + idx + ')');
             }}
-            return selectors;
-        }})()
+          }}
+          return selectors;
+        }})();
         """
         selectors = self.runtime.eval(js)
         return [Element(sel, self.runtime) for sel in selectors]
@@ -272,9 +237,7 @@ class Browser:
 
     async def goto(self, url: str) -> None:
         """Fetch url, load its body into the document, and process htmx."""
-        html = await self.runtime.eval_async(
-            f"fetch({json.dumps(url)}).then(r => r.text())"
-        )
+        html = await self.runtime.eval_async(f"fetch({json.dumps(url)}).then(r => r.text())")
         await self.load(_extract_body_html(html))
 
     async def load(self, html: str) -> None:
