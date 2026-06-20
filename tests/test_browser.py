@@ -505,7 +505,8 @@ async def test_element_trigger_custom(browser, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_element_submit_form(browser, httpx_mock):
+@pytest.mark.parametrize("selector", ["#btn", "form"])
+async def test_element_submit_form(browser, httpx_mock, selector):
     httpx_mock.add_response(
         url="http://app.example.com/form-action",
         text="<p>submitted</p>",
@@ -517,8 +518,8 @@ async def test_element_submit_form(browser, httpx_mock):
         "</form>"
         '<div id="result"></div>'
     )
-    btn = browser.find("#btn")
-    await btn.submit()
+    el = browser.find(selector)
+    await el.submit()
     assert browser.find("#result").innerHTML() == "<p>submitted</p>"
 
 
