@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 
-import httpx
+import httpx2 as httpx
 from jsrun import Runtime
 
 from htmxclient.runtime import build_runtime

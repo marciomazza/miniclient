@@ -5,7 +5,7 @@ from functools import cache
 from pathlib import Path
 from urllib.parse import urljoin
 
-import httpx
+import httpx2 as httpx
 from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
 _ROOT = Path(__file__).parent.parent.parent

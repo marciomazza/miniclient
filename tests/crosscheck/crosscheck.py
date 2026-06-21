@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 from wsgiref.types import WSGIApplication
 
-import httpx
+import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 

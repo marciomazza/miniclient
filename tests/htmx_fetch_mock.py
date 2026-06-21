@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-import httpx
+import httpx2 as httpx
 from jsrun import Runtime
 
 

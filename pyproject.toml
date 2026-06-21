@@ -6,7 +6,7 @@ description = "An HTMX powered python http client"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-  "httpx~=0.28.1",
+  "httpx2~=2.5.0",
   "jsrun~=0.1.0",
 ]
 
@@ -15,6 +15,7 @@ dependencies = [
 dev = ["ipdb", "ipython", "ipython-autoimport"]
 lint = ["prek~=0.3.8", "pyrefly~=1.0.0", "ruff~=0.15.9"]
 test = [
+  "httpx2-pytest~=1.0.1",
   "hypothesis~=6.152.9",
   "more-itertools~=10.0",
   "playwright~=1.40",
@@ -22,7 +23,6 @@ test = [
   "pytest~=9.0.2",
   "pytest-asyncio~=1.4.0",
   "pytest-cov~=7.1.0",
-  "pytest-httpx~=0.36.2",
   "pytest-playwright~=0.5",
   "pytest-timeout~=2.4.0",
   "pytest-xdist~=3.8.0",
