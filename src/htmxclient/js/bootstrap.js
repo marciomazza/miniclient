@@ -92,20 +92,8 @@ patchMethod(win.Element.prototype, "matches", function (_origMatches, selector) 
     }
     return result;
 });
-globalThis.AbortController = win.AbortController;
-globalThis.AbortSignal = win.AbortSignal;
-globalThis.DOMException = win.DOMException;
-globalThis.Headers = win.Headers;
-globalThis.Request = win.Request;
-globalThis.Response = win.Response;
 // FormData replaced by pure-JS implementation in formdata.js (loaded after this module)
 applyURLPatches(win);
-globalThis.XMLHttpRequest = win.XMLHttpRequest;
-globalThis.CSSStyleSheet = win.CSSStyleSheet;
-globalThis.DocumentFragment = win.DocumentFragment;
-globalThis.ShadowRoot = win.ShadowRoot;
-globalThis.customElements = win.customElements;
-globalThis.EventTarget = win.EventTarget;
 // Polyfill attachInternals for form-associated custom elements — happy-dom does not implement it.
 // Stores the submitted value on the element as __internalsFormValue so FormData can pick it up.
 patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
