@@ -1,7 +1,5 @@
 import { Window } from "happy-dom";
-import applyURLPatches from "./urlsearch-dom-patches.js";
-import applyPatchDomParser from "./patch-dom-parser.js";
-import applyPatchHappyDom from "./patch-happy-dom.js";
+import patchHappyDom from "./patch-happy-dom.js";
 
 const win = new Window({ url: globalThis.__BASE_URL__ ?? "http://localhost/" });
 
@@ -10,23 +8,6 @@ globalThis.document = win.document;
 globalThis.location = win.location;
 globalThis.navigator = win.navigator;
 globalThis.history = win.history;
-
-// Utility: patch a prototype method, preserving the original.
-function patchMethod(proto, method, wrapper) {
-    const orig = proto[method];
-    proto[method] = function (...args) {
-        return wrapper.call(this, orig, ...args);
-    };
-}
-
-// happy-dom's pushState/replaceState don't update location.href; patch to keep them in sync.
-["pushState", "replaceState"].forEach((method) => {
-    const orig = win.history[method].bind(win.history);
-    win.history[method] = function (state, title, url) {
-        orig(state, title, url);
-        if (url != null) win.location.href = String(url);
-    };
-});
 
 // Bulk-assign globals from win.
 const _globals = [
@@ -63,7 +44,9 @@ const _globals = [
     "XMLHttpRequest",
     "customElements",
 ];
+// FormData is intentionally absent — replaced by a pure-JS implementation in formdata.js (loaded after this module).
 for (const g of _globals) globalThis[g] = win[g];
+
 // IntersectionObserver: polyfill if absent, then expose via proxy so win and globalThis stay in sync.
 win.IntersectionObserver ??= class {
     constructor(cb, options) {}
@@ -80,37 +63,7 @@ Object.defineProperty(globalThis, "IntersectionObserver", {
     },
     configurable: true,
 });
-// Patch :disabled to account for disabled fieldset ancestor — happy-dom does not propagate
-// the disabled state from <fieldset disabled> to its descendant form controls.
-patchMethod(win.Element.prototype, "matches", function (_origMatches, selector) {
-    const result = _origMatches.call(this, selector);
-    if (!result && selector === ":disabled") {
-        let p = this.parentElement;
-        while (p) {
-            if (p.tagName === "FIELDSET" && p.disabled) return true;
-            p = p.parentElement;
-        }
-    }
-    return result;
-});
-// FormData replaced by pure-JS implementation in formdata.js (loaded after this module)
-applyURLPatches(win);
-// Polyfill attachInternals for form-associated custom elements — happy-dom does not implement it.
-// Stores the submitted value on the element as __internalsFormValue so FormData can pick it up.
-patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
-    if (_orig) {
-        try {
-            return _orig.call(this);
-        } catch {}
-    }
-    const host = this;
-    return {
-        setFormValue(val) {
-            host.__internalsFormValue = val != null ? String(val) : null;
-        },
-    };
-});
-applyPatchDomParser(win);
+patchHappyDom(win);
 const _fetchOpId = globalThis.__FETCH_OP_ID__;
 globalThis.fetch = async (input, init = {}) => {
     let url, method, headers, body;
@@ -231,61 +184,6 @@ Object.defineProperty(win, "fetch", {
         for (const k of Object.keys(_intervals)) delete _intervals[k];
     };
 }
-// happy-dom does not execute <script> elements when they are inserted into the DOM.
-// Patch DOM insertion methods used by htmx during swapping so inline scripts run.
-// Also patch Element.replaceWith so scripts replaced in-place during morph also run.
-{
-    const _runScript = (s) => {
-        if (s.textContent)
-            try {
-                (0, eval)(s.textContent);
-            } catch {}
-    };
-    const _evalScript = (el) => {
-        if (el.nodeType !== 1) return;
-        if (el.tagName === "SCRIPT") _runScript(el);
-        for (const s of el.querySelectorAll("script")) _runScript(s);
-    };
-    const _execScripts = (nodes) => {
-        for (const n of nodes) if (n) _evalScript(n);
-    };
-    for (const m of ["replaceChildren", "append", "before", "after", "prepend"]) {
-        patchMethod(win.Element.prototype, m, function (orig, ...nodes) {
-            orig.call(this, ...nodes);
-            _execScripts(nodes);
-        });
-    }
-    // insertBefore is used by htmx morph when inserting unmatched new nodes into the DOM
-    patchMethod(win.Node.prototype, "insertBefore", function (_origInsertBefore, newNode, refNode) {
-        const result = _origInsertBefore.call(this, newNode, refNode);
-        if (this.isConnected) _execScripts([newNode]);
-        return result;
-    });
-    // replaceWith is used during morph to swap out script nodes directly in the DOM
-    patchMethod(win.Element.prototype, "replaceWith", function (_origReplaceWith, ...nodes) {
-        const wasConnected = this.isConnected;
-        _origReplaceWith.call(this, ...nodes);
-        if (wasConnected) _execScripts(nodes);
-    });
-}
-// happy-dom's getElementById does not respect document tree order when duplicate
-// IDs exist (e.g. when htmx stores a preserved element in a pantry node appended
-// after <body>).  Patch the internal Document prototype (distinct from the public
-// win.Document class) to delegate to querySelectorAll, which does respect tree
-// order, so the first element in document order is always returned.
-{
-    let _docProto = Object.getPrototypeOf(win.document);
-    while (_docProto && !Object.getOwnPropertyDescriptor(_docProto, "getElementById"))
-        _docProto = Object.getPrototypeOf(_docProto);
-    if (_docProto) {
-        patchMethod(_docProto, "getElementById", function (_origGetById, id) {
-            if (!id) return _origGetById.call(this, id);
-            const results = this.querySelectorAll("#" + CSS.escape(String(id)));
-            return results.length > 0 ? results[0] : null;
-        });
-    }
-}
-applyPatchHappyDom(win);
 // Make window behave like the global object: property writes propagate to
 // globalThis so code like `window.foo = x; foo` works as in real browsers
 // (where window === globalThis).  Only user-defined properties are synced —
@@ -313,25 +211,4 @@ applyPatchHappyDom(win);
         },
     });
     globalThis.window = _winProxy;
-}
-// Set globalThis.event during event dispatch, mirroring browsers' window.event.
-// Required for hx-vals="js:{...}" expressions that reference the triggering event.
-// happy-dom exposes a *public* EventTarget class that differs from the internal one
-// used by DOM nodes — we must patch the internal prototype found via a live element.
-{
-    const _probe = win.document.createElement("div");
-    let _etProto = Object.getPrototypeOf(_probe);
-    while (_etProto && !Object.getOwnPropertyDescriptor(_etProto, "dispatchEvent"))
-        _etProto = Object.getPrototypeOf(_etProto);
-    if (_etProto) {
-        patchMethod(_etProto, "dispatchEvent", function (_origDispatch, evt) {
-            const prev = globalThis.event;
-            globalThis.event = evt;
-            try {
-                return _origDispatch.call(this, evt);
-            } finally {
-                globalThis.event = prev;
-            }
-        });
-    }
 }

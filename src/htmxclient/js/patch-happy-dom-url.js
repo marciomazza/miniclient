@@ -3,7 +3,7 @@
 // into the URL to update its serialized search string.
 // Patch URLSearchParams constructor to accept FormData and URLSearchParams as init.
 // happy-dom's implementation ignores those two iterable forms.
-export default function apply(win) {
+export default function patch(win) {
     const _WinURL = win.URL;
     class _PatchedURL extends _WinURL {
         get searchParams() {

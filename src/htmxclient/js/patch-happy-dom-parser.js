@@ -1,4 +1,4 @@
-export default function apply(win) {
+export default function patch(win) {
     const _NativeDOMParser = win.DOMParser;
     const _TABLE_CHILD_TAGS = new Set([
         "tr",
