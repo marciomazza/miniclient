@@ -17,7 +17,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/astral-sh/ruff-pre-commit"
-rev = "v0.15.17"
+rev = "v0.15.20"
 hooks = [
   { id = "ruff", args = [
     "--fix",
@@ -27,15 +27,15 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/facebook/pyrefly-pre-commit"
-rev = "1.1.0.dev2"
+rev = "1.1.1"
 hooks = [{ id = "pyrefly-check", pass_filenames = false, language = "system" }]
 
 [[repos]]
 repo = "https://github.com/oxc-project/mirrors-oxfmt"
-rev = "v0.54.0"
+rev = "v0.56.0"
 hooks = [{ id = "oxfmt" }]
 
 [[repos]]
 repo = "https://github.com/oxc-project/mirrors-oxlint"
-rev = "v1.69.0"
+rev = "v1.71.0"
 hooks = [{ id = "oxlint" }]

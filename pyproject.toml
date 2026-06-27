@@ -13,17 +13,17 @@ dependencies = [
 # Grupos de dependências para desenvolvimento e testes
 [dependency-groups]
 dev = ["ipdb", "ipython", "ipython-autoimport"]
-lint = ["prek~=0.3.8", "pyrefly~=1.0.0", "ruff~=0.15.9"]
+lint = ["prek~=0.4.5", "pyrefly~=1.1.1", "ruff~=0.15.20"]
 test = [
   "httpx2-pytest~=1.0.1",
-  "hypothesis~=6.152.9",
-  "more-itertools~=10.0",
-  "playwright~=1.40",
-  "pydantic~=2.0",
-  "pytest~=9.0.2",
+  "hypothesis~=6.155.7",
+  "more-itertools~=11.1.0",
+  "playwright~=1.60.0",
+  "pydantic~=2.13.4",
+  "pytest~=9.1.1",
   "pytest-asyncio~=1.4.0",
   "pytest-cov~=7.1.0",
-  "pytest-playwright~=0.5",
+  "pytest-playwright~=0.8.0",
   "pytest-timeout~=2.4.0",
   "pytest-xdist~=3.8.0",
 ]
