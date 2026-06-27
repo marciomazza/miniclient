@@ -80,36 +80,8 @@ def _htmx_action_js(selector: str, action_js: str) -> str:
     """
 
 
-def apply_innerhtml_quirks(runtime: Runtime) -> None:
-    """Fix two happy-dom bugs that appear after setting innerHTML."""
-    runtime.eval("""
-        // happy-dom does not reflect the `selected` HTML attribute onto the .selected
-        // IDL property when parsing via innerHTML — re-apply it before htmx.process.
-        document.querySelectorAll('option[selected]').forEach(opt => {
-          opt.selected = true;
-        });
-        // happy-dom does not enforce radio button mutual exclusion when parsing via
-        // innerHTML — browsers keep only the last checked radio in each name group.
-        (() => {
-          const groups = {};
-          document.querySelectorAll('input[type="radio"]').forEach(r => {
-            if (!groups[r.name]) groups[r.name] = [];
-            groups[r.name].push(r);
-          });
-          Object.values(groups).forEach(group => {
-            const checked = group.filter(r => r.checked);
-            if (checked.length > 1)
-              checked.slice(0, -1).forEach(r => {
-                r.checked = false;
-              });
-          });
-        })();
-    """)
-
-
 def _load(runtime: Runtime, html: str) -> None:
     runtime.eval(f"document.body.innerHTML = {json.dumps(html)}")
-    apply_innerhtml_quirks(runtime)
     runtime.eval("htmx.process(document.body)")
 
 

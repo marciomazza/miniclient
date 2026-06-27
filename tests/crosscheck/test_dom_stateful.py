@@ -7,7 +7,7 @@ from playwright.async_api import Page
 
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
-from htmxclient.browser import Browser, apply_innerhtml_quirks, extract_body_html
+from htmxclient.browser import Browser, extract_body_html
 from htmxclient.runtime import build_runtime
 
 pytestmark = pytest.mark.cross
@@ -35,7 +35,6 @@ class DomCheck:
         # Set innerHTML directly without htmx.process so that neither side adds
         # htmx-specific attributes (e.g. data-htmx-powered) during setup.
         browser.runtime.eval(f"document.body.innerHTML = {json.dumps(body_html)};")
-        apply_innerhtml_quirks(browser.runtime)
         await page.set_content(html, wait_until="domcontentloaded")
         return cls(browser, page)
 

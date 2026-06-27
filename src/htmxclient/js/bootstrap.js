@@ -1,6 +1,7 @@
 import { Window } from "happy-dom";
 import applyURLPatches from "./urlsearch-dom-patches.js";
 import applyPatchDomParser from "./patch-dom-parser.js";
+import applyPatchHappyDom from "./patch-happy-dom.js";
 
 const win = new Window({ url: globalThis.__BASE_URL__ ?? "http://localhost/" });
 
@@ -138,7 +139,7 @@ globalThis.fetch = async (input, init = {}) => {
         url = new URL(typeof input === "string" ? input : String(input), location.href).href;
         method = (init.method ?? "GET").toUpperCase();
         headers = {
-            ...(init.headers ?? {}),
+            ...init.headers,
             "content-type": `multipart/form-data; boundary=${boundary}`,
         };
     } else {
@@ -284,6 +285,7 @@ Object.defineProperty(win, "fetch", {
         });
     }
 }
+applyPatchHappyDom(win);
 // Make window behave like the global object: property writes propagate to
 // globalThis so code like `window.foo = x; foo` works as in real browsers
 // (where window === globalThis).  Only user-defined properties are synced —
