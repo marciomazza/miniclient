@@ -49,9 +49,9 @@ async def test_searchparams_mutation_propagates_to_href(runtime):
 
 
 @pytest.mark.parametrize(
-    "setup_js, init_expr, expected_str",
+    "setup_js, init_js, expected_str",
     [
-        # FormData as init — setup_js declares fd, init_expr constructs USP from it
+        # FormData as init — setup_js creates FormData, init_js constructs URLSearchParams from it
         (
             "const fd = new FormData(); fd.append('a', '1'); fd.append('b', '2')",
             "new URLSearchParams(fd)",
@@ -67,6 +67,6 @@ async def test_searchparams_mutation_propagates_to_href(runtime):
     ],
     ids=["formdata-multi", "formdata-single", "urlsearchparams"],
 )
-async def test_urlsearchparams_accepts_iterable_init(runtime, setup_js, init_expr, expected_str):
-    result = runtime.eval(f"{setup_js}; init = {init_expr}; init.toString()")
+async def test_urlsearchparams_accepts_iterable_init(runtime, setup_js, init_js, expected_str):
+    result = runtime.eval(f"{setup_js}; init = {init_js}; init.toString()")
     assert result == expected_str

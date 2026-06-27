@@ -79,10 +79,10 @@ async def test_url_search_params_round_trip(runtime, params):
     }
     pairs = ", ".join(f"[{_js_str(k)}, {_js_str(v)}]" for k, v in safe.items())
     js = f"""(() => {{
-    const p = new URLSearchParams([{pairs}]);
-    const p2 = new URLSearchParams(p.toString());
-    return JSON.stringify(Array.from(p2.entries()));
-    }})()"""
+  const p = new URLSearchParams([{pairs}]);
+  const p2 = new URLSearchParams(p.toString());
+  return JSON.stringify(Array.from(p2.entries()));
+}})();"""
     result = runtime.eval(js)
     parsed = json.loads(result)
     assert parsed == [[k, v] for k, v in safe.items()]
@@ -118,11 +118,11 @@ async def test_url_href_round_trip(runtime, host, path, query):
 @given(st.text(), st.text())
 async def test_buffer_concat_length(runtime, a, b):
     js = f"""(() => {{
-    const a = Buffer.from({_js_str(a)}, 'utf8');
-    const b = Buffer.from({_js_str(b)}, 'utf8');
-    const ab = Buffer.concat([a, b]);
-    return [a.length, b.length, ab.length];
-    }})()"""
+  const a = Buffer.from({_js_str(a)}, 'utf8');
+  const b = Buffer.from({_js_str(b)}, 'utf8');
+  const ab = Buffer.concat([a, b]);
+  return [a.length, b.length, ab.length];
+}})();"""
     result = runtime.eval(js)
     la, lb, lab = result
     assert lab == la + lb
@@ -137,9 +137,9 @@ async def test_buffer_concat_length(runtime, a, b):
 async def test_url_search_params_size(runtime, params):
     pairs = ", ".join(f"[{_js_str(k)}, {_js_str(v)}]" for k, v in params.items())
     js = f"""(() => {{
-    const p = new URLSearchParams([{pairs}]);
-    return p.size;
-    }})()"""
+  const p = new URLSearchParams([{pairs}]);
+  return p.size;
+}})();"""
     result = runtime.eval(js)
     assert result == len(params)
 
@@ -153,10 +153,10 @@ async def test_url_search_params_size(runtime, params):
 async def test_headers_append_has(runtime, key, val1, val2):
     assume(key.lower() != "__proto__")  # this reveals a bug in happy-dom, but is not releant to us
     js = f"""(() => {{
-    const h = new Headers();
-    h.append({_js_str(key)}, {_js_str(val1)});
-    h.append({_js_str(key)}, {_js_str(val2)});
-    return h.has({_js_str(key)});
-    }})()"""
+  const h = new Headers();
+  h.append({_js_str(key)}, {_js_str(val1)});
+  h.append({_js_str(key)}, {_js_str(val2)});
+  return h.has({_js_str(key)});
+}})();"""
     result = runtime.eval(js)
     assert result is True

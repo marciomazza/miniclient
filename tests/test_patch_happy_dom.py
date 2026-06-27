@@ -7,7 +7,7 @@ async def test_innerhtml_radio_mutual_exclusion(runtime):
     # happy-dom bug: multiple checked radios in same name group — only last should stay checked
     runtime.eval("""
         document.body.innerHTML =
-            '<input type="radio" name="g" checked><input type="radio" name="g" checked>';
+          '<input type="radio" name="g" checked><input type="radio" name="g" checked>'
     """)
     result = runtime.eval("[...document.querySelectorAll('input[type=radio]')].map(r => r.checked)")
     assert result == [False, True]
@@ -16,8 +16,7 @@ async def test_innerhtml_radio_mutual_exclusion(runtime):
 async def test_innerhtml_selected_reflected(runtime):
     # happy-dom bug: `selected` HTML attribute not reflected to .selected IDL property via innerHTML
     runtime.eval("""
-        document.body.innerHTML =
-            '<select><option>a</option><option selected>b</option></select>';
+        document.body.innerHTML = '<select><option>a</option><option selected>b</option></select>'
     """)
     assert runtime.eval("document.querySelectorAll('option')[1].selected") is True
 
@@ -85,7 +84,7 @@ async def test_attach_internals_set_form_value(runtime, value_js, expected):
         const el = document.createElement('div');
         const internals = el.attachInternals();
         internals.setFormValue({value_js});
-        el.__internalsFormValue
+        el.__internalsFormValue;
     """)
     assert result == expected
 
@@ -117,7 +116,7 @@ async def test_script_executed_on_dom_insertion(runtime, setup_js):
         const s = document.createElement('script');
         s.textContent = 'window.__ran = 1';
         {setup_js};
-        window.__ran
+        window.__ran;
     """)
     assert result == 1
 
@@ -149,10 +148,12 @@ async def test_dispatch_event_sets_global_event(runtime, event_type):
     result = runtime.eval(f"""
         const el = document.createElement('div');
         let captured = null;
-        el.addEventListener('{event_type}', () => {{ captured = globalThis.event; }});
+        el.addEventListener('{event_type}', () => {{
+          captured = globalThis.event;
+        }});
         const evt = new Event('{event_type}');
         el.dispatchEvent(evt);
-        captured === evt
+        captured === evt;
     """)
     assert result is True
 
@@ -163,6 +164,6 @@ async def test_dispatch_event_restores_global_event_after(runtime):
         el.addEventListener('click', () => {});
         globalThis.event = 'sentinel';
         el.dispatchEvent(new Event('click'));
-        globalThis.event
+        globalThis.event;
     """)
     assert result == "sentinel"

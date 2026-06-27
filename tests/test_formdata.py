@@ -24,12 +24,12 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
     """Create a form from HTML, collect FormData, return list of (name, value) pairs."""
     result = r.eval(
         f"""
-        (function() {{
-            const wrap = document.createElement('div');
-            wrap.innerHTML = {json.dumps(form_html)};
-            const form = wrap.querySelector('form');
-            return [...new FormData(form).entries()];
-        }})()
+        (function () {{
+          const wrap = document.createElement('div');
+          wrap.innerHTML = {json.dumps(form_html)};
+          const form = wrap.querySelector('form');
+          return [...new FormData(form).entries()];
+        }})();
         """
     )
     return [tuple(p) for p in result]
@@ -140,13 +140,13 @@ def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
     """Serialize a form's FormData via URLSearchParams, as Element.submit does in JS."""
     return r.eval(
         f"""
-        (function() {{
-            const wrap = document.createElement('div');
-            wrap.innerHTML = {json.dumps(form_html)};
-            const form = wrap.querySelector('form');
-            const fd = new FormData(form);
-            return new URLSearchParams(fd).toString();
-        }})()
+        (function () {{
+          const wrap = document.createElement('div');
+          wrap.innerHTML = {json.dumps(form_html)};
+          const form = wrap.querySelector('form');
+          const fd = new FormData(form);
+          return new URLSearchParams(fd).toString();
+        }})();
         """
     )
 

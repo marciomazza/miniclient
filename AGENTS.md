@@ -32,3 +32,5 @@ use triple quotes around instead. E.g.:
     const html = "<div><p id='x'></p></div>"
   """)
 ```
+
+When you make a variable that contains a string with javascript code, name it either `js` or with the suffix `_js`.

@@ -220,7 +220,7 @@ class CrossCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client_snapshot = self._browser.runtime.eval(f"({_JS_SERIALIZE})()")
+        client_snapshot = self._browser.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
         page_snapshot = await self._page.evaluate(_JS_SERIALIZE)
         assert client_snapshot == page_snapshot, (
             f"DOM mismatch:\n  client: {client_snapshot}\n  page: {page_snapshot}"

@@ -142,10 +142,10 @@ async def build_runtime(
     fetch_op_id = r.register_op(
         "fetch", _make_fetch_op(before_fetch, httpx_transport), mode="async"
     )
-    r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id};")
-    r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)};")
+    r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id}")
+    r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
 
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
     await r.eval_module_async(_bootstrap_uri)
-    r.eval("var htmx = new Htmx();")
+    r.eval("var htmx = new Htmx()")
     return r

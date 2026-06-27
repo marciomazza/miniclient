@@ -82,8 +82,10 @@ async def test_url(runtime, js, expected):
         ("new URLSearchParams('x=1').has('x')", True),
         # append + getAll
         (
-            "const p = new URLSearchParams('k=1'); "
-            + "p.append('k', '2'); JSON.stringify(p.getAll('k'))",
+            """
+            const p = new URLSearchParams('k=1');
+            p.append('k', '2');
+            JSON.stringify(p.getAll('k'));""",
             '["1","2"]',
         ),
         # set replaces first, removes duplicates
@@ -180,7 +182,9 @@ async def test_text_encoder_decoder(runtime, js, expected):
 
 
 async def test_query_selector(runtime):
-    runtime.eval('document.body.innerHTML = \'<div id="x"><span class="y">hi</span></div>\'')
+    runtime.eval("""\
+        document.body.innerHTML = '<div id="x"><span class="y">hi</span></div>'
+    """)
     assert runtime.eval("document.querySelector('#x .y').textContent") == "hi"
 
 
@@ -190,7 +194,9 @@ async def test_query_selector_all(runtime):
 
 
 async def test_inner_html_round_trip(runtime):
-    runtime.eval("document.body.innerHTML = '<p id=\"p1\">text</p>'")
+    runtime.eval("""\
+        document.body.innerHTML = '<p id="p1">text</p>'
+    """)
     assert runtime.eval("document.getElementById('p1').innerHTML") == "text"
 
 
@@ -205,7 +211,7 @@ async def test_create_element_attributes(runtime):
 
 
 @pytest.mark.parametrize(
-    "expression",
+    "js",
     [
         "typeof Headers",
         "typeof Request",
@@ -219,8 +225,8 @@ async def test_create_element_attributes(runtime):
         "typeof window.DOMParser",
     ],
 )
-async def test_globals_are_functions(runtime, expression):
-    assert runtime.eval(expression) == "function"
+async def test_globals_are_functions(runtime, js):
+    assert runtime.eval(js) == "function"
 
 
 async def test_headers_basic(runtime):
@@ -297,11 +303,13 @@ async def test_settimeout_passes_args(runtime):
 async def test_cleartimeout_cancels(runtime):
     result = await runtime.eval_async("""
         new Promise(resolve => {
-            let fired = false;
-            const id = setTimeout(() => { fired = true; }, 50);
-            clearTimeout(id);
-            setTimeout(() => resolve(fired), 100);
-        })
+          let fired = false;
+          const id = setTimeout(() => {
+            fired = true;
+          }, 50);
+          clearTimeout(id);
+          setTimeout(() => resolve(fired), 100);
+        });
     """)
     assert result is False
 
@@ -309,11 +317,20 @@ async def test_cleartimeout_cancels(runtime):
 async def test_settimeout_order(runtime):
     result = await runtime.eval_async("""
         new Promise(resolve => {
-            const log = [];
-            setTimeout(() => { log.push(1); if (log.length === 3) resolve(log); }, 10);
-            setTimeout(() => { log.push(2); if (log.length === 3) resolve(log); }, 20);
-            setTimeout(() => { log.push(3); if (log.length === 3) resolve(log); }, 30);
-        })
+          const log = [];
+          setTimeout(() => {
+            log.push(1);
+            if (log.length === 3) resolve(log);
+          }, 10);
+          setTimeout(() => {
+            log.push(2);
+            if (log.length === 3) resolve(log);
+          }, 20);
+          setTimeout(() => {
+            log.push(3);
+            if (log.length === 3) resolve(log);
+          }, 30);
+        });
     """)
     assert result == [1, 2, 3]
 
@@ -321,15 +338,15 @@ async def test_settimeout_order(runtime):
 async def test_setinterval_fires_multiple_times(runtime):
     result = await runtime.eval_async("""
         new Promise(resolve => {
-            let count = 0;
-            const id = setInterval(() => {
-                count++;
-                if (count === 3) {
-                    clearInterval(id);
-                    resolve(count);
-                }
-            }, 10);
-        })
+          let count = 0;
+          const id = setInterval(() => {
+            count++;
+            if (count === 3) {
+              clearInterval(id);
+              resolve(count);
+            }
+          }, 10);
+        });
     """)
     assert result == 3
 
@@ -337,14 +354,16 @@ async def test_setinterval_fires_multiple_times(runtime):
 async def test_clearinterval_stops_firing(runtime):
     result = await runtime.eval_async("""
         new Promise(resolve => {
-            let count = 0;
-            const id = setInterval(() => { count++; }, 10);
-            setTimeout(() => {
-                clearInterval(id);
-                const snapshot = count;
-                setTimeout(() => resolve(snapshot === count), 50);
-            }, 35);
-        })
+          let count = 0;
+          const id = setInterval(() => {
+            count++;
+          }, 10);
+          setTimeout(() => {
+            clearInterval(id);
+            const snapshot = count;
+            setTimeout(() => resolve(snapshot === count), 50);
+          }, 35);
+        });
     """)
     assert result is True
 
