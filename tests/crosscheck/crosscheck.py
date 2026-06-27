@@ -20,7 +20,6 @@ _KEEP_REQUEST_HEADERS = {"content-type"}
 _SKIP_RESPONSE_HEADERS = {"date", "server", "content-length"}
 _HX_PREFIX = "hx-"
 
-_SETTLE_INIT_SCRIPT = (Path(__file__).parent / "settle_init.js").read_text()
 _JS_SERIALIZE = (Path(__file__).parent / "serialize_dom.js").read_text()
 
 _HTMX_JS = (Path(__file__).parents[2] / "vendor/htmx/src/htmx.js").read_bytes()
@@ -139,9 +138,6 @@ class _CapturingTransport(httpx.AsyncBaseTransport):
         return response
 
 
-_pages_initialized: set[int] = set()
-
-
 class CrossCheck:
     def __init__(
         self,
@@ -179,10 +175,6 @@ class CrossCheck:
         server = make_server("127.0.0.1", 0, _wrapped_wsgi, handler_class=_SilentHandler)
         port = server.server_address[1]
         threading.Thread(target=server.serve_forever, daemon=True).start()
-
-        if id(page) not in _pages_initialized:
-            await page.add_init_script(_SETTLE_INIT_SCRIPT)
-            _pages_initialized.add(id(page))
 
         cc = cls(browser, page, server, port, client_talk, mode=mode)
         page.on("request", cc._hook_request_page)
