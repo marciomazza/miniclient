@@ -22,7 +22,7 @@ _EVENTS = ["click", "mouseenter", "focus", "dblclick", "mouseover", "change", "b
 )
 async def test_elements_stateful(page: Page, data):
     app, pg = data.draw(st_wsgi_rich_page())
-    cc = await CrossCheck.create(app, page, mode="htmx")
+    cc = await CrossCheck.create(app, page)
     try:
         await cc.goto("/")
         n_steps = data.draw(st.integers(0, 5))

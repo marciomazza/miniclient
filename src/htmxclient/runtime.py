@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from functools import cache
 from pathlib import Path
 from urllib.parse import urljoin
@@ -101,7 +102,10 @@ async def _loader(spec: str) -> str:
     raise ValueError(f"Cannot load module: {spec!r}")
 
 
-def _make_fetch_op(before_fetch=None, httpx_transport=None):
+def _make_fetch_op(
+    before_fetch: Callable[[dict], Awaitable[None]] | None = None,
+    httpx_transport=None,
+):
     async def _fetch_op_impl(req: dict) -> dict:
         if before_fetch is not None:
             await before_fetch(req)
@@ -127,7 +131,7 @@ def _make_fetch_op(before_fetch=None, httpx_transport=None):
 async def build_runtime(
     url: str = "http://localhost/",
     snapshot: bytes | None = None,
-    before_fetch=None,
+    before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
 ) -> Runtime:
     r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))

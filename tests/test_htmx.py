@@ -28,7 +28,7 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
 }
 _INFRA_JS = "\n".join(
     [
-        "document.body.innerHTML = '<div id=\"test-playground\"></div>';",
+        """document.body.innerHTML = '<div id="test-playground"></div>';""",
         _HELPERS_JS.read_text(),
     ]
 )

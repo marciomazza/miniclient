@@ -26,9 +26,9 @@ def browser_snapshot() -> bytes:
     _populate_builder(builder)
     builder.execute_script(
         "chai",
-        _CHAI_JS.read_text()
-        + "\nglobalThis.assert = globalThis.chai.assert;"
-        + "\nglobalThis.should = globalThis.chai.should();",
+        f"""{_CHAI_JS.read_text()}
+            globalThis.assert = globalThis.chai.assert;
+            globalThis.should = globalThis.chai.should();""",
     )
     builder.execute_script("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text())
     builder.execute_script("runner", _RUNNER_JS.read_text())

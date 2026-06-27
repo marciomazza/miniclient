@@ -14,7 +14,7 @@ from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
 from htmxclient.browser import Browser
-from htmxclient.runtime import build_runtime
+from htmxclient.runtime import _HTMX_SRC, build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
 _SKIP_RESPONSE_HEADERS = {"date", "server", "content-length"}
@@ -22,7 +22,7 @@ _HX_PREFIX = "hx-"
 
 _JS_SERIALIZE = (Path(__file__).parent / "serialize_dom.js").read_text()
 
-_HTMX_JS = (Path(__file__).parents[2] / "vendor/htmx/src/htmx.js").read_bytes()
+_HTMX_JS = _HTMX_SRC.read_bytes()
 
 
 def _url_path_and_query(url: str) -> str:
@@ -220,10 +220,10 @@ class CrossCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client_snap = self._browser.runtime.eval(f"({_JS_SERIALIZE})()")
-        page_snap = await self._page.evaluate(_JS_SERIALIZE)
-        assert client_snap == page_snap, (
-            f"DOM mismatch:\n  client: {client_snap}\n  page:   {page_snap}"
+        client_snapshot = self._browser.runtime.eval(f"({_JS_SERIALIZE})()")
+        page_snapshot = await self._page.evaluate(_JS_SERIALIZE)
+        assert client_snapshot == page_snapshot, (
+            f"DOM mismatch:\n  client: {client_snapshot}\n  page: {page_snapshot}"
         )
 
     async def assert_same_same(self) -> None:
