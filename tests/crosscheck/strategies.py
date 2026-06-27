@@ -66,7 +66,12 @@ def st_maybe_from_type(type):
 
 Interaction = Literal["fill", "click", "submit", "option", "select"]
 
-unique_ids = (f"id_{i}" for i in count())
+# this is a counter scoped to the hypothesis example so that each new test gets fresh ids
+_st_counter = st.shared(st.builds(lambda: count()), key="unique_ids")
+
+
+def _next_id(draw) -> str:
+    return f"id_{next(draw(_st_counter))}"
 
 
 @dataclass
@@ -227,7 +232,7 @@ def st_input(draw) -> SimpleElement:
     type = draw(st.none() | st.sampled_from(("", "text", "submit")))
     return SimpleElement(
         tag="input",
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={
             "type": type,
             **_attrs_name_value(draw),
@@ -240,7 +245,7 @@ def st_input(draw) -> SimpleElement:
 def st_button_submit(draw) -> SimpleElement:
     return SimpleElement(
         tag="button",
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={
             "type": "submit",
             **_attrs_name_value(draw),
@@ -256,7 +261,7 @@ def st_checkbox_group(draw) -> list[SimpleElement]:
     return [
         SimpleElement(
             tag="input",
-            id=next(unique_ids),
+            id=_next_id(draw),
             attrs={
                 "type": "checkbox",
                 **_attrs_name_value(draw),
@@ -277,7 +282,7 @@ def st_radio_group(draw) -> list[SimpleElement]:
     return [
         SimpleElement(
             tag="input",
-            id=next(unique_ids),
+            id=_next_id(draw),
             attrs={
                 "type": "radio",
                 **_attrs_name_value(draw),
@@ -293,7 +298,7 @@ def st_radio_group(draw) -> list[SimpleElement]:
 def st_textarea(draw) -> SimpleElement:
     return SimpleElement(
         tag="textarea",
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={"name": _draw_safe_name(draw)},
         content=draw(st_some_text_maybe_empty),
         interaction="fill",
@@ -310,7 +315,7 @@ def st_select(draw) -> SimpleElement:
     options = [
         SimpleElement(
             tag="option",
-            id=next(unique_ids),
+            id=_next_id(draw),
             attrs={
                 "value": draw(st_value),
                 "selected": "selected" if i in selected_indices else None,
@@ -322,7 +327,7 @@ def st_select(draw) -> SimpleElement:
     ]
     return SimpleElement(
         tag="select",
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={"name": _draw_safe_name(draw), "multiple": multiple},
         content=options,
         interaction="select",
@@ -423,7 +428,7 @@ def st_html_form(draw) -> SimpleNamespace:
 def _st_plain_inline(draw) -> SimpleElement:
     return SimpleElement(
         tag=draw(st.sampled_from(("span", "em", "strong"))),
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={},
         content=draw(st_some_text),
         interaction="click",
@@ -442,7 +447,7 @@ def st_htmx_element(draw) -> SimpleElement:
     content = draw(st_some_text | st.lists(_st_plain_inline(), min_size=1, max_size=2))
     return SimpleElement(
         tag=tag,
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={
             method: "/fragment",
             "hx-trigger": hx_trigger,
@@ -461,7 +466,7 @@ def st_plain_element(draw) -> SimpleElement:
     tag = draw(st.sampled_from(("div", "span", "p", "li")))
     return SimpleElement(
         tag=tag,
-        id=next(unique_ids),
+        id=_next_id(draw),
         attrs={},
         content=draw(st_some_text_maybe_empty),
         interaction="click",
