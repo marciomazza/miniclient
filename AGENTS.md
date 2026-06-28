@@ -24,3 +24,11 @@ More details about htmx:
 All DOM interaction (click, submit, dispatchEvent, query selectors, etc.) is done by evaluating JavaScript inside the jsrun runtime via `runtime.eval()` / `runtime.eval_async()`. There is no direct Python API to happy-dom or htmx objects — they live inside the V8 isolate.
 
 When adding DOM interaction methods, implement them in Python using `runtime.eval()` / `runtime.eval_async()` to execute JS against the happy-dom `document` already initialized in `bootstrap.js`.
+
+In js code strings (e.g. in evals) try to avoid using escaped quotes:
+use triple quotes around instead. E.g.:
+```
+  runtime.eval(f"""\
+    const html = "<div><p id='x'></p></div>"
+  """)
+```
