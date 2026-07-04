@@ -39,7 +39,7 @@ packages = ["src/htmxclient"]
 search_path = ["src", "tests"]
 
 [tool.pytest]
-addopts = ["--cov-report=html", "--hypothesis-show-statistics"]
+addopts = ["--cov-report=html", "-mnot cross"]
 filterwarnings = [
   "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]
