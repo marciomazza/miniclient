@@ -177,3 +177,41 @@ def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
 )
 def test_urlsearchparams_from_formdata(formdata_runtime: Runtime, html: str, expected: str) -> None:
     assert _urlsearchparams_string(formdata_runtime, html) == expected
+
+
+def _set_pairs(r: Runtime, js: str) -> list[tuple[str, str]]:
+    """Run FormData operations against a fresh instance, return resulting (name, value) pairs."""
+    result = r.eval(
+        f"""
+        (function () {{
+          const fd = new FormData();
+          {js};
+          return [...fd.entries()];
+        }})();
+        """
+    )
+    return [tuple(p) for p in result]
+
+
+@pytest.mark.parametrize(
+    "js,expected",
+    [
+        # set() on an existing key replaces the value in place, keeping original position
+        (
+            "fd.append('a', '1'); fd.append('b', '2'); fd.append('c', '3'); fd.set('a', 'X')",
+            [("a", "X"), ("b", "2"), ("c", "3")],
+        ),
+        # set() on a new key appends it at the end
+        (
+            "fd.append('a', '1'); fd.set('b', '2')",
+            [("a", "1"), ("b", "2")],
+        ),
+        # set() with pre-existing duplicates collapses them to the first entry's position
+        (
+            "fd.append('a', '1'); fd.append('a', '2'); fd.append('b', '3'); fd.set('a', 'X')",
+            [("a", "X"), ("b", "3")],
+        ),
+    ],
+)
+def test_set_replaces_in_place(formdata_runtime: Runtime, js: str, expected: list) -> None:
+    assert _set_pairs(formdata_runtime, js) == expected

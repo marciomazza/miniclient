@@ -89,8 +89,13 @@
         }
 
         set(name, value) {
-            this.#data = this.#data.filter(([k]) => k !== name);
-            this.#data.push([name, value]);
+            const idx = this.#data.findIndex(([k]) => k === name);
+            if (idx === -1) {
+                this.#data.push([name, value]);
+            } else {
+                this.#data[idx] = [name, value];
+                this.#data = this.#data.filter(([k], i) => i === idx || k !== name);
+            }
         }
 
         delete(name) {
