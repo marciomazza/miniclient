@@ -1,5 +1,6 @@
 import patchURL from "./patch-happy-dom-url.js";
 import patchDomParser from "./patch-happy-dom-parser.js";
+import patchAttr from "./patch-happy-dom-attr.js";
 
 function patchMethod(proto, method, wrapper) {
     const orig = proto[method];
@@ -171,4 +172,5 @@ export default function patch(win) {
     }
     patchURL(win);
     patchDomParser(win);
+    patchAttr(win);
 }
