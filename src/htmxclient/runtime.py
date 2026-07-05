@@ -39,6 +39,7 @@ _NODE_POLYFILL_FILES: dict[str, str] = {
 _NPM_POLYFILL_FILES: dict[str, str] = {
     "whatwg-mimetype": "npm-whatwg-mimetype.js",
     "ws": "npm-ws.js",
+    "buffer-image-size": "npm-buffer-image-size.js",
 }
 
 
