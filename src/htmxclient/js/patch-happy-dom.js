@@ -149,6 +149,29 @@ export default function patch(win) {
     }
 
     // -----------------------------------------------------------------------------------
+    // HTMLTextAreaElement.value getter — when not dirty, must return the "child text
+    // content" (direct Text-node children only), but happy-dom returns the full
+    // recursive textContent instead. This matters because htmx can insert element
+    // children into a textarea via DOM APIs (bypassing the HTML parser's RCDATA
+    // restriction), in which case only direct text children should count.
+    // -----------------------------------------------------------------------------------
+    {
+        const _desc = Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, "value");
+        Object.defineProperty(win.HTMLTextAreaElement.prototype, "value", {
+            get() {
+                const value = _desc.get.call(this);
+                if (value !== this.textContent) return value;
+                let text = "";
+                for (const child of this.childNodes)
+                    if (child.nodeType === Node.TEXT_NODE) text += child.data;
+                return text;
+            },
+            set: _desc.set,
+            configurable: true,
+        });
+    }
+
+    // -----------------------------------------------------------------------------------
     // EventTarget.dispatchEvent — set globalThis.event during dispatch
     // Required for hx-vals="js:{...}" that reference the triggering event.
     // Public EventTarget differs from the internal prototype used by DOM nodes.
