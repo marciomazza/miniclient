@@ -1,14 +1,19 @@
 # Metadados do projeto
 [project]
 name = "htmxclient"
-version = "0.0.0"
+version = "0.0.1"
 description = "An HTMX powered python http client"
 readme = "README.md"
 requires-python = ">=3.14"
+license = "MIT"
 dependencies = [
   "httpx2~=2.5.0",
   "jsrun~=0.1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/marciomazza/htmxclient"
+Repository = "https://github.com/marciomazza/htmxclient"
 
 # Grupos de dependências para desenvolvimento e testes
 [dependency-groups]
