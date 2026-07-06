@@ -10,12 +10,13 @@ import httpx2 as httpx
 from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
 _ROOT = Path(__file__).parent.parent.parent
-_NM = _ROOT / "node_modules"
+_BUNDLED = Path(__file__).parent / "_vendor"
+_NM = _BUNDLED if _BUNDLED.exists() else _ROOT / "node_modules"
 _JS = Path(__file__).parent / "js"
 _POLYFILLS = _JS / "polyfills"
 _HD_LIB = (_NM / "happy-dom/lib").resolve()
 _ENTITIES_ESM = (_NM / "entities/dist/esm/index.js").resolve()
-_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
+_HTMX_SRC = _NM / "htmx.org/dist/htmx.js"
 
 _NODE_POLYFILL_FILES: dict[str, str] = {
     "buffer": "node-buffer.js",
@@ -43,8 +44,13 @@ _NPM_POLYFILL_FILES: dict[str, str] = {
 }
 
 
-def _populate_builder(builder: SnapshotBuilder) -> None:
-    """Add all production scripts to a SnapshotBuilder (shared by prod and test snapshots)."""
+def _populate_builder(builder: SnapshotBuilder, htmx_src: Path = _HTMX_SRC) -> None:
+    """Add all production scripts to a SnapshotBuilder (shared by prod and test snapshots).
+
+    `htmx_src` defaults to the npm `htmx.org` dist build. Tests override it with
+    `vendor/htmx/src/htmx.js`, whose `__name` internals are still plain (testable)
+    properties instead of the real private fields the dist build's build step produces.
+    """
     builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
     xpath_src = (_NM / "xpath/xpath.js").read_text()
     builder.execute_script(
@@ -56,7 +62,7 @@ def _populate_builder(builder: SnapshotBuilder) -> None:
     builder.execute_script("pre_globals", (_JS / "pre_globals.js").read_text())
     builder.execute_script("formdata", (_JS / "formdata.js").read_text())
     htmx_source = (
-        _HTMX_SRC.read_text()
+        htmx_src.read_text()
         .replace("var htmx =", "var Htmx =", 1)
         .replace("return new Htmx()", "return Htmx", 1)
     )

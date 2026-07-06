@@ -14,7 +14,8 @@ settings.register_profile(
 
 
 _ROOT = Path(__file__).parent.parent
-_HTMX_TEST = _ROOT / "vendor/htmx/test"
+_VENDOR_HTMX_TEST = _ROOT / "vendor/htmx/test"
+_VENDOR_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
 _CHAI_JS = _ROOT / "node_modules/chai/chai.js"
 _RUNNER_JS = Path(__file__).parent / "runner.js"
 _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
@@ -23,7 +24,7 @@ _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 @pytest.fixture(scope="session")
 def browser_snapshot() -> bytes:
     builder = SnapshotBuilder()
-    _populate_builder(builder)
+    _populate_builder(builder, htmx_src=_VENDOR_HTMX_SRC)
     builder.execute_script(
         "chai",
         f"""{_CHAI_JS.read_text()}

@@ -40,6 +40,20 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/htmxclient"]
 
+[tool.hatch.build.targets.sdist.force-include]
+"node_modules/happy-dom/lib" = "node_modules/happy-dom/lib"
+"node_modules/xpath/xpath.js" = "node_modules/xpath/xpath.js"
+"node_modules/fast-text-encoding/text.min.js" = "node_modules/fast-text-encoding/text.min.js"
+"node_modules/entities/dist/esm" = "node_modules/entities/dist/esm"
+"node_modules/htmx.org/dist/htmx.js" = "node_modules/htmx.org/dist/htmx.js"
+
+[tool.hatch.build.targets.wheel.force-include]
+"node_modules/happy-dom/lib" = "htmxclient/_vendor/happy-dom/lib"
+"node_modules/xpath/xpath.js" = "htmxclient/_vendor/xpath/xpath.js"
+"node_modules/fast-text-encoding/text.min.js" = "htmxclient/_vendor/fast-text-encoding/text.min.js"
+"node_modules/entities/dist/esm" = "htmxclient/_vendor/entities/dist/esm"
+"node_modules/htmx.org/dist/htmx.js" = "htmxclient/_vendor/htmx.org/dist/htmx.js"
+
 [tool.pyrefly]
 search_path = ["src", "tests"]
 
