@@ -1,13 +1,19 @@
 # Python
-.venv
+.venv/
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 ipython_log.py*
 .pytest_cache
-
-node_modules/
-vendor
-.pi
+.coverage
 coverage.json
+htmlcov/
+.hypothesis/
+node_modules/
+.pi/
+zz/
+.jj/
+vendor
+graphify-out*
+site
