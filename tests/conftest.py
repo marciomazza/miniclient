@@ -3,9 +3,8 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from hypothesis import Phase, settings
-from jsrun import SnapshotBuilder
 
-from htmxclient.runtime import _populate_builder, build_runtime
+from htmxclient.runtime import build_runtime, get_snapshot_builder
 
 settings.register_profile(
     "noshrink",
@@ -23,8 +22,7 @@ _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
 @pytest.fixture(scope="session")
 def browser_snapshot() -> bytes:
-    builder = SnapshotBuilder()
-    _populate_builder(builder, htmx_src=_VENDOR_HTMX_SRC)
+    builder = get_snapshot_builder(htmx_src=_VENDOR_HTMX_SRC)
     builder.execute_script(
         "chai",
         f"""{_CHAI_JS.read_text()}

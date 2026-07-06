@@ -44,13 +44,14 @@ _NPM_POLYFILL_FILES: dict[str, str] = {
 }
 
 
-def _populate_builder(builder: SnapshotBuilder, htmx_src: Path = _HTMX_SRC) -> None:
-    """Add all production scripts to a SnapshotBuilder (shared by prod and test snapshots).
+def get_snapshot_builder(htmx_src: Path = _HTMX_SRC) -> SnapshotBuilder:
+    """Build a SnapshotBuilder with all production scripts (shared by prod and test snapshots).
 
     `htmx_src` defaults to the npm `htmx.org` dist build. Tests override it with
     `vendor/htmx/src/htmx.js`, whose `__name` internals are still plain (testable)
     properties instead of the real private fields the dist build's build step produces.
     """
+    builder = SnapshotBuilder()
     builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
     xpath_src = (_NM / "xpath/xpath.js").read_text()
     builder.execute_script(
@@ -68,13 +69,12 @@ def _populate_builder(builder: SnapshotBuilder, htmx_src: Path = _HTMX_SRC) -> N
     )
     builder.execute_script("htmx", htmx_source)
     builder.execute_script("htmxclient-submit", (_JS / "submit.js").read_text())
+    return builder
 
 
 @cache
 def _build_snapshot() -> bytes:
-    builder = SnapshotBuilder()
-    _populate_builder(builder)
-    return builder.build()
+    return get_snapshot_builder().build()
 
 
 @cache
