@@ -49,50 +49,17 @@ def _event_class(event_type: str) -> str:
     return mapping.get(event_type, "Event")
 
 
-def _htmx_action_js(handle: int, action_js: str) -> str:
-    """Wrap an element action in a Promise that resolves after htmx settles
-    (or immediately if no request fires).
-    """
-    return f"""
-    new Promise((resolve, reject) => {{
-        let willRequest = false;
-        document.addEventListener(
-            'htmx:before:request',
-            () => {{ willRequest = true; }},
-            {{once: true}},
-        );
-        document.addEventListener(
-            'htmx:finally:request',
-            () => resolve(),
-            {{once: true}},
-        );
-        document.addEventListener('htmx:error', (e) => {{
-            reject(new Error(
-                'htmx:error — '
-                + (e.detail?.error ?? e.detail?.ctx?.status)
-            ));
-        }}, {{once: true}});
-        const el = __zzz_deref({handle});
-        if (!el) {{
-            reject(new Error('Element not found (handle {handle})'));
-            return;
-        }}
-        {action_js}
-        setTimeout(() => {{ if (!willRequest) resolve(); }}, 0);
-    }})
-    """
-
-
-def _load(runtime: Runtime, html: str) -> None:
-    runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
-    runtime.eval("htmx.process(document.body)")
-
-
 def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
+    """Dispatch a DOM event, wrapped in a Promise that resolves after htmx
+    settles (or immediately if no request fires). Delegates the wait/settle
+    logic to the shared JS helper also used by __zzz_submit (see submit.js).
+    """
     event_cls = _event_class(event)
     init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
-    action = f"el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));"
-    return _htmx_action_js(handle, action)
+    return f"""
+        __zzz_await_htmx({handle}, el => {{
+          el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));
+        }});"""
 
 
 class Element:
@@ -198,23 +165,12 @@ class Browser:
 
     async def goto(self, url: str) -> Response:
         """Fetch url, load the full document, process htmx, and return the response."""
-        result = await self.runtime.eval_async(f"""
-            fetch({json.dumps(url)}).then(res => res.text().then(text => {{
-                document.documentElement.innerHTML = text;
-                htmx.process(document.body);
-                return {{
-                    status: res.status,
-                    ok: res.ok,
-                    headers: Object.fromEntries(res.headers.entries()),
-                    text,
-                }};
-            }}))
-        """)
+        result = await self.runtime.eval_async(f"__zzz_fetch_and_load({json.dumps(url)})")
         return Response(**result, url=url)
 
     async def load(self, html: str) -> None:
-        """Load HTML into the document (preserving head/title), and initialize htmx."""
-        _load(self.runtime, html)
+        """Load HTML into the document and initialize htmx."""
+        self.runtime.eval(f"__zzz_load({json.dumps(html)})")
 
     def close(self) -> None:
         self.runtime.close()

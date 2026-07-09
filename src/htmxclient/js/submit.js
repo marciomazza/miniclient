@@ -1,4 +1,29 @@
-globalThis.__zzz_submit = function (handle) {
+globalThis.__zzz_load = function (html) {
+    document.documentElement.innerHTML = html;
+    htmx.process(document.body);
+};
+
+// Fetches url, loads the response body as the new document, and returns a
+// response descriptor (status/ok/headers/text — caller adds `url`, since our
+// fetch polyfill doesn't populate Response.url). Shared by Browser.goto()
+// (browser.py) and the plain-form-submission fallback below.
+globalThis.__zzz_fetch_and_load = async function (url, options) {
+    const r = await fetch(url, options);
+    const text = await r.text();
+    __zzz_load(text);
+    return {
+        status: r.status,
+        ok: r.ok,
+        headers: Object.fromEntries(r.headers.entries()),
+        text,
+    };
+};
+
+// Runs `doAction(el)`, then resolves once htmx settles the request it triggered.
+// If no request was triggered, calls `onNoRequest(el)` and resolves with its result
+// (default: resolve with null). Shared by Element.trigger()/click()/submit() (browser.py)
+// and __zzz_submit below.
+globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
     return new Promise((resolve, reject) => {
         let willRequest = false;
         document.addEventListener(
@@ -23,58 +48,49 @@ globalThis.__zzz_submit = function (handle) {
             return;
         }
 
-        const form = el.form ?? el.closest("form");
-        if (!form) {
-            reject(new Error("No form found for handle " + handle));
-            return;
-        }
-        const submitter = el.tagName === "BUTTON" || el.tagName === "INPUT" ? el : null;
-
-        form.dispatchEvent(
-            new SubmitEvent("submit", {
-                bubbles: true,
-                cancelable: true,
-                submitter,
-            }),
-        );
+        doAction(el);
 
         setTimeout(() => {
             if (!willRequest) {
-                // htmx didn't intercept — plain form submission
-                const fd = new FormData(form, submitter);
-                const method = (form.method || "get").toLowerCase();
-                const action = form.action;
-                let requestUrl = action;
-                let p;
-                if (method === "post") {
-                    p = fetch(action, {
-                        method: "POST",
-                        body: new URLSearchParams(fd).toString(),
-                        headers: {
-                            "content-type": "application/x-www-form-urlencoded",
-                        },
-                    });
-                } else {
-                    const params = new URLSearchParams(fd).toString();
-                    requestUrl = params ? action + "?" + params : action;
-                    p = fetch(requestUrl);
-                }
-                p.then((r) =>
-                    r.text().then((text) => {
-                        document.documentElement.innerHTML = text;
-                        htmx.process(document.body);
-                        return {
-                            status: r.status,
-                            ok: r.ok,
-                            url: requestUrl,
-                            headers: Object.fromEntries(r.headers.entries()),
-                            text,
-                        };
-                    }),
-                )
-                    .then(resolve)
-                    .catch(reject);
+                Promise.resolve(onNoRequest?.(el)).then(resolve).catch(reject);
             }
         }, 0);
     });
+};
+
+globalThis.__zzz_submit = function (handle) {
+    let form, submitter;
+    return __zzz_await_htmx(
+        handle,
+        (el) => {
+            form = el.form ?? el.closest("form");
+            if (!form) {
+                throw new Error("No form found for handle " + handle);
+            }
+            submitter = el.tagName === "BUTTON" || el.tagName === "INPUT" ? el : null;
+            form.dispatchEvent(
+                new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter }),
+            );
+        },
+        async () => {
+            // htmx didn't intercept => plain form submission
+            const fd = new FormData(form, submitter);
+            const method = (form.method || "get").toLowerCase();
+            const action = form.action;
+            let requestUrl = action;
+            let options;
+            if (method === "post") {
+                options = {
+                    method: "POST",
+                    body: new URLSearchParams(fd).toString(),
+                    headers: { "content-type": "application/x-www-form-urlencoded" },
+                };
+            } else {
+                const params = new URLSearchParams(fd).toString();
+                requestUrl = params ? action + "?" + params : action;
+            }
+            const result = await __zzz_fetch_and_load(requestUrl, options);
+            return { ...result, url: requestUrl };
+        },
+    );
 };

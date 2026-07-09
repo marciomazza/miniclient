@@ -68,8 +68,8 @@ def get_snapshot_builder(htmx_src: Path = _HTMX_SRC) -> SnapshotBuilder:
         .replace("return new Htmx()", "return Htmx", 1)
     )
     builder.execute_script("htmx", htmx_source)
-    builder.execute_script("htmxclient-element-registry", (_JS / "element_registry.js").read_text())
-    builder.execute_script("htmxclient-submit", (_JS / "submit.js").read_text())
+    builder.execute_script("element-registry", (_JS / "element_registry.js").read_text())
+    builder.execute_script("submit", (_JS / "submit.js").read_text())
     return builder
 
 
