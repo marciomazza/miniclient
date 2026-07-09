@@ -1,4 +1,4 @@
-globalThis.__zzz_submit = function (selector) {
+globalThis.__zzz_submit = function (handle) {
     return new Promise((resolve, reject) => {
         let willRequest = false;
         document.addEventListener(
@@ -17,15 +17,15 @@ globalThis.__zzz_submit = function (selector) {
             { once: true },
         );
 
-        const el = document.querySelector(selector);
+        const el = __zzz_deref(handle);
         if (!el) {
-            reject(new Error("Element not found: " + selector));
+            reject(new Error("Element not found (handle " + handle + ")"));
             return;
         }
 
         const form = el.form ?? el.closest("form");
         if (!form) {
-            reject(new Error("No form found for: " + selector));
+            reject(new Error("No form found for handle " + handle));
             return;
         }
         const submitter = el.tagName === "BUTTON" || el.tagName === "INPUT" ? el : null;

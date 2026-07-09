@@ -43,7 +43,7 @@ def _event_class(event_type: str) -> str:
     return mapping.get(event_type, "Event")
 
 
-def _htmx_action_js(selector: str, action_js: str) -> str:
+def _htmx_action_js(handle: int, action_js: str) -> str:
     """Wrap an element action in a Promise that resolves after htmx settles
     (or immediately if no request fires).
     """
@@ -66,9 +66,9 @@ def _htmx_action_js(selector: str, action_js: str) -> str:
                 + (e.detail?.error ?? e.detail?.ctx?.status)
             ));
         }}, {{once: true}});
-        const el = document.querySelector({json.dumps(selector)});
+        const el = __zzz_deref({handle});
         if (!el) {{
-            reject(new Error('Element not found: {selector}'));
+            reject(new Error('Element not found (handle {handle})'));
             return;
         }}
         {action_js}
@@ -82,18 +82,23 @@ def _load(runtime: Runtime, html: str) -> None:
     runtime.eval("htmx.process(document.body)")
 
 
-def _dispatch_js(selector: str, event: str, event_init: dict | None) -> str:
+def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
     event_cls = _event_class(event)
     init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
     action = f"el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));"
-    return _htmx_action_js(selector, action)
+    return _htmx_action_js(handle, action)
 
 
 class Element:
-    """Represents a DOM element found via Browser.find() or Browser.find_all()."""
+    """Represents a DOM element found via Browser.find() or Browser.find_all().
 
-    def __init__(self, selector: str, runtime: Runtime) -> None:
-        self.selector = selector
+    Identified by an opaque handle (assigned by the JS-side element registry),
+    not by the selector used to locate it — it stays valid across DOM changes
+    as long as the underlying node remains connected to the document.
+    """
+
+    def __init__(self, handle: int, runtime: Runtime) -> None:
+        self.handle = handle
         self.runtime = runtime
 
     # --- Queries ---
@@ -132,13 +137,13 @@ class Element:
         If htmx handles the submission, waits for htmx to settle.
         If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
-        html = await self.runtime.eval_async(f"__zzz_submit({json.dumps(self.selector)})")
+        html = await self.runtime.eval_async(f"__zzz_submit({self.handle})")
         if html is not None:
             _load(self.runtime, extract_body_html(html))
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
-        js = _dispatch_js(self.selector, event, event_init)
+        js = _dispatch_js(self.handle, event, event_init)
         await self.runtime.eval_async(js)
 
     # --- Internal ---
@@ -147,8 +152,8 @@ class Element:
         """Evaluate an expression with `el` bound to the selected element."""
         js = f"""
         (() => {{
-          const el = document.querySelector({json.dumps(self.selector)});
-          if (!el) throw new Error('Element not found: {self.selector}');
+          const el = __zzz_deref({self.handle});
+          if (!el) throw new Error('Element not found (handle {self.handle})');
           return {expr};
         }})();
         """
@@ -171,36 +176,17 @@ class Browser:
 
     def find(self, selector: str) -> Element | None:
         """Return the first matching element, or None if not found."""
-        js = f"document.querySelector({json.dumps(selector)}) !== null"
-        if not self.runtime.eval(js):
-            return None
-        return Element(selector, self.runtime)
+        js = f"__zzz_ref(document.querySelector({json.dumps(selector)}))"
+        handle = self.runtime.eval(js)
+        return Element(handle, self.runtime) if handle is not None else None
 
     def find_all(self, selector: str) -> list[Element]:
         """Return all matching elements."""
         js = f"""
-        (() => {{
-          const nodes = document.querySelectorAll({json.dumps(selector)});
-          const selectors = [];
-          for (let i = 0; i < nodes.length; i++) {{
-            if (nodes[i].id) {{
-              selectors.push('#' + CSS.escape(nodes[i].id));
-            }} else {{
-              const tag = nodes[i].tagName.toLowerCase();
-              const sameTag = nodes[i].parentNode
-                ? Array.from(nodes[i].parentNode.children).filter(
-                    c => c.tagName === nodes[i].tagName,
-                  )
-                : [];
-              const idx = sameTag.indexOf(nodes[i]) + 1;
-              selectors.push(tag + ':nth-of-type(' + idx + ')');
-            }}
-          }}
-          return selectors;
-        }})();
+        Array.from(document.querySelectorAll({json.dumps(selector)}), __zzz_ref)
         """
-        selectors = self.runtime.eval(js)
-        return [Element(sel, self.runtime) for sel in selectors]
+        handles = self.runtime.eval(js)
+        return [Element(handle, self.runtime) for handle in handles]
 
     # --- Page operations ---
 
