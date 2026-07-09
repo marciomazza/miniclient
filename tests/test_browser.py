@@ -382,13 +382,13 @@ async def test_goto_loads_body(browser, httpx_mock):
     assert browser.find("#msg").innerHTML() == "hello"
 
 
-async def test_goto_strips_head_and_body_tags(browser, httpx_mock):
+async def test_goto_preserves_head_and_title(browser, httpx_mock):
     httpx_mock.add_response(
         url="http://app.example.com/page",
         text="<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
     )
     await browser.goto("http://app.example.com/page")
-    assert browser.runtime.eval("document.querySelector('title')") is None
+    assert browser.runtime.eval("document.title") == "T"
     assert browser.find("#s").innerHTML() == "ok"
 
 

@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 
 import httpx2 as httpx
 from jsrun import Runtime
 
 from htmxclient.runtime import build_runtime
-
-
-def extract_body_html(html: str) -> str:
-    m = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
-    return m.group(1) if m else html
 
 
 def _event_class(event_type: str) -> str:
@@ -78,7 +72,7 @@ def _htmx_action_js(handle: int, action_js: str) -> str:
 
 
 def _load(runtime: Runtime, html: str) -> None:
-    runtime.eval(f"document.body.innerHTML = {json.dumps(html)}")
+    runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
     runtime.eval("htmx.process(document.body)")
 
 
@@ -139,7 +133,7 @@ class Element:
         """
         html = await self.runtime.eval_async(f"__zzz_submit({self.handle})")
         if html is not None:
-            _load(self.runtime, extract_body_html(html))
+            _load(self.runtime, html)
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
@@ -191,12 +185,12 @@ class Browser:
     # --- Page operations ---
 
     async def goto(self, url: str) -> None:
-        """Fetch url, load its body into the document, and process htmx."""
+        """Fetch url, load the full document, and process htmx."""
         html = await self.runtime.eval_async(f"fetch({json.dumps(url)}).then(r => r.text())")
-        await self.load(extract_body_html(html))
+        _load(self.runtime, html)
 
     async def load(self, html: str) -> None:
-        """Set document body and initialize htmx on the new content."""
+        """Load HTML into the document (preserving head/title), and initialize htmx."""
         _load(self.runtime, html)
 
     def close(self) -> None:
