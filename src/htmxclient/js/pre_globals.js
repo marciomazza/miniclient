@@ -15,16 +15,71 @@
         getEntriesByName: () => [],
     };
 
-    const _stubTimer = (fn, d, ...a) => {
-        try {
-            fn(...a);
-        } catch {}
-        return 0;
-    };
-    globalThis.setTimeout ??= _stubTimer;
-    globalThis.clearTimeout ??= () => {};
-    globalThis.setInterval ??= _stubTimer;
-    globalThis.clearInterval ??= () => {};
+    // Must exist before happy-dom is imported: its modules do
+    // `globalThis.setTimeout.bind(globalThis)` at import time and keep that bound
+    // reference forever, so happy-dom's internal timers run on whatever is defined here.
+    //
+    // Timer implementation using Atomics.waitAsync — pure ECMAScript, no Python ops.
+    // win.setTimeout (happy-dom) never fires in this runtime because its internal timer
+    // queue is never drained; these replace it entirely.
+    {
+        let _nextId = 1;
+        const _active = {}; // timerId -> true
+        const _intervals = {}; // intervalId -> current timerId
+
+        const _wait = (ms) => {
+            const view = new Int32Array(new SharedArrayBuffer(4));
+            const r = Atomics.waitAsync(view, 0, 0, ms || 0);
+            return r.async ? r.value : Promise.resolve();
+        };
+
+        globalThis.setTimeout = (fn, ms = 0, ...args) => {
+            const id = _nextId++;
+            _active[id] = true;
+            _wait(ms).then(() => {
+                if (_active[id]) {
+                    delete _active[id];
+                    fn(...args);
+                }
+            });
+            return id;
+        };
+
+        globalThis.clearTimeout = (id) => {
+            if (id != null) delete _active[id];
+        };
+
+        globalThis.setInterval = (fn, ms = 0, ...args) => {
+            const intervalId = _nextId++;
+            const schedule = () => {
+                const timerId = _nextId++;
+                _intervals[intervalId] = timerId;
+                _active[timerId] = true;
+                _wait(ms).then(() => {
+                    delete _active[timerId];
+                    if (intervalId in _intervals) {
+                        fn(...args);
+                        schedule();
+                    }
+                });
+            };
+            schedule();
+            return intervalId;
+        };
+
+        globalThis.clearInterval = (intervalId) => {
+            const timerId = _intervals[intervalId];
+            delete _intervals[intervalId];
+            if (timerId != null) delete _active[timerId];
+        };
+
+        // Silently drop all pending timer callbacks — used between tests to prevent
+        // stale timers from a previous test firing into the next one's context.
+        globalThis.__clearAllTimers = () => {
+            for (const k of Object.keys(_active)) delete _active[k];
+            for (const k of Object.keys(_intervals)) delete _intervals[k];
+        };
+    }
     globalThis.setImmediate ??= (fn, ...a) => setTimeout(fn, 0, ...a);
     globalThis.clearImmediate ??= () => {};
 
