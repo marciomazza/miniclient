@@ -55,7 +55,7 @@ class DomCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client = self._browser.runtime.eval(f"({_JS_SERIALIZE})()")
+        client = self._browser.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
         browser = await self._page.evaluate(_JS_SERIALIZE)
         assert client == browser
 
