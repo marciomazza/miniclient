@@ -166,7 +166,7 @@ class Browser:
     async def goto(self, url: str) -> Response:
         """Fetch url, load the full document, process htmx, and return the response."""
         result = await self.runtime.eval_async(f"__zzz_fetch_and_load({json.dumps(url)})")
-        return Response(**result, url=url)
+        return Response(**result)
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""

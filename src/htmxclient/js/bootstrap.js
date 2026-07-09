@@ -103,11 +103,15 @@ globalThis.fetch = async (input, init = {}) => {
         headers = Object.fromEntries(req.headers.entries());
     }
     const res = await __host_op_async__(_fetchOpId, { url, method, headers, body });
-    return new Response(res.body != null ? new Uint8Array(res.body) : null, {
+    const response = new Response(res.body != null ? new Uint8Array(res.body) : null, {
         status: res.status,
         statusText: res.statusText ?? "",
         headers: res.headers,
     });
+    // Response.url has no ResponseInit setter — the platform fills it in as a
+    // side effect of the fetch algorithm, so we do the same here.
+    Object.defineProperty(response, "url", { value: res.url, configurable: true });
+    return response;
 };
 // Make window.fetch a live proxy to globalThis.fetch so test mocks installed on
 // globalThis (e.g. installFetchMock) are immediately visible to htmx, which reads

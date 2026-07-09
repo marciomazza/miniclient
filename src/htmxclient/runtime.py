@@ -131,6 +131,7 @@ def _make_fetch_op(
             "statusText": "",
             "headers": dict(r.headers),
             "body": r.content,
+            "url": str(r.url),
         }
 
     return _fetch_op_impl

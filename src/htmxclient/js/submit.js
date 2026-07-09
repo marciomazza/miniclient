@@ -4,19 +4,14 @@ globalThis.__zzz_load = function (html) {
 };
 
 // Fetches url, loads the response body as the new document, and returns a
-// response descriptor (status/ok/headers/text — caller adds `url`, since our
-// fetch polyfill doesn't populate Response.url). Shared by Browser.goto()
+// response descriptor (status/ok/url/headers/text). Shared by Browser.goto()
 // (browser.py) and the plain-form-submission fallback below.
 globalThis.__zzz_fetch_and_load = async function (url, options) {
     const r = await fetch(url, options);
     const text = await r.text();
     __zzz_load(text);
-    return {
-        status: r.status,
-        ok: r.ok,
-        headers: Object.fromEntries(r.headers.entries()),
-        text,
-    };
+    const { status, ok } = r;
+    return { status, ok, url: r.url, text, headers: Object.fromEntries(r.headers.entries()) };
 };
 
 // Runs `doAction(el)`, then resolves once htmx settles the request it triggered.
@@ -89,8 +84,7 @@ globalThis.__zzz_submit = function (handle) {
                 const params = new URLSearchParams(fd).toString();
                 requestUrl = params ? action + "?" + params : action;
             }
-            const result = await __zzz_fetch_and_load(requestUrl, options);
-            return { ...result, url: requestUrl };
+            return await __zzz_fetch_and_load(requestUrl, options);
         },
     );
 };
