@@ -604,9 +604,25 @@ async def test_element_submit_plain(
         f'<form method="{method}" action="/action"><input name="x" value="42">'
         '<button type="submit" id="btn">go</button></form>'
     )
-    await browser.find(selector).submit()
+    response = await browser.find(selector).submit()
     assert check_request(httpx_mock.get_request())
     assert browser.find("p").text() == "done"
+    assert response.status == 200
+    assert response.ok is True
+    assert response.url == expected_url
+    assert response.text == "<body><p>done</p></body>"
+
+
+async def test_element_submit_htmx_handled_returns_none(browser, httpx_mock):
+    httpx_mock.add_response(url="http://app.example.com/form-action", text="<p>sent</p>")
+    await browser.load(
+        '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
+        '<button type="submit" id="btn">go</button>'
+        "</form>"
+        '<div id="result"></div>'
+    )
+    response = await browser.find("#btn").submit()
+    assert response is None
 
 
 async def test_element_submit_no_form_raises(browser):

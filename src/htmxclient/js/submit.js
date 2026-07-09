@@ -44,6 +44,7 @@ globalThis.__zzz_submit = function (handle) {
                 const fd = new FormData(form, submitter);
                 const method = (form.method || "get").toLowerCase();
                 const action = form.action;
+                let requestUrl = action;
                 let p;
                 if (method === "post") {
                     p = fetch(action, {
@@ -55,9 +56,22 @@ globalThis.__zzz_submit = function (handle) {
                     });
                 } else {
                     const params = new URLSearchParams(fd).toString();
-                    p = fetch(params ? action + "?" + params : action);
+                    requestUrl = params ? action + "?" + params : action;
+                    p = fetch(requestUrl);
                 }
-                p.then((r) => r.text())
+                p.then((r) =>
+                    r.text().then((text) => {
+                        document.documentElement.innerHTML = text;
+                        htmx.process(document.body);
+                        return {
+                            status: r.status,
+                            ok: r.ok,
+                            url: requestUrl,
+                            headers: Object.fromEntries(r.headers.entries()),
+                            text,
+                        };
+                    }),
+                )
                     .then(resolve)
                     .catch(reject);
             }

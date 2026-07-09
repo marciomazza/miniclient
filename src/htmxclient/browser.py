@@ -11,7 +11,7 @@ from htmxclient.runtime import build_runtime
 
 @dataclass(frozen=True)
 class Response:
-    """Result of a Browser.goto() navigation."""
+    """Result of a Browser navigation."""
 
     status: int
     ok: bool
@@ -137,15 +137,15 @@ class Element:
         """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
         await self.trigger("click")
 
-    async def submit(self) -> None:
+    async def submit(self) -> Response | None:
         """Submit the form (or the element's form).
 
-        If htmx handles the submission, waits for htmx to settle.
-        If the form is not htmx-wired, performs a plain fetch and reloads the page.
+        If htmx handles the submission, waits for htmx to settle and returns None.
+        If the form is not htmx-wired, performs a plain fetch, reloads the page,
+        and returns the Response.
         """
-        html = await self.runtime.eval_async(f"__zzz_submit({self.handle})")
-        if html is not None:
-            _load(self.runtime, html)
+        result = await self.runtime.eval_async(f"__zzz_submit({self.handle})")
+        return Response(**result) if result is not None else None
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
@@ -210,13 +210,7 @@ class Browser:
                 }};
             }}))
         """)
-        return Response(
-            status=result["status"],
-            ok=result["ok"],
-            url=url,
-            headers=result["headers"],
-            text=result["text"],
-        )
+        return Response(**result, url=url)
 
     async def load(self, html: str) -> None:
         """Load HTML into the document (preserving head/title), and initialize htmx."""
