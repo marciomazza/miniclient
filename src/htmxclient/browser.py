@@ -199,14 +199,17 @@ class Browser:
     async def goto(self, url: str) -> Response:
         """Fetch url, load the full document, process htmx, and return the response."""
         result = await self.runtime.eval_async(f"""
-            fetch({json.dumps(url)}).then(res => res.text().then(text => ({{
-                status: res.status,
-                ok: res.ok,
-                headers: Object.fromEntries(res.headers.entries()),
-                text,
-            }})))
+            fetch({json.dumps(url)}).then(res => res.text().then(text => {{
+                document.documentElement.innerHTML = text;
+                htmx.process(document.body);
+                return {{
+                    status: res.status,
+                    ok: res.ok,
+                    headers: Object.fromEntries(res.headers.entries()),
+                    text,
+                }};
+            }}))
         """)
-        _load(self.runtime, result["text"])
         return Response(
             status=result["status"],
             ok=result["ok"],
