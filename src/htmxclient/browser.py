@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 import httpx2 as httpx
 from jsrun import Runtime
 
 from htmxclient.runtime import build_runtime
+
+
+@dataclass(frozen=True)
+class Response:
+    """Result of a Browser.goto() navigation."""
+
+    status: int
+    ok: bool
+    url: str
+    headers: dict[str, str]
+    text: str
 
 
 def _event_class(event_type: str) -> str:
@@ -184,10 +196,24 @@ class Browser:
 
     # --- Page operations ---
 
-    async def goto(self, url: str) -> None:
-        """Fetch url, load the full document, and process htmx."""
-        html = await self.runtime.eval_async(f"fetch({json.dumps(url)}).then(r => r.text())")
-        _load(self.runtime, html)
+    async def goto(self, url: str) -> Response:
+        """Fetch url, load the full document, process htmx, and return the response."""
+        result = await self.runtime.eval_async(f"""
+            fetch({json.dumps(url)}).then(res => res.text().then(text => ({{
+                status: res.status,
+                ok: res.ok,
+                headers: Object.fromEntries(res.headers.entries()),
+                text,
+            }})))
+        """)
+        _load(self.runtime, result["text"])
+        return Response(
+            status=result["status"],
+            ok=result["ok"],
+            url=url,
+            headers=result["headers"],
+            text=result["text"],
+        )
 
     async def load(self, html: str) -> None:
         """Load HTML into the document (preserving head/title), and initialize htmx."""

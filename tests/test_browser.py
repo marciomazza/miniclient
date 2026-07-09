@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 from jsrun import JavaScriptError
 
-from htmxclient.browser import Browser, Element
+from htmxclient.browser import Browser, Element, Response
 from htmxclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
@@ -373,16 +373,7 @@ async def test_clearinterval_stops_firing(runtime):
 # ---------------------------------------------------------------------------
 
 
-async def test_goto_loads_body(browser, httpx_mock):
-    httpx_mock.add_response(
-        url="http://app.example.com/page",
-        text="<html><head></head><body><p id='msg'>hello</p></body></html>",
-    )
-    await browser.goto("http://app.example.com/page")
-    assert browser.find("#msg").innerHTML() == "hello"
-
-
-async def test_goto_preserves_head_and_title(browser, httpx_mock):
+async def test_goto_head_and_title_body(browser, httpx_mock):
     httpx_mock.add_response(
         url="http://app.example.com/page",
         text="<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
@@ -390,6 +381,27 @@ async def test_goto_preserves_head_and_title(browser, httpx_mock):
     await browser.goto("http://app.example.com/page")
     assert browser.runtime.eval("document.title") == "T"
     assert browser.find("#s").innerHTML() == "ok"
+
+
+@pytest.mark.parametrize(
+    "status_code,ok",
+    [(201, True), (404, False)],
+)
+async def test_goto_returns_response(browser, httpx_mock, status_code, ok):
+    url, headers, text = "http://app.example.com/page", {"x-custom": "yes"}, "<p>hi</p>"
+    httpx_mock.add_response(status_code=status_code, url=url, headers=headers, text=text)
+    response = await browser.goto(url)
+    assert response == Response(
+        status=status_code,
+        ok=ok,
+        url=url,
+        headers={
+            "x-custom": "yes",
+            "content-length": "9",
+            "content-type": "text/plain; charset=utf-8",
+        },
+        text=text,
+    )
 
 
 async def test_goto_processes_htmx(browser, httpx_mock):
