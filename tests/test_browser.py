@@ -664,3 +664,20 @@ async def test_browser_async_context_manager(httpx_mock, browser_snapshot):
             assert result is not None
             assert result.innerHTML() == "<b>hi</b>"
     close_mock.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Browser virtual servers (external <script src>)
+# ---------------------------------------------------------------------------
+
+
+async def test_browser_create_with_virtual_servers(browser_snapshot, tmp_path):
+    (tmp_path / "external-script.js").write_text("window.__ran = 1;")
+    b = await Browser.create(
+        snapshot=browser_snapshot,
+        mounts={"http://localhost/ext/": tmp_path},
+    )
+    b.runtime.eval(
+        'document.head.innerHTML = \'<script src="http://localhost/ext/external-script.js"></script>\';'
+    )
+    assert b.runtime.eval("window.__ran") == 1

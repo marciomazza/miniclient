@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx2 as httpx
 from jsrun import Runtime
@@ -142,8 +143,20 @@ class Browser:
         cls,
         url: str = "http://localhost/",
         httpx_transport: httpx.AsyncBaseTransport | None = None,
+        mounts: dict[str, Path] | None = None,
+        snapshot: bytes | None = None,
     ) -> Browser:
-        return cls(await build_runtime(url, httpx_transport=httpx_transport))
+        return cls(
+            await build_runtime(
+                url,
+                snapshot=snapshot,
+                httpx_transport=httpx_transport,
+                virtual_servers=[
+                    {"url": mount_url, "directory": str(directory)}
+                    for mount_url, directory in (mounts or {}).items()
+                ],
+            )
+        )
 
     # --- Element queries ---
 
