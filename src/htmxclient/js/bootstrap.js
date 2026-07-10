@@ -70,7 +70,6 @@ Object.defineProperty(globalThis, "IntersectionObserver", {
     configurable: true,
 });
 patchHappyDom(win);
-const _fetchOpId = globalThis.__FETCH_OP_ID__;
 globalThis.fetch = async (input, init = {}) => {
     let url, method, headers, body;
     if (!(input instanceof Request) && init.body instanceof FormData) {
@@ -108,7 +107,7 @@ globalThis.fetch = async (input, init = {}) => {
         method = req.method;
         headers = Object.fromEntries(req.headers.entries());
     }
-    const res = await __host_op_async__(_fetchOpId, { url, method, headers, body });
+    const res = await __host_fetch({ url, method, headers, body });
     const response = new Response(res.body != null ? new Uint8Array(res.body) : null, {
         status: res.status,
         statusText: res.statusText ?? "",

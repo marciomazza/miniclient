@@ -59,16 +59,10 @@ class HttpxFetchMock:
         self.transport = _MockTransport(self)
 
     def install(self, runtime: Runtime) -> None:
-        register_id = runtime.register_op("fetch_mock_register", self._op_register)
-        reset_id = runtime.register_op("fetch_mock_reset", self._op_reset)
-        register_seq_id = runtime.register_op("fetch_mock_register_seq", self._op_register_seq)
-        next_id = runtime.register_op("fetch_mock_next", self._op_next, mode="async")
-        runtime.eval(
-            f"globalThis.__FM_REGISTER__ = {register_id};"
-            f"globalThis.__FM_RESET__ = {reset_id};"
-            f"globalThis.__FM_REGISTER_SEQ__ = {register_seq_id};"
-            f"globalThis.__FM_NEXT__ = {next_id};"
-        )
+        runtime.bind_function("__host_fm_register", self._op_register)
+        runtime.bind_function("__host_fm_reset", self._op_reset)
+        runtime.bind_function("__host_fm_register_seq", self._op_register_seq)
+        runtime.bind_function("__host_fm_next", self._op_next)
 
     def _op_register(self, req: dict) -> dict:
         self._entries.append(

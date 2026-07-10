@@ -1,7 +1,5 @@
 function statSync(path) {
-    const opId = globalThis.__FS_STAT_OP_ID__;
-    if (opId === undefined) throw new Error("fs.statSync is not available in this runtime");
-    const info = __host_op_sync__(opId, path);
+    const info = __host_fs_stat(path);
     return {
         isDirectory: () => info.isDirectory,
         isFile: () => !info.isDirectory,
@@ -9,10 +7,7 @@ function statSync(path) {
 }
 
 function readFileSync(path, encoding) {
-    const opId = globalThis.__FS_READ_OP_ID__;
-    if (opId === undefined) throw new Error("fs.readFileSync is not available in this runtime");
-    const bytes = __host_op_sync__(opId, path);
-    const buf = Buffer.from(new Uint8Array(bytes));
+    const buf = Buffer.from(new Uint8Array(__host_fs_read(path)));
     return encoding ? buf.toString(encoding) : buf;
 }
 

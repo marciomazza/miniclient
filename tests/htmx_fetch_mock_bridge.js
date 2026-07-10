@@ -31,9 +31,7 @@
         }
 
         reset() {
-            if (typeof globalThis.__FM_RESET__ !== "undefined") {
-                __host_op_sync__(globalThis.__FM_RESET__, {});
-            }
+            __host_fm_reset({});
             this.calls = [];
             this.pendingRequests = [];
         }
@@ -61,7 +59,7 @@
             const patternStr =
                 urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
 
-            __host_op_sync__(globalThis.__FM_REGISTER__, {
+            __host_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: body,
@@ -77,7 +75,7 @@
             status = status || 200;
             const patternStr =
                 urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
-            __host_op_sync__(globalThis.__FM_REGISTER__, {
+            __host_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: JSON.stringify(data),
@@ -94,7 +92,7 @@
             message = message || "Server Error";
             const patternStr =
                 urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
-            __host_op_sync__(globalThis.__FM_REGISTER__, {
+            __host_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: message,
@@ -111,7 +109,7 @@
             const patternStr =
                 urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
             const msg = error instanceof Error ? error.message : String(error);
-            __host_op_sync__(globalThis.__FM_REGISTER__, {
+            __host_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: "",
@@ -136,7 +134,7 @@
             const patternStr =
                 urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
 
-            const seqId = __host_op_sync__(globalThis.__FM_REGISTER_SEQ__, {
+            const seqId = __host_fm_register_seq({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: body,
@@ -148,7 +146,7 @@
                 next() {
                     // Fire-and-forget: runner.js ignores the return value and waits
                     // for htmx:finally:request instead.
-                    __host_op_async__(globalThis.__FM_NEXT__, { seq_id: seqId });
+                    __host_fm_next({ seq_id: seqId });
                     return Promise.resolve();
                 },
                 get pendingCount() {

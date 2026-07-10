@@ -163,14 +163,9 @@ async def build_runtime(
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
 
-    fetch_op_id = r.register_op(
-        "fetch", _make_fetch_op(before_fetch, httpx_transport), mode="async"
-    )
-    fs_stat_op_id = r.register_op("fs_stat", _fs_stat_op)
-    fs_read_op_id = r.register_op("fs_read", _fs_read_op)
-    r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id}")
-    r.eval(f"globalThis.__FS_STAT_OP_ID__ = {fs_stat_op_id}")
-    r.eval(f"globalThis.__FS_READ_OP_ID__ = {fs_read_op_id}")
+    r.bind_function("__host_fetch", _make_fetch_op(before_fetch, httpx_transport))
+    r.bind_function("__host_fs_stat", _fs_stat_op)
+    r.bind_function("__host_fs_read", _fs_read_op)
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
     r.eval(f"globalThis.__VIRTUAL_SERVERS__ = {json.dumps(virtual_servers or [])}")
 
