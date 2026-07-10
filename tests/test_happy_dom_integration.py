@@ -1,9 +1,10 @@
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # <script> elements executed on DOM insertion
 # ---------------------------------------------------------------------------
+
+
 # fixme: This test is probably not necessary anymore since we started to use native happy-dom script
 # evaluation. In other words, this is just testing Happy-dom itself.
 @pytest.mark.parametrize(
@@ -26,6 +27,17 @@ async def test_script_executed_on_dom_insertion(runtime, js):
         const host = document.createElement('div');
         document.body.append(host); // host must be connected
         {js};
+        window.__ran;
+    """)
+    assert result == 1
+
+
+async def test_script_with_data_uri_src_executed(runtime):
+    # Buffer.from(data, "ascii") from a data: URI must decode to real bytes,
+    # not zero-filled garbage, or the fetched script source is empty/invalid.
+    result = runtime.eval("""
+        const src = 'data:text/javascript,' + encodeURIComponent('window.__ran = 1;');
+        document.head.innerHTML = `<script src="${src}"></script>`;
         window.__ran;
     """)
     assert result == 1

@@ -16,6 +16,11 @@ class Buffer extends Uint8Array {
                     bytes[i] = parseInt(value.slice(i * 2, i * 2 + 2), 16);
                 return new Buffer(bytes.buffer);
             }
+            if (enc === "ascii" || enc === "latin1" || enc === "binary") {
+                const bytes = new Uint8Array(value.length);
+                for (let i = 0; i < value.length; i++) bytes[i] = value.charCodeAt(i) & 0xff;
+                return new Buffer(bytes.buffer);
+            }
         }
         if (value instanceof ArrayBuffer) return new Buffer(value);
         if (ArrayBuffer.isView(value))
