@@ -1,7 +1,9 @@
+import json
 from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from conftest import htmx_script_tag, htmx_virtual_server
 from jsrun import JavaScriptError
 
 from htmxclient.browser import Browser, Element, Response
@@ -12,10 +14,19 @@ from htmxclient.runtime import build_runtime
 # ---------------------------------------------------------------------------
 
 
+async def _htmx_browser(url: str, snapshot: bytes) -> Browser:
+    """Build a Browser with the vendored htmx mounted and loaded via <script src>."""
+    r = await build_runtime(url, snapshot=snapshot, virtual_servers=[htmx_virtual_server(url)])
+    r.eval(f"""
+        document.open();
+        document.write({json.dumps(htmx_script_tag(url))});
+        document.close();""")
+    return Browser(r)
+
+
 @pytest_asyncio.fixture(scope="module")
 async def browser(browser_snapshot):
-    r = await build_runtime("http://app.example.com/", snapshot=browser_snapshot)
-    b = Browser(r)
+    b = await _htmx_browser("http://app.example.com/", browser_snapshot)
     try:
         yield b
     finally:
@@ -639,8 +650,8 @@ async def test_element_submit_no_form_raises(browser):
 
 async def test_browser_context_manager(httpx_mock, browser_snapshot):
     httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
-    r = await build_runtime("http://app.example.com/", snapshot=browser_snapshot)
-    with Browser(r) as b:
+    b = await _htmx_browser("http://app.example.com/", browser_snapshot)
+    with b:
         await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
         btn = b.find("button")
         assert btn is not None
@@ -652,8 +663,7 @@ async def test_browser_context_manager(httpx_mock, browser_snapshot):
 
 async def test_browser_async_context_manager(httpx_mock, browser_snapshot):
     httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
-    r = await build_runtime("http://app.example.com/", snapshot=browser_snapshot)
-    b = Browser(r)
+    b = await _htmx_browser("http://app.example.com/", browser_snapshot)
     with patch.object(b, "close", wraps=b.close) as close_mock:
         async with b:
             await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
@@ -678,6 +688,6 @@ async def test_browser_create_with_virtual_servers(browser_snapshot, tmp_path):
         mounts={"http://localhost/ext/": tmp_path},
     )
     b.runtime.eval(
-        'document.head.innerHTML = \'<script src="http://localhost/ext/external-script.js"></script>\';'
+        """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
     )
     assert b.runtime.eval("window.__ran") == 1

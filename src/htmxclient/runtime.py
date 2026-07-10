@@ -17,7 +17,6 @@ _JS = Path(__file__).parent / "js"
 _POLYFILLS = _JS / "polyfills"
 _HD_LIB = (_NM / "happy-dom/lib").resolve()
 _ENTITIES_ESM = (_NM / "entities/dist/esm/index.js").resolve()
-_HTMX_SRC = _NM / "htmx.org/dist/htmx.js"
 
 _NODE_POLYFILL_FILES: dict[str, str] = {
     "buffer": "node-buffer.js",
@@ -45,13 +44,8 @@ _NPM_POLYFILL_FILES: dict[str, str] = {
 }
 
 
-def get_snapshot_builder(htmx_src: Path = _HTMX_SRC) -> SnapshotBuilder:
-    """Build a SnapshotBuilder with all production scripts (shared by prod and test snapshots).
-
-    `htmx_src` defaults to the npm `htmx.org` dist build. Tests override it with
-    `vendor/htmx/src/htmx.js`, whose `__name` internals are still plain (testable)
-    properties instead of the real private fields the dist build's build step produces.
-    """
+def get_snapshot_builder() -> SnapshotBuilder:
+    """Build a SnapshotBuilder with all production scripts (shared by prod and test snapshots)."""
     builder = SnapshotBuilder()
     builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
     xpath_src = (_NM / "xpath/xpath.js").read_text()
@@ -63,12 +57,6 @@ def get_snapshot_builder(htmx_src: Path = _HTMX_SRC) -> SnapshotBuilder:
     )
     builder.execute_script("pre_globals", (_JS / "pre_globals.js").read_text())
     builder.execute_script("formdata", (_JS / "formdata.js").read_text())
-    htmx_source = (
-        htmx_src.read_text()
-        .replace("var htmx =", "var Htmx =", 1)
-        .replace("return new Htmx()", "return Htmx", 1)
-    )
-    builder.execute_script("htmx", htmx_source)
     builder.execute_script("element-registry", (_JS / "element_registry.js").read_text())
     builder.execute_script("submit", (_JS / "submit.js").read_text())
     return builder
@@ -171,5 +159,4 @@ async def build_runtime(
 
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
     await r.eval_module_async(_bootstrap_uri)
-    r.eval("var htmx = new Htmx()")
     return r

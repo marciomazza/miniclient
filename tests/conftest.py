@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 from hypothesis import Phase, settings
 
-from htmxclient.runtime import build_runtime, get_snapshot_builder
+from htmxclient.runtime import VirtualServer, build_runtime, get_snapshot_builder
 
 settings.register_profile(
     "noshrink",
@@ -20,9 +20,18 @@ _RUNNER_JS = Path(__file__).parent / "runner.js"
 _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
 
+def htmx_virtual_server(base_url: str = "http://localhost/") -> VirtualServer:
+    """Mount the vendored htmx source so `<script src="{base_url}vendor/htmx.js">` resolves."""
+    return {"url": f"{base_url}vendor/", "directory": str(_VENDOR_HTMX_SRC.parent)}
+
+
+def htmx_script_tag(base_url: str = "http://localhost/") -> str:
+    return f'<script src="{base_url}vendor/htmx.js"></script>'
+
+
 @pytest.fixture(scope="session")
 def browser_snapshot() -> bytes:
-    builder = get_snapshot_builder(htmx_src=_VENDOR_HTMX_SRC)
+    builder = get_snapshot_builder()
     builder.execute_script(
         "chai",
         f"""{_CHAI_JS.read_text()}
@@ -36,7 +45,7 @@ def browser_snapshot() -> bytes:
 
 @pytest_asyncio.fixture
 async def runtime(browser_snapshot):
-    r = await build_runtime(snapshot=browser_snapshot)
+    r = await build_runtime(snapshot=browser_snapshot, virtual_servers=[htmx_virtual_server()])
     try:
         yield r
     finally:

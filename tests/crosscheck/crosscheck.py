@@ -14,7 +14,7 @@ from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
 from htmxclient.browser import Browser
-from htmxclient.runtime import _HTMX_SRC, build_runtime
+from htmxclient.runtime import build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
 _SKIP_RESPONSE_HEADERS = {"date", "server", "content-length"}
@@ -22,7 +22,11 @@ _HX_PREFIX = "hx-"
 
 _JS_SERIALIZE = (Path(__file__).parent / "serialize_dom.js").read_text()
 
-_HTMX_JS = _HTMX_SRC.read_bytes()
+_ROOT = Path(__file__).parent.parent.parent
+_BUNDLED = _ROOT / "src/htmxclient/_vendor"
+_NM = _BUNDLED if _BUNDLED.exists() else _ROOT / "node_modules"
+_HTMX_DIST_DIR = _NM / "htmx.org/dist"
+_HTMX_JS = (_HTMX_DIST_DIR / "htmx.js").read_bytes()
 
 
 def _url_path_and_query(url: str) -> str:
@@ -163,7 +167,11 @@ class CrossCheck:
     ) -> "CrossCheck":
         client_talk = Talk()
         capturing_transport = _CapturingTransport(_AsyncWSGITransport(wsgi_app), client_talk)
-        runtime = await build_runtime("http://testserver/", httpx_transport=capturing_transport)
+        runtime = await build_runtime(
+            "http://testserver/",
+            httpx_transport=capturing_transport,
+            virtual_servers=[{"url": "http://testserver/", "directory": str(_HTMX_DIST_DIR)}],
+        )
         browser = Browser(runtime)
 
         def _wrapped_wsgi(environ, start_response):
