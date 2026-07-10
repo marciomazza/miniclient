@@ -3,8 +3,7 @@ class Script {
         this.code = code;
     }
     runInContext(context) {
-        const fn = new Function(this.code);
-        fn.call(context);
+        return new Function("return " + this.code).call(context);
     }
 }
 const _sym = Symbol("context");
