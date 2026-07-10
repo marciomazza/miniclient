@@ -7,6 +7,17 @@
 
 **Commit messages and code in English**
 
+## graphify
+
+This project may have a local knowledge graph at graphify-out/ (god nodes, community structure, cross-file relationships).
+
+Rules:
+- ALWAYS: IF graphify-out/GRAPH_REPORT.md exists, read it before searching raw files or answering codebase questions — it's the primary map of the codebase.
+- IF graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- If `graphify-out-deps/graph.json` exists (not guaranteed in every checkout), it's a separate graph of external deps (happy-dom, jsrun, vendored htmx tests). For questions about their internals, add `--graph graphify-out-deps/graph.json` to `query`/`explain`/`path`. Report: `graphify-out-deps/GRAPH_REPORT.md`.
+
 # Architecture
 
 ## Runtime stack
