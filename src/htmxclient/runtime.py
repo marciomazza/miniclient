@@ -4,6 +4,7 @@ import json
 from collections.abc import Awaitable, Callable
 from functools import cache
 from pathlib import Path
+from typing import TypedDict
 from urllib.parse import urljoin
 
 import httpx2 as httpx
@@ -110,6 +111,14 @@ async def _loader(spec: str) -> str:
     raise ValueError(f"Cannot load module: {spec!r}")
 
 
+def _fs_stat_op(path: str) -> dict:
+    return {"isDirectory": Path(path).is_dir()}
+
+
+def _fs_read_op(path: str) -> bytes:
+    return Path(path).read_bytes()
+
+
 def _make_fetch_op(
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
@@ -137,11 +146,17 @@ def _make_fetch_op(
     return _fetch_op_impl
 
 
+class VirtualServer(TypedDict):
+    url: str
+    directory: str
+
+
 async def build_runtime(
     url: str = "http://localhost/",
     snapshot: bytes | None = None,
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
+    virtual_servers: list[VirtualServer] | None = None,
 ) -> Runtime:
     r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
 
@@ -151,8 +166,13 @@ async def build_runtime(
     fetch_op_id = r.register_op(
         "fetch", _make_fetch_op(before_fetch, httpx_transport), mode="async"
     )
+    fs_stat_op_id = r.register_op("fs_stat", _fs_stat_op)
+    fs_read_op_id = r.register_op("fs_read", _fs_read_op)
     r.eval(f"globalThis.__FETCH_OP_ID__ = {fetch_op_id}")
+    r.eval(f"globalThis.__FS_STAT_OP_ID__ = {fs_stat_op_id}")
+    r.eval(f"globalThis.__FS_READ_OP_ID__ = {fs_read_op_id}")
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
+    r.eval(f"globalThis.__VIRTUAL_SERVERS__ = {json.dumps(virtual_servers or [])}")
 
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
     await r.eval_module_async(_bootstrap_uri)

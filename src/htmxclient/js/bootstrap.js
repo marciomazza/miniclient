@@ -3,7 +3,10 @@ import patchHappyDom from "./patch-happy-dom.js";
 
 const win = new Window({
     url: globalThis.__BASE_URL__,
-    settings: { enableJavaScriptEvaluation: true },
+    settings: {
+        enableJavaScriptEvaluation: true,
+        fetch: { virtualServers: globalThis.__VIRTUAL_SERVERS__ ?? [] },
+    },
 });
 
 globalThis.window = win;
