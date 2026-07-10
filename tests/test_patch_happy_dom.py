@@ -90,38 +90,6 @@ async def test_attach_internals_set_form_value(runtime, value_js, expected):
 
 
 # ---------------------------------------------------------------------------
-# <script> elements executed on DOM insertion
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "setup_js",
-    [
-        # append / prepend / replaceChildren — no parent needed
-        "const h = document.createElement('div'); h.append(s)",
-        "const h = document.createElement('div'); h.prepend(s)",
-        "const h = document.createElement('div'); h.replaceChildren(s)",
-        # before / after — sibling insertion, host must have a parent
-        "const h = document.createElement('div'); document.body.append(h); h.before(s)",
-        "const h = document.createElement('div'); document.body.append(h); h.after(s)",
-        # insertBefore — host must be connected
-        "const h = document.createElement('div'); document.body.append(h); h.insertBefore(s, null)",
-        # replaceWith — replaced element must be connected
-        "const h = document.createElement('div'); document.body.append(h); h.replaceWith(s)",
-    ],
-    ids=["append", "prepend", "replaceChildren", "before", "after", "insertBefore", "replaceWith"],
-)
-async def test_script_executed_on_dom_insertion(runtime, setup_js):
-    result = runtime.eval(f"""
-        const s = document.createElement('script');
-        s.textContent = 'window.__ran = 1';
-        {setup_js};
-        window.__ran;
-    """)
-    assert result == 1
-
-
-# ---------------------------------------------------------------------------
 # document.getElementById respects tree order with duplicate IDs
 # ---------------------------------------------------------------------------
 

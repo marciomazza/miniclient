@@ -1,5 +1,11 @@
 globalThis.__zzz_load = function (html) {
-    document.documentElement.innerHTML = html;
+    document.open();
+    // document.write is deprecated for real browsers, but it's the only happy-dom API
+    // that replaces the document and evaluates <script> tags natively.
+    // Cast to `any` to silence tsserver's deprecation tag on the typed overload.
+    /** @type {any} */ (document).write(html);
+    document.close();
+    __zzz_fixup_parsed_dom(document.body);
     htmx.process(document.body);
 };
 

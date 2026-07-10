@@ -1,7 +1,10 @@
 import { Window } from "happy-dom";
 import patchHappyDom from "./patch-happy-dom.js";
 
-const win = new Window({ url: globalThis.__BASE_URL__ ?? "http://localhost/" });
+const win = new Window({
+    url: globalThis.__BASE_URL__,
+    settings: { enableJavaScriptEvaluation: true },
+});
 
 globalThis.window = win;
 globalThis.document = win.document;
