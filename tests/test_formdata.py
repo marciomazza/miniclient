@@ -11,9 +11,9 @@ from htmxclient.runtime import build_runtime
 
 
 @pytest.fixture(scope="module")
-def formdata_runtime(browser_snapshot) -> Generator[Runtime, None, None]:
+def formdata_runtime(snapshot) -> Generator[Runtime, None, None]:
     async def _build() -> Runtime:
-        return await build_runtime("http://localhost/", snapshot=browser_snapshot)
+        return await build_runtime("http://localhost/", snapshot=snapshot)
 
     r = asyncio.run(_build())
     yield r

@@ -30,7 +30,7 @@ def htmx_script_tag(base_url: str = "http://localhost/") -> str:
 
 
 @pytest.fixture(scope="session")
-def browser_snapshot() -> bytes:
+def snapshot() -> bytes:
     builder = get_snapshot_builder()
     builder.execute_script(
         "chai",
@@ -44,8 +44,8 @@ def browser_snapshot() -> bytes:
 
 
 @pytest_asyncio.fixture
-async def runtime(browser_snapshot):
-    r = await build_runtime(snapshot=browser_snapshot, virtual_servers=[htmx_virtual_server()])
+async def runtime(snapshot):
+    r = await build_runtime(snapshot=snapshot)
     try:
         yield r
     finally:

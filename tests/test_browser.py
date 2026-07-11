@@ -24,8 +24,8 @@ async def _htmx_browser(url: str, snapshot: bytes) -> Browser:
 
 
 @pytest_asyncio.fixture(scope="module")
-async def browser(browser_snapshot):
-    b = await _htmx_browser("http://app.example.com/", browser_snapshot)
+async def browser(snapshot):
+    b = await _htmx_browser("http://app.example.com/", snapshot)
     try:
         yield b
     finally:
@@ -178,10 +178,10 @@ async def test_element_submit_no_form_raises(browser):
 # ---------------------------------------------------------------------------
 
 
-async def test_browser_create_with_virtual_servers(browser_snapshot, tmp_path):
+async def test_browser_create_with_virtual_servers(snapshot, tmp_path):
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await Browser.create(
-        snapshot=browser_snapshot,
+        snapshot=snapshot,
         mounts={"http://localhost/ext/": tmp_path},
     )
     b.runtime.eval(
