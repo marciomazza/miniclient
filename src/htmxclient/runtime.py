@@ -123,10 +123,21 @@ def _make_fetch_op(
                 headers=req.get("headers", {}),
                 content=content,
             )
+        # httpx already transparently decompresses gzip/br/deflate but keeps the
+        # original Content-Encoding/Content-Length headers, which would make a
+        # consumer try to decode already-decoded bytes. Strip/fix them here so
+        # callers never see a mismatch. Headers are a list of pairs (not a dict)
+        # to preserve repeated header names (e.g. multiple Set-Cookie).
+        headers = [
+            [k, v]
+            for k, v in r.headers.multi_items()
+            if k.lower() not in ("content-encoding", "content-length")
+        ]
+        headers.append(["content-length", str(len(r.content))])
         return {
             "status": r.status_code,
             "statusText": "",
-            "headers": dict(r.headers),
+            "headers": headers,
             "body": r.content,
             "url": str(r.url),
         }
