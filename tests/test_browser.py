@@ -52,6 +52,24 @@ async def test_goto_head_and_title_body(browser: Browser, httpx_mock: HTTPXMock)
     assert el.innerHTML() == "ok"
 
 
+async def test_goto_navigates_to_different_domain(browser: Browser, httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        url="http://localhost/start",
+        text="<html><body><p>start</p></body></html>",
+    )
+    httpx_mock.add_response(
+        url="http://example.com/other",
+        text="<html><body><p>other</p></body></html>",
+    )
+    await browser.goto("http://localhost/start")
+    assert browser.runtime.eval("location.href") == "http://localhost/start"
+    assert browser.runtime.eval("document.baseURI") == "http://localhost/start"
+
+    await browser.goto("http://example.com/other")
+    assert browser.runtime.eval("location.href") == "http://example.com/other"
+    assert browser.runtime.eval("document.baseURI") == "http://example.com/other"
+
+
 # ---------------------------------------------------------------------------
 # Browser.load
 # ---------------------------------------------------------------------------

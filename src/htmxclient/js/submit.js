@@ -15,6 +15,9 @@ globalThis.__document_write = function (html) {
 // Browser.goto() (browser.py) and the plain-form-submission fallback below.
 globalThis.__zzz_fetch_and_load = async function (url, options) {
     const r = await fetch(url, options);
+    // window.happyDOM.setURL() updates location without a real (re-fetching,
+    // cross-origin-restricted) navigation — the fetch above already happened.
+    window.happyDOM.setURL(new URL(url, location.href).href);
     __document_write(await r.text());
 };
 
