@@ -27,7 +27,7 @@ async with await Browser.create() as browser:
 This lets you assert on real htmx behavior (swaps, OOB updates, events, morphing, ...) against
 your server's actual HTML responses, without browser automation tools like Playwright.
 
-Filling in a form and submitting it works the same way, through `fill()` and `submit()`:
+Filling in a form and submitting it works the same way, through `fill()` and `requestSubmit()`:
 
 ```python
 from htmxclient.browser import Browser
@@ -36,7 +36,7 @@ async with await Browser.create() as browser:
     await browser.goto("http://localhost:8000/signup")
     browser.find("input[name=name]").fill("Ada")
     browser.find("input[name=email]").fill("ada@example.com")
-    await browser.find("form").submit()
+    await browser.find("form").requestSubmit()
     print(browser.find("#result").text())
 ```
 

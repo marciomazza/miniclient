@@ -4,10 +4,9 @@ from pathlib import Path
 import httpx2 as httpx
 import pytest
 import pytest_asyncio
-from jsrun import JavaScriptError
 from pytest_httpx2 import HTTPXMock
 
-from htmxclient.browser import Browser, Element
+from htmxclient.browser import Browser, Element, FormElement
 from htmxclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
@@ -156,11 +155,10 @@ async def test_find_all_empty(browser: Browser) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Element.submit
+# FormElement.requestSubmit
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("selector", ["#btn", "form"])
 @pytest.mark.parametrize(
     "method, expected_url, check_request",
     [
@@ -181,10 +179,9 @@ async def test_find_all_empty(browser: Browser) -> None:
     ],
     ids=["POST", "GET"],
 )
-async def test_element_submit_plain(
+async def test_form_request_submit_plain(
     browser: Browser,
     httpx_mock: HTTPXMock,
-    selector: str,
     method: str,
     expected_url: str,
     check_request: Callable[[httpx.Request], bool],
@@ -194,23 +191,15 @@ async def test_element_submit_plain(
         f'<form method="{method}" action="/action"><input name="x" value="42">'
         '<button type="submit" id="btn">go</button></form>'
     )
-    el = browser.find(selector)
-    assert el is not None
-    await el.submit()
+    form = browser.find("form")
+    assert isinstance(form, FormElement)
+    await form.requestSubmit()
     request = httpx_mock.get_request()
     assert request is not None
     assert check_request(request)
     el = browser.find("p")
     assert el is not None
     assert el.text() == "done"
-
-
-async def test_element_submit_no_form_raises(browser: Browser) -> None:
-    await browser.load("<button id='btn'>orphan</button>")
-    btn = browser.find("#btn")
-    assert btn is not None
-    with pytest.raises(JavaScriptError):
-        await btn.submit()
 
 
 # ---------------------------------------------------------------------------

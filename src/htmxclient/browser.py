@@ -93,14 +93,6 @@ class Element:
         """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
         await self.trigger("click")
 
-    async def submit(self) -> None:
-        """Submit the form (or the element's form) and wait for it to settle.
-
-        If htmx handles the submission, waits for htmx to settle.
-        If the form is not htmx-wired, performs a plain fetch and reloads the page.
-        """
-        await self.runtime.eval_async(f"__zzz_submit({self.handle})")
-
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
         js = _dispatch_js(self.handle, event, event_init)
@@ -118,6 +110,23 @@ class Element:
         }})();
         """
         return self.runtime.eval(js)
+
+
+class FormElement(Element):
+    """A <form> element. Exposes requestSubmit(), which is form-only."""
+
+    async def requestSubmit(self) -> None:
+        """Submit this form and wait for it to settle.
+
+        If htmx handles the submission, waits for htmx to settle.
+        If the form is not htmx-wired, performs a plain fetch and reloads the page.
+        """
+        await self.runtime.eval_async(f"__zzz_submit({self.handle})")
+
+
+def _element_from(handle: int, tag: str, runtime: Runtime) -> Element:
+    """Pick the right Element subclass for a matched node."""
+    return FormElement(handle, runtime) if tag == "FORM" else Element(handle, runtime)
 
 
 class Browser:
@@ -148,17 +157,26 @@ class Browser:
 
     def find(self, selector: str) -> Element | None:
         """Return the first matching element, or None if not found."""
-        js = f"__zzz_ref(document.querySelector({json.dumps(selector)}))"
-        handle = self.runtime.eval(js)
-        return Element(handle, self.runtime) if handle is not None else None
+        js = f"""
+        (() => {{
+          const el = document.querySelector({json.dumps(selector)});
+          return el ? [__zzz_ref(el), el.tagName] : [null, null];
+        }})();
+        """
+        handle, tag = self.runtime.eval(js)
+        if handle is None:
+            return None
+        return _element_from(handle, tag, self.runtime)
 
     def find_all(self, selector: str) -> list[Element]:
         """Return all matching elements."""
-        js = f"""
-        Array.from(document.querySelectorAll({json.dumps(selector)}), __zzz_ref)
+        js = f"""\
+            Array.from(document.querySelectorAll({json.dumps(selector)}), el => [
+              __zzz_ref(el),
+              el.tagName,
+            ])
         """
-        handles = self.runtime.eval(js)
-        return [Element(handle, self.runtime) for handle in handles]
+        return [_element_from(handle, tag, self.runtime) for handle, tag in self.runtime.eval(js)]
 
     # --- Page operations ---
 

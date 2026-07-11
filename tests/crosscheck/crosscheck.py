@@ -13,7 +13,7 @@ import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
-from htmxclient.browser import Browser
+from htmxclient.browser import Browser, FormElement
 from htmxclient.runtime import build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
@@ -263,10 +263,11 @@ class CrossCheck:
 
     async def click(self, selector: str, is_submit: bool = False) -> None:
         if self._mode == "plain" and is_submit:
-            el = self._browser.find(selector)
-            assert el is not None, f"Element not found: {selector!r}"
+            # submit button lives in a single form; submit the form itself.
+            form = self._browser.find("form")
+            assert isinstance(form, FormElement), f"No form for submit control {selector!r}"
             await asyncio.gather(
-                el.submit(),
+                form.requestSubmit(),
                 self._page_click_navigate(selector),
             )
             await self.assert_same_dom()

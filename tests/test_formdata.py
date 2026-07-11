@@ -137,7 +137,7 @@ def test_excludes_unsuccessful_controls(formdata_runtime: Runtime, html: str) ->
 
 
 def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
-    """Serialize a form's FormData via URLSearchParams, as Element.submit does in JS."""
+    """Serialize a form's FormData via URLSearchParams, as __zzz_submit does in JS."""
     return r.eval(
         f"""
         (function () {{

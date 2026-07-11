@@ -23,7 +23,7 @@ globalThis.__zzz_fetch_and_load = async function (url, options) {
 
 // Runs `doAction(el)`, then resolves once htmx settles the request it triggered.
 // If no request was triggered, calls `onNoRequest(el)` and resolves with its result
-// (default: resolve with null). Shared by Element.trigger()/click()/submit() (browser.py)
+// (default: resolve with null). Shared by Element.trigger()/click() (browser.py)
 // and __zzz_submit below.
 globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
     return new Promise((resolve, reject) => {
@@ -60,23 +60,24 @@ globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
     });
 };
 
+// __zzz_submit is form-only. FormElement.requestSubmit() (browser.py) calls it;
+// the form's own requestSubmit() dispatches the submit event (and runs validation).
 globalThis.__zzz_submit = function (handle) {
-    let form, submitter;
+    let form;
     return __zzz_await_htmx(
         handle,
         (el) => {
-            form = el.form ?? el.closest("form");
-            if (!form) {
-                throw new Error("No form found for handle " + handle);
+            if (el.tagName !== "FORM") {
+                throw new Error(
+                    "requestSubmit() only works on <form> elements (handle " + handle + ")",
+                );
             }
-            submitter = el.tagName === "BUTTON" || el.tagName === "INPUT" ? el : null;
-            form.dispatchEvent(
-                new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter }),
-            );
+            form = el;
+            form.requestSubmit();
         },
         async () => {
             // htmx didn't intercept => plain form submission
-            const fd = new FormData(form, submitter);
+            const fd = new FormData(form);
             const method = (form.method || "get").toLowerCase();
             const action = form.action;
             let requestUrl = action;

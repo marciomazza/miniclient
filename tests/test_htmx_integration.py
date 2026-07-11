@@ -7,7 +7,7 @@ from conftest import HTMX_BASE_HTML
 from jsrun import Runtime
 from pytest_httpx2 import HTTPXMock
 
-from htmxclient.browser import Browser
+from htmxclient.browser import Browser, FormElement
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -91,14 +91,11 @@ async def test_element_trigger_custom(htmx_browser: Browser, httpx_mock: HTTPXMo
 
 
 # ---------------------------------------------------------------------------
-# Element.submit
+# FormElement.requestSubmit / submit-via-click
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("selector", ["#btn", "form"])
-async def test_element_submit_form(
-    htmx_browser: Browser, httpx_mock: HTTPXMock, selector: str
-) -> None:
+async def test_element_request_submit_form(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/form-action",
         text="<p>submitted</p>",
@@ -110,45 +107,38 @@ async def test_element_submit_form(
         "</form>"
         '<div id="result"></div>'
     )
-    el = htmx_browser.find(selector)
-    assert el is not None
-    await el.submit()
+    form = htmx_browser.find("form")
+    assert isinstance(form, FormElement)
+    await form.requestSubmit()
     result = htmx_browser.find("#result")
     assert result is not None
     assert result.innerHTML() == "<p>submitted</p>"
 
 
-async def test_element_submit_input(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+@pytest.mark.parametrize(
+    "submitter_html",
+    [
+        '<input type="text" name="q" value="search"><input type="submit" id="sub" value="go">',
+        '<input type="text" name="q" value="search"><button type="submit" id="sub">go</button>',
+    ],
+    ids=["input-submit", "button-submit"],
+)
+async def test_submit_via_submitter_click(
+    htmx_browser: Browser, httpx_mock: HTTPXMock, submitter_html: str
+) -> None:
     httpx_mock.add_response(
         url="http://localhost/form-action",
         text="<p>sent</p>",
     )
     await htmx_browser.load(
         '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
-        '<input type="text" name="q" value="search">'
-        '<input type="submit" id="sub" value="go">'
+        f"{submitter_html}"
         "</form>"
         '<div id="result"></div>'
     )
     sub = htmx_browser.find("#sub")
     assert sub is not None
-    await sub.submit()
-    result = htmx_browser.find("#result")
-    assert result is not None
-    assert result.innerHTML() == "<p>sent</p>"
-
-
-async def test_element_submit_htmx_handled(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(url="http://localhost/form-action", text="<p>sent</p>")
-    await htmx_browser.load(
-        '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
-        '<button type="submit" id="btn">go</button>'
-        "</form>"
-        '<div id="result"></div>'
-    )
-    el = htmx_browser.find("#btn")
-    assert el is not None
-    await el.submit()
+    await sub.click()
     result = htmx_browser.find("#result")
     assert result is not None
     assert result.innerHTML() == "<p>sent</p>"
