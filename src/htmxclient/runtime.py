@@ -80,6 +80,8 @@ def _resolver(spec: str, ref: str) -> str | None:
         return urljoin(ref, spec)
     if spec == "happy-dom":
         return (_HD_LIB / "index.js").as_uri()
+    if spec.startswith("happy-dom/lib/"):
+        return (_HD_LIB / spec.removeprefix("happy-dom/lib/")).as_uri()
     if spec == "entities":
         return _ENTITIES_ESM.as_uri()
     if spec in _NPM_POLYFILL_FILES:
@@ -107,6 +109,19 @@ def _fs_read_op(path: str) -> bytes:
     return Path(path).read_bytes()
 
 
+def _clean_response_headers(r: httpx.Response) -> list[list[str]]:
+    # httpx already transparently decompresses gzip/br/deflate but keeps the
+    # original Content-Encoding/Content-Length headers, which would make a
+    # consumer try to decode already-decoded bytes. Strip/fix them here so
+    # callers never see a mismatch. Headers are a list of pairs (not a dict)
+    # to preserve repeated header names (e.g. multiple Set-Cookie).
+    headers = [
+        [k, v] for k, v in r.headers.multi_items() if k.lower() not in ("content-encoding", "content-length")
+    ]
+    headers.append(["content-length", str(len(r.content))])
+    return headers
+
+
 def _make_fetch_op(
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
@@ -123,26 +138,37 @@ def _make_fetch_op(
                 headers=req.get("headers", {}),
                 content=content,
             )
-        # httpx already transparently decompresses gzip/br/deflate but keeps the
-        # original Content-Encoding/Content-Length headers, which would make a
-        # consumer try to decode already-decoded bytes. Strip/fix them here so
-        # callers never see a mismatch. Headers are a list of pairs (not a dict)
-        # to preserve repeated header names (e.g. multiple Set-Cookie).
-        headers = [
-            [k, v]
-            for k, v in r.headers.multi_items()
-            if k.lower() not in ("content-encoding", "content-length")
-        ]
-        headers.append(["content-length", str(len(r.content))])
         return {
             "status": r.status_code,
             "statusText": "",
-            "headers": headers,
+            "headers": _clean_response_headers(r),
             "body": r.content,
             "url": str(r.url),
         }
 
     return _fetch_op_impl
+
+
+def _make_fetch_sync_op(httpx_transport=None):
+    def _fetch_sync_op_impl(req: dict) -> dict:
+        body = req.get("body")
+        content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
+        with httpx.Client(transport=httpx_transport) as client:
+            r = client.request(
+                req["method"],
+                req["url"],
+                headers=req.get("headers", {}),
+                content=content,
+            )
+        return {
+            "status": r.status_code,
+            "statusText": "",
+            "headers": _clean_response_headers(r),
+            "body": r.content,
+            "url": str(r.url),
+        }
+
+    return _fetch_sync_op_impl
 
 
 class VirtualServer(TypedDict):
@@ -163,6 +189,7 @@ async def build_runtime(
     r.set_module_loader(_loader)
 
     r.bind_function("__host_fetch", _make_fetch_op(before_fetch, httpx_transport))
+    r.bind_function("__host_fetch_sync", _make_fetch_sync_op(httpx_transport))
     r.bind_function("__host_fs_stat", _fs_stat_op)
     r.bind_function("__host_fs_read", _fs_read_op)
     r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")

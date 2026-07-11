@@ -5,6 +5,7 @@
         env: {},
         version: "",
         versions: {},
+        argv: ["node"],
     };
 
     globalThis.performance ??= {

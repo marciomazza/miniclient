@@ -1,6 +1,7 @@
 import patchURL from "./patch-happy-dom-url.js";
 import patchDomParser from "./patch-happy-dom-parser.js";
 import patchAttr from "./patch-happy-dom-attr.js";
+import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
 
 function patchMethod(proto, method, wrapper) {
     const orig = proto[method];
@@ -155,6 +156,21 @@ export default function patch(win) {
             });
         }
     }
+    // -----------------------------------------------------------------------------------
+    // SyncFetchScriptBuilder.getScript — replace the "spawn node -e <script>" script
+    // generation with a JSON envelope that our node:child_process polyfill's
+    // execFileSync understands (see node-child-process.js).
+    // -----------------------------------------------------------------------------------
+    patchMethod(SyncFetchScriptBuilder, "getScript", function (_orig, request) {
+        return JSON.stringify({
+            __sync_fetch__: true,
+            url: request.url.href,
+            method: request.method,
+            headers: request.headers ?? {},
+            body: request.body ? Buffer.from(request.body).toString("base64") : null,
+        });
+    });
+
     patchURL(win);
     patchDomParser(win);
     patchAttr(win);
