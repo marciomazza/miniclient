@@ -4,11 +4,11 @@ from pathlib import Path
 import httpx2 as httpx
 import pytest
 import pytest_asyncio
-from conftest import HTMX_BASE_HTML
-from jsrun import JavaScriptError, Runtime
+from jsrun import JavaScriptError
 from pytest_httpx2 import HTTPXMock
 
 from htmxclient.browser import Browser, Element
+from htmxclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -16,9 +16,18 @@ from htmxclient.browser import Browser, Element
 
 
 @pytest_asyncio.fixture
-async def browser(runtime: Runtime) -> AsyncIterator[Browser]:
+async def browser(snapshot: bytes) -> AsyncIterator[Browser]:
     """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
-    runtime.eval(f"__document_write(`{HTMX_BASE_HTML}`)")
+    runtime = await build_runtime(snapshot=snapshot)
+    runtime.eval("""__document_write(`
+        <!DOCTYPE html>
+        <html>
+          <body>
+            <div id="test-playground"></div>
+          </body>
+        </html>
+    `)""")
+    assert runtime.eval("typeof htmx") == "undefined"  # make sure there is no htmx here
     b = Browser(runtime)
     try:
         yield b
