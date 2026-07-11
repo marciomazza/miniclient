@@ -6,7 +6,7 @@ import pytest_asyncio
 from conftest import htmx_script_tag, htmx_virtual_server
 from jsrun import JavaScriptError
 
-from htmxclient.browser import Browser, Element, Response
+from htmxclient.browser import Browser, Element
 from htmxclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
@@ -394,27 +394,6 @@ async def test_goto_head_and_title_body(browser, httpx_mock):
     assert browser.find("#s").innerHTML() == "ok"
 
 
-@pytest.mark.parametrize(
-    "status_code,ok",
-    [(201, True), (404, False)],
-)
-async def test_goto_returns_response(browser, httpx_mock, status_code, ok):
-    url, headers, text = "http://app.example.com/page", {"x-custom": "yes"}, "<p>hi</p>"
-    httpx_mock.add_response(status_code=status_code, url=url, headers=headers, text=text)
-    response = await browser.goto(url)
-    assert response == Response(
-        status=status_code,
-        ok=ok,
-        url=url,
-        headers={
-            "x-custom": "yes",
-            "content-length": "9",
-            "content-type": "text/plain; charset=utf-8",
-        },
-        text=text,
-    )
-
-
 async def test_goto_processes_htmx(browser, httpx_mock):
     httpx_mock.add_response(
         url="http://app.example.com/page",
@@ -615,16 +594,12 @@ async def test_element_submit_plain(
         f'<form method="{method}" action="/action"><input name="x" value="42">'
         '<button type="submit" id="btn">go</button></form>'
     )
-    response = await browser.find(selector).submit()
+    await browser.find(selector).submit()
     assert check_request(httpx_mock.get_request())
     assert browser.find("p").text() == "done"
-    assert response.status == 200
-    assert response.ok is True
-    assert response.url == expected_url
-    assert response.text == "<body><p>done</p></body>"
 
 
-async def test_element_submit_htmx_handled_returns_none(browser, httpx_mock):
+async def test_element_submit_htmx_handled(browser, httpx_mock):
     httpx_mock.add_response(url="http://app.example.com/form-action", text="<p>sent</p>")
     await browser.load(
         '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
@@ -632,8 +607,8 @@ async def test_element_submit_htmx_handled_returns_none(browser, httpx_mock):
         "</form>"
         '<div id="result"></div>'
     )
-    response = await browser.find("#btn").submit()
-    assert response is None
+    await browser.find("#btn").submit()
+    assert browser.find("#result").innerHTML() == "<p>sent</p>"
 
 
 async def test_element_submit_no_form_raises(browser):

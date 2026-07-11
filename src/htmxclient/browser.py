@@ -1,24 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
 import httpx2 as httpx
 from jsrun import Runtime
 
 from htmxclient.runtime import build_runtime
-
-
-@dataclass(frozen=True)
-class Response:
-    """Result of a Browser navigation."""
-
-    status: int
-    ok: bool
-    url: str
-    headers: dict[str, str]
-    text: str
 
 
 def _event_class(event_type: str) -> str:
@@ -105,15 +93,13 @@ class Element:
         """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
         await self.trigger("click")
 
-    async def submit(self) -> Response | None:
-        """Submit the form (or the element's form).
+    async def submit(self) -> None:
+        """Submit the form (or the element's form) and wait for it to settle.
 
-        If htmx handles the submission, waits for htmx to settle and returns None.
-        If the form is not htmx-wired, performs a plain fetch, reloads the page,
-        and returns the Response.
+        If htmx handles the submission, waits for htmx to settle.
+        If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
-        result = await self.runtime.eval_async(f"__zzz_submit({self.handle})")
-        return Response(**result) if result is not None else None
+        await self.runtime.eval_async(f"__zzz_submit({self.handle})")
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
@@ -176,10 +162,9 @@ class Browser:
 
     # --- Page operations ---
 
-    async def goto(self, url: str) -> Response:
-        """Fetch url, load the full document, process htmx, and return the response."""
-        result = await self.runtime.eval_async(f"__zzz_fetch_and_load({json.dumps(url)})")
-        return Response(**result)
+    async def goto(self, url: str) -> None:
+        """Fetch url, load the full document, and process htmx."""
+        await self.runtime.eval_async(f"__zzz_fetch_and_load({json.dumps(url)})")
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""
