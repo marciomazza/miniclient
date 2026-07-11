@@ -1,8 +1,10 @@
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from hypothesis import Phase, settings
+from jsrun import Runtime
 
 from htmxclient.runtime import VirtualServer, build_runtime, get_snapshot_builder
 
@@ -19,14 +21,23 @@ _CHAI_JS = _ROOT / "node_modules/chai/chai.js"
 _RUNNER_JS = Path(__file__).parent / "runner.js"
 _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
+HTMX_BASE_HTML = """\
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <script src="http://localhost/vendor/htmx.js"></script>
+      </head>
+      <body>
+        <div id="test-playground"></div>
+      </body>
+    </html>
+"""
 
-def htmx_virtual_server(base_url: str = "http://localhost/") -> VirtualServer:
-    """Mount the vendored htmx source so `<script src="{base_url}vendor/htmx.js">` resolves."""
-    return {"url": f"{base_url}vendor/", "directory": str(_VENDOR_HTMX_SRC.parent)}
 
-
-def htmx_script_tag(base_url: str = "http://localhost/") -> str:
-    return f'<script src="{base_url}vendor/htmx.js"></script>'
+HTMX_VIRTUAL_SERVER: VirtualServer = {
+    "url": "http://localhost/vendor/",
+    "directory": str(_VENDOR_HTMX_SRC.parent),
+}
 
 
 @pytest.fixture(scope="session")
@@ -44,8 +55,8 @@ def snapshot() -> bytes:
 
 
 @pytest_asyncio.fixture
-async def runtime(snapshot):
-    r = await build_runtime(snapshot=snapshot)
+async def runtime(snapshot: bytes) -> AsyncIterator[Runtime]:
+    r = await build_runtime(snapshot=snapshot, virtual_servers=[HTMX_VIRTUAL_SERVER])
     try:
         yield r
     finally:

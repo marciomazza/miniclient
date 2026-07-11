@@ -168,7 +168,7 @@ class Browser:
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""
-        self.runtime.eval(f"__zzz_load({json.dumps(html)})")
+        self.runtime.eval(f"__document_write({json.dumps(html)})")
 
     def close(self) -> None:
         self.runtime.close()

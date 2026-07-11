@@ -1,9 +1,8 @@
-import json
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
-from conftest import htmx_script_tag, htmx_virtual_server
+from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
@@ -30,9 +29,7 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
 }
 _INFRA_JS = "\n".join(
     [
-        "document.open();",
-        f"""document.write({json.dumps(htmx_script_tag() + '<div id="test-playground"></div>')});""",
-        "document.close();",
+        f"__document_write(`{HTMX_BASE_HTML}`);",
         _HELPERS_JS.read_text(),
     ]
 )
@@ -46,7 +43,7 @@ async def htmx_runtime(snapshot: bytes) -> AsyncGenerator[Runtime, None]:
         snapshot=snapshot,
         before_fetch=fetch_mock.before_fetch,
         httpx_transport=fetch_mock.transport,
-        virtual_servers=[htmx_virtual_server()],
+        virtual_servers=[HTMX_VIRTUAL_SERVER],
     )
     fetch_mock.install(r)
     r.eval(_INFRA_JS)

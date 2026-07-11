@@ -1,4 +1,4 @@
-globalThis.__zzz_load = function (html) {
+globalThis.__document_write = function (html) {
     document.open();
     // document.write is deprecated for real browsers, but it's the only happy-dom API
     // that replaces the document and evaluates <script> tags natively.
@@ -15,7 +15,7 @@ globalThis.__zzz_load = function (html) {
 // Browser.goto() (browser.py) and the plain-form-submission fallback below.
 globalThis.__zzz_fetch_and_load = async function (url, options) {
     const r = await fetch(url, options);
-    __zzz_load(await r.text());
+    __document_write(await r.text());
 };
 
 // Runs `doAction(el)`, then resolves once htmx settles the request it triggered.

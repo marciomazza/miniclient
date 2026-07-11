@@ -1,31 +1,25 @@
-import json
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 
+import httpx2 as httpx
 import pytest
 import pytest_asyncio
-from conftest import htmx_script_tag, htmx_virtual_server
-from jsrun import JavaScriptError
+from conftest import HTMX_BASE_HTML
+from jsrun import JavaScriptError, Runtime
+from pytest_httpx2 import HTTPXMock
 
 from htmxclient.browser import Browser, Element
-from htmxclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-async def _htmx_browser(url: str, snapshot: bytes) -> Browser:
-    """Build a Browser with the vendored htmx mounted and loaded via <script src>."""
-    r = await build_runtime(url, snapshot=snapshot, virtual_servers=[htmx_virtual_server(url)])
-    r.eval(f"""
-        document.open();
-        document.write({json.dumps(htmx_script_tag(url))});
-        document.close();""")
-    return Browser(r)
-
-
-@pytest_asyncio.fixture(scope="module")
-async def browser(snapshot):
-    b = await _htmx_browser("http://app.example.com/", snapshot)
+@pytest_asyncio.fixture
+async def browser(runtime: Runtime) -> AsyncIterator[Browser]:
+    """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
+    runtime.eval(f"__document_write(`{HTMX_BASE_HTML}`)")
+    b = Browser(runtime)
     try:
         yield b
     finally:
@@ -37,14 +31,16 @@ async def browser(snapshot):
 # ---------------------------------------------------------------------------
 
 
-async def test_goto_head_and_title_body(browser, httpx_mock):
+async def test_goto_head_and_title_body(browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url="http://app.example.com/page",
+        url="http://localhost/page",
         text="<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
     )
-    await browser.goto("http://app.example.com/page")
+    await browser.goto("http://localhost/page")
     assert browser.runtime.eval("document.title") == "T"
-    assert browser.find("#s").innerHTML() == "ok"
+    el = browser.find("#s")
+    assert el is not None
+    assert el.innerHTML() == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -52,15 +48,18 @@ async def test_goto_head_and_title_body(browser, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_load_sets_body(browser):
+async def test_load_sets_body(browser: Browser) -> None:
     await browser.load("<p id='msg'>hello</p>")
-    assert browser.find("#msg").innerHTML() == "hello"
+    el = browser.find("body")
+    assert el and el.innerHTML() == '<p id="msg">hello</p>'
 
 
-async def test_load_replaces_body(browser):
+async def test_load_replaces_body(browser: Browser) -> None:
     await browser.load("<span id='a'>first</span>")
     await browser.load("<span id='b'>second</span>")
-    assert browser.find("#b").innerHTML() == "second"
+    el = browser.find("#b")
+    assert el is not None
+    assert el.innerHTML() == "second"
     # first load is gone
     result = browser.runtime.eval("document.querySelector('#a')")
     assert result is None
@@ -71,47 +70,51 @@ async def test_load_replaces_body(browser):
 # ---------------------------------------------------------------------------
 
 
-async def test_find_returns_element(browser):
+async def test_find_returns_element(browser: Browser) -> None:
     await browser.load("<p id='msg'>hello</p>")
     el = browser.find("#msg")
     assert isinstance(el, Element)
     assert el.innerHTML() == "hello"
 
 
-async def test_find_returns_none_for_missing(browser):
+async def test_find_returns_none_for_missing(browser: Browser) -> None:
     await browser.load("<p>hi</p>")
     assert browser.find("#does-not-exist") is None
 
 
-async def test_element_text(browser):
+async def test_element_text(browser: Browser) -> None:
     await browser.load("<div id='d'><span>inner</span> text</div>")
     el = browser.find("#d")
+    assert el is not None
     assert el.text() == "inner text"
 
 
-async def test_element_attr(browser):
+async def test_element_attr(browser: Browser) -> None:
     await browser.load("<a id='link' href='/path' data-x='42'>link</a>")
     el = browser.find("#link")
+    assert el is not None
     assert el.attr("href") == "/path"
     assert el.attr("data-x") == "42"
     assert el.attr("missing") is None
 
 
-async def test_element_fill(browser):
+async def test_element_fill(browser: Browser) -> None:
     await browser.load("<input id='inp' value='old'>")
     el = browser.find("#inp")
+    assert el is not None
     el.fill("new")
     assert browser.runtime.eval("document.querySelector('#inp').value") == "new"
 
 
-async def test_element_fill_textarea(browser):
+async def test_element_fill_textarea(browser: Browser) -> None:
     await browser.load("<textarea id='ta'>old</textarea>")
     el = browser.find("#ta")
+    assert el is not None
     el.fill("new")
     assert browser.runtime.eval("document.querySelector('#ta').value") == "new"
 
 
-async def test_find_all_returns_elements(browser):
+async def test_find_all_returns_elements(browser: Browser) -> None:
     await browser.load("<ul><li>a</li><li>b</li><li>c</li></ul>")
     items = browser.find_all("li")
     assert len(items) == 3
@@ -120,7 +123,7 @@ async def test_find_all_returns_elements(browser):
     assert items[2].text() == "c"
 
 
-async def test_find_all_empty(browser):
+async def test_find_all_empty(browser: Browser) -> None:
     await browser.load("<div>no items</div>")
     assert browser.find_all("li") == []
 
@@ -136,7 +139,7 @@ async def test_find_all_empty(browser):
     [
         (
             "post",
-            "http://app.example.com/action",
+            "http://localhost/action",
             lambda req: (
                 req.method == "POST"
                 and req.content == b"x=42"
@@ -145,30 +148,40 @@ async def test_find_all_empty(browser):
         ),
         (
             "get",
-            "http://app.example.com/action?x=42",
-            lambda req: (
-                req.method == "GET" and str(req.url) == "http://app.example.com/action?x=42"
-            ),
+            "http://localhost/action?x=42",
+            lambda req: req.method == "GET" and str(req.url) == "http://localhost/action?x=42",
         ),
     ],
     ids=["POST", "GET"],
 )
 async def test_element_submit_plain(
-    browser, httpx_mock, selector, method, expected_url, check_request
-):
+    browser: Browser,
+    httpx_mock: HTTPXMock,
+    selector: str,
+    method: str,
+    expected_url: str,
+    check_request: Callable[[httpx.Request], bool],
+) -> None:
     httpx_mock.add_response(url=expected_url, text="<body><p>done</p></body>")
     await browser.load(
         f'<form method="{method}" action="/action"><input name="x" value="42">'
         '<button type="submit" id="btn">go</button></form>'
     )
-    await browser.find(selector).submit()
-    assert check_request(httpx_mock.get_request())
-    assert browser.find("p").text() == "done"
+    el = browser.find(selector)
+    assert el is not None
+    await el.submit()
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert check_request(request)
+    el = browser.find("p")
+    assert el is not None
+    assert el.text() == "done"
 
 
-async def test_element_submit_no_form_raises(browser):
+async def test_element_submit_no_form_raises(browser: Browser) -> None:
     await browser.load("<button id='btn'>orphan</button>")
     btn = browser.find("#btn")
+    assert btn is not None
     with pytest.raises(JavaScriptError):
         await btn.submit()
 
@@ -178,7 +191,7 @@ async def test_element_submit_no_form_raises(browser):
 # ---------------------------------------------------------------------------
 
 
-async def test_browser_create_with_virtual_servers(snapshot, tmp_path):
+async def test_browser_create_with_virtual_servers(snapshot: bytes, tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await Browser.create(
         snapshot=snapshot,

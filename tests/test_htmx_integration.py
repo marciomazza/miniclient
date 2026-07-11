@@ -1,13 +1,13 @@
-import json
 from collections.abc import AsyncIterator
 from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
-from conftest import htmx_script_tag, htmx_virtual_server
+from conftest import HTMX_BASE_HTML
+from jsrun import Runtime
+from pytest_httpx2 import HTTPXMock
 
 from htmxclient.browser import Browser
-from htmxclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -15,15 +15,10 @@ from htmxclient.runtime import build_runtime
 
 
 @pytest_asyncio.fixture
-async def htmx_browser(snapshot) -> AsyncIterator[Browser]:
+async def htmx_browser(runtime: Runtime) -> AsyncIterator[Browser]:
     """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
-    url = "http://app.example.com/"
-    r = await build_runtime(url, snapshot=snapshot, virtual_servers=[htmx_virtual_server(url)])
-    r.eval(f"""
-        document.open();
-        document.write({json.dumps(htmx_script_tag(url))});
-        document.close();""")
-    b = Browser(r)
+    runtime.eval(f"__document_write(`{HTMX_BASE_HTML}`)")
+    b = Browser(runtime)
     try:
         yield b
     finally:
@@ -35,19 +30,22 @@ async def htmx_browser(snapshot) -> AsyncIterator[Browser]:
 # ---------------------------------------------------------------------------
 
 
-async def test_goto_processes_htmx(htmx_browser, httpx_mock):
+async def test_goto_processes_htmx(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url="http://app.example.com/page",
+        url="http://localhost/page",
         text="""\
         <html><body>
         <div id="out"><button hx-get="/frag" hx-target="#out" hx-swap="innerHTML">go</button></div>
         </body></html>""",
     )
-    httpx_mock.add_response(url="http://app.example.com/frag", text="<b>done</b>")
-    await htmx_browser.goto("http://app.example.com/page")
+    httpx_mock.add_response(url="http://localhost/frag", text="<b>done</b>")
+    await htmx_browser.goto("http://localhost/page")
     btn = htmx_browser.find("button")
+    assert btn is not None
     await btn.click()
-    assert htmx_browser.find("#out").innerHTML() == "<b>done</b>"
+    el = htmx_browser.find("#out")
+    assert el is not None
+    assert el.innerHTML() == "<b>done</b>"
 
 
 # ---------------------------------------------------------------------------
@@ -55,9 +53,9 @@ async def test_goto_processes_htmx(htmx_browser, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_element_click_hx_get(htmx_browser, httpx_mock):
+async def test_element_click_hx_get(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url="http://app.example.com/click-target",
+        url="http://localhost/click-target",
         text="<b>clicked</b>",
     )
     await htmx_browser.load(
@@ -66,13 +64,16 @@ async def test_element_click_hx_get(htmx_browser, httpx_mock):
         "</div>"
     )
     btn = htmx_browser.find("button")
+    assert btn is not None
     await btn.click()
-    assert htmx_browser.find("#out").innerHTML() == "<b>clicked</b>"
+    el = htmx_browser.find("#out")
+    assert el is not None
+    assert el.innerHTML() == "<b>clicked</b>"
 
 
-async def test_element_trigger_custom(htmx_browser, httpx_mock):
+async def test_element_trigger_custom(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url="http://app.example.com/custom",
+        url="http://localhost/custom",
         text="<i>custom</i>",
     )
     await htmx_browser.load(
@@ -82,8 +83,11 @@ async def test_element_trigger_custom(htmx_browser, httpx_mock):
         "</div>"
     )
     btn = htmx_browser.find("button")
+    assert btn is not None
     await btn.trigger("my-event")
-    assert htmx_browser.find("#out").innerHTML() == "<i>custom</i>"
+    el = htmx_browser.find("#out")
+    assert el is not None
+    assert el.innerHTML() == "<i>custom</i>"
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +96,11 @@ async def test_element_trigger_custom(htmx_browser, httpx_mock):
 
 
 @pytest.mark.parametrize("selector", ["#btn", "form"])
-async def test_element_submit_form(htmx_browser, httpx_mock, selector):
+async def test_element_submit_form(
+    htmx_browser: Browser, httpx_mock: HTTPXMock, selector: str
+) -> None:
     httpx_mock.add_response(
-        url="http://app.example.com/form-action",
+        url="http://localhost/form-action",
         text="<p>submitted</p>",
     )
     await htmx_browser.load(
@@ -105,13 +111,16 @@ async def test_element_submit_form(htmx_browser, httpx_mock, selector):
         '<div id="result"></div>'
     )
     el = htmx_browser.find(selector)
+    assert el is not None
     await el.submit()
-    assert htmx_browser.find("#result").innerHTML() == "<p>submitted</p>"
+    result = htmx_browser.find("#result")
+    assert result is not None
+    assert result.innerHTML() == "<p>submitted</p>"
 
 
-async def test_element_submit_input(htmx_browser, httpx_mock):
+async def test_element_submit_input(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url="http://app.example.com/form-action",
+        url="http://localhost/form-action",
         text="<p>sent</p>",
     )
     await htmx_browser.load(
@@ -122,20 +131,27 @@ async def test_element_submit_input(htmx_browser, httpx_mock):
         '<div id="result"></div>'
     )
     sub = htmx_browser.find("#sub")
+    assert sub is not None
     await sub.submit()
-    assert htmx_browser.find("#result").innerHTML() == "<p>sent</p>"
+    result = htmx_browser.find("#result")
+    assert result is not None
+    assert result.innerHTML() == "<p>sent</p>"
 
 
-async def test_element_submit_htmx_handled(htmx_browser, httpx_mock):
-    httpx_mock.add_response(url="http://app.example.com/form-action", text="<p>sent</p>")
+async def test_element_submit_htmx_handled(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url="http://localhost/form-action", text="<p>sent</p>")
     await htmx_browser.load(
         '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
         '<button type="submit" id="btn">go</button>'
         "</form>"
         '<div id="result"></div>'
     )
-    await htmx_browser.find("#btn").submit()
-    assert htmx_browser.find("#result").innerHTML() == "<p>sent</p>"
+    el = htmx_browser.find("#btn")
+    assert el is not None
+    await el.submit()
+    result = htmx_browser.find("#result")
+    assert result is not None
+    assert result.innerHTML() == "<p>sent</p>"
 
 
 # ---------------------------------------------------------------------------
@@ -143,8 +159,8 @@ async def test_element_submit_htmx_handled(htmx_browser, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
-async def test_browser_context_manager(httpx_mock, htmx_browser):
-    httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
+async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: Browser) -> None:
+    httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with htmx_browser as b:
         await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
         btn = b.find("button")
@@ -155,8 +171,8 @@ async def test_browser_context_manager(httpx_mock, htmx_browser):
         assert result.innerHTML() == "<b>hi</b>"
 
 
-async def test_browser_async_context_manager(httpx_mock, htmx_browser):
-    httpx_mock.add_response(url="http://app.example.com/hi", text="<b>hi</b>")
+async def test_browser_async_context_manager(httpx_mock: HTTPXMock, htmx_browser: Browser) -> None:
+    httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with patch.object(htmx_browser, "close", wraps=htmx_browser.close) as close_mock:
         async with htmx_browser as b:
             await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
