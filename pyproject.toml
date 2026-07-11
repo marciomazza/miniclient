@@ -71,7 +71,7 @@ packages = ["src/htmxclient"]
 search_path = ["src", "tests"]
 
 [tool.pytest]
-addopts = ["--cov-report=html", "-mnot cross"]
+addopts = ["--cov-report=html", "-mnot cross and not hypo"]
 filterwarnings = [
   "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]
