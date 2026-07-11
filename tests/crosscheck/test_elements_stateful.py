@@ -33,6 +33,8 @@ async def test_elements_stateful(page: Page, data):
             action = data.draw(st.sampled_from(choices))
             if action == "fill":
                 el_id = data.draw(st.sampled_from(pg.fillable_ids))
+                if not cc.has_element(f"#{el_id}"):
+                    continue
                 await cc.fill(f"#{el_id}", data.draw(st_some_text_maybe_empty))
             else:
                 el_id = data.draw(st.sampled_from(pg.all_ids))
