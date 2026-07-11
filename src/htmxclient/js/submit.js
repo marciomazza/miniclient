@@ -6,7 +6,9 @@ globalThis.__zzz_load = function (html) {
     /** @type {any} */ (document).write(html);
     document.close();
     __zzz_fixup_parsed_dom(document.body);
-    htmx.process(document.body);
+    if (typeof htmx !== "undefined") {
+        htmx.process(document.body);
+    }
 };
 
 // Fetches url and loads the response body as the new document. Shared by
