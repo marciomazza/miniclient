@@ -1,0 +1,31 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv run prek run --all-files
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Clone vendor/htmx (via HTTPS, no SSH key in CI)
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          bash scripts/setup-vendor-htmx.sh
+      - run: uv sync
+      - run: uv run pytest tests/ -n auto
