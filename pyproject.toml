@@ -1,20 +1,20 @@
 # Metadados do projeto
 [project]
 name = "miniclient"
-version = "0.0.3"
+version = "0.0.4"
 description = "A minimal python http client that runs real JS/DOM (htmx and friends) without a browser"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 classifiers = [
-  "Programming Language :: Python :: 3.14",
   "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
-  "Topic :: Software Development :: Testing",
-  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Internet :: WWW/HTTP",
-  "Environment :: Web Environment",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Software Development :: Testing",
 ]
 dependencies = [
   "httpx2~=2.5.0",
