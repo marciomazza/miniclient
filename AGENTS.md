@@ -7,6 +7,8 @@
 
 **Commit messages and code in English**
 
+The project uses **pyrefly** as a type checker.
+
 ## graphify
 
 This project may have a local knowledge graph at graphify-out/ (god nodes, community structure, cross-file relationships).
