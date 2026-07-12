@@ -4,20 +4,40 @@ icon: lucide/layers
 
 # Architecture
 
-## Runtime stack
+## Comparison to other tools
 
-- **[jsrun](https://imfing.github.io/jsrun)** (V8 via deno_core + PyO3 bindings) is the JavaScript runtime. It is NOT Node.js and NOT QuickJS.
-- **[happy-dom](https://github.com/capricorn86/happy-dom)** runs inside jsrun, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, `node:vm`, etc.) in `src/miniclient/js/polyfills/`.
-- **[htmx](https://htmx.org)** runs in the same jsrun context, loaded like a real page would load it — via `<script src="...">`, resolved through happy-dom's `virtualServers` mechanism (mapped from the `mounts` param on `Browser.create` / `virtual_servers` param on `build_runtime`). It is not baked into the runtime snapshot.
-- HTTP is done with **[httpx2](https://httpx2.pydantic.dev/)**.
-- The Python `Browser` class in `src/miniclient/browser.py` wraps a jsrun `Runtime`. It has no relation to happy-dom's own `Browser` class.
+Browser automation tools — [Playwright](https://playwright.dev/), [Selenium](https://www.selenium.dev/), [Puppeteer](https://pptr.dev/) — drive a real browser (Chromium, Firefox, WebKit) over a devtools/wire protocol: real rendering, real JS engine, maximum fidelity, but you pay for browser process startup, IPC round-trips, and often GPU/rendering work your test might not need. This project instead runs actual JavaScript code against a real DOM implementation ([happy-dom](https://happy-dom.dev/)) inside an embedded V8 isolate, in-process — no browser process, no protocol, no rendering. That makes the common case (assert a request/DOM-swap/event loop happened correctly) dramatically faster, at the cost of not being a full browser: no layout/paint, no CSS cascade beyond what happy-dom implements, and behavior can diverge anywhere happy-dom or this project's polyfills differ from a real engine (see *Known limitations*).
 
-## Limitations and consequences
+## How this was made
 
-1. **No true per-window isolation.** A single jsrun `Runtime` has one real V8 `globalThis`. If two `Window`/`Browser` instances ever shared one `Runtime`, their script globals would collide instead of staying scoped to their own window.
-2. **Globals persist across navigations.** `htmx` (or anything else a script declares) is never reset just because the "page" navigated, unlike a real browser's fresh-global-per-navigation model. Only closing/recreating the `Runtime` clears it.
-3. **`this` binding differs from a real `<script>` tag** for scripts run through the classic-script execution path.
-4. **`"use strict"` scripts** don't get the same global-leak workaround — strict-mode code keeps `var`/`function` scoped to the eval call itself.
-5. **No engine-level fix is available today.** True per-context globals (separate V8 contexts per window) would require a jsrun-level feature; today's `Runtime` wraps a single `deno_core::JsRuntime` with one main context.
+### Test Methodology
 
-These tradeoffs are acceptable for the current test/single-window usage pattern but should be revisited if this project ever needs multiple concurrently-live windows/browsers sharing one `Runtime`.
+Correctness is checked at three layers:
+
+- **happy-dom integration** — regression tests cover local patches applied to happy-dom and the Node polyfills it depends on.
+- **htmx compat** — we test specifically for htmx's correct functioning in this environment,
+  and further guarantee the correctness of the setup as a whole.
+- **Crosscheck against a real browser** — stateful fuzzing exercises randomly generated pages and interactions, checking that DOM and request/response behave the same as in an actual browser.
+
+#### htmx compat
+
+htmx's own original test suite runs directly inside this runtime: one pytest case per Mocha JS file, with a small explicit skip-list for things that can't be true headlessly (e.g. scroll position). This anchors behavior to the upstream's own definition of correctness.
+
+#### Hypothesis crosscheck against a real browser
+
+We use [Hypothesis](https://hypothesis.readthedocs.io) for property based testing.
+
+Hypothesis drives stateful fuzzing that goes further than any hand-written tests. It generates random HTML — form controls, htmx-attributed elements, whole "rich pages" mixing both, wired to a test app — and draws random sequences of interactions (fill, click, dispatch_event) against those generated pages. After every step, a `CrossCheck` harness replays the same interaction against both this project's `Browser` (V8/happy-dom) and a real Chromium page via Playwright, asserting identical DOM snapshots and HTTP request/response parameters. Any divergence, however deep in a randomly generated interaction sequence, fails the test and Hypothesis shrinks it to a minimal reproduction. This process catches subtle DOM/protocol fidelity gaps between happy-dom-in-V8 and a real browser that no simple test suite would think to check.
+
+## Known limitations
+
+**No real Node.js.** The JavaScript code runs inside a V8 Isolate, not Node.
+There's no node_modules resolution, no require(), and no *package.json* lookup — only ESM import against a closed allowlist of pre-vendored packages; anything else fails to resolve. In practice this means arbitrary npm packages that depend on the Node APIs won't run as-is.
+
+But notice that *happy-dom* itself is a Node package and depends on many parts of the Node API.
+It works because [*jsrun* module system](https://imfing.github.io/jsrun/guides/modules) allows us to map `node:*` specifiers to *polyfills* (that we made) covering the Node API surface that it touches.
+Follow the same approach — a resolver plus hand-written polyfills — for any other Node-dependent package you need to run.
+
+A [Vite](https://vite.dev/) production bundle sidesteps this almost entirely: bundling resolves the whole import graph at build time, so nothing needs runtime `require()` or bare-specifier resolution — a standard browser-targeted build just works. The exception is Node-targeted output (SSR, `target: 'node'`) that still calls real `fs`/`child_process`/`os` at runtime — bundling flattens imports, not the runtime APIs, so that code hits the same missing-Node-API wall as unbundled code.
+
+**One window per runtime.** A jsrun `Runtime` wraps a single `deno_core::JsRuntime` with one V8 `globalThis`, so there's no true per-window isolation — this only matters if the project ever needs to support multiple simultaneous `Window` instances inside one `Runtime`, which isn't possible today. Globals persist across navigations rather than resetting per-page as in a real browser. This is usually acceptable for a test scenario but is important to keep in mind.

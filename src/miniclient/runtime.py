@@ -116,7 +116,9 @@ def _clean_response_headers(r: httpx.Response) -> list[list[str]]:
     # callers never see a mismatch. Headers are a list of pairs (not a dict)
     # to preserve repeated header names (e.g. multiple Set-Cookie).
     headers = [
-        [k, v] for k, v in r.headers.multi_items() if k.lower() not in ("content-encoding", "content-length")
+        [k, v]
+        for k, v in r.headers.multi_items()
+        if k.lower() not in ("content-encoding", "content-length")
     ]
     headers.append(["content-length", str(len(r.content))])
     return headers

@@ -31,7 +31,9 @@ function execFileSync(_file, args, _options) {
             }),
         );
     } catch (err) {
-        return Buffer.from(JSON.stringify({ error: String(err?.message ?? err), incomingMessage: null }));
+        return Buffer.from(
+            JSON.stringify({ error: String(err?.message ?? err), incomingMessage: null }),
+        );
     }
 }
 

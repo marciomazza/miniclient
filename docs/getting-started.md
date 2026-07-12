@@ -1,25 +1,50 @@
 ---
-icon: lucide/download
+icon: lucide/rocket
 ---
 
-# Getting started
+# Getting Started
 
-## Bootstrap the project environment
-
-```bash
-uv sync
-npm install
-./scripts/setup-vendor-htmx.sh   # clones htmx source into vendor/htmx, required by the tests
-```
-
-## Running the tests
+## Installation
 
 ```bash
-pytest
+uv add miniclient
 ```
 
-The test suite includes some hypothesis property-based tests that crosscheck the behavior of this
-client against a real browser in many different scenarios. This part of the tests can be rather
-slow so it's disabled by default — see [Testing](testing.md) for how to run it.
+## Quick Tour
 
-Tests can run in parallel by adding the `pytest` option `-n auto`.
+The API simulates a browser's user interaction with the `Browser` class:
+
+```python
+from miniclient.browser import Browser
+
+async with await Browser.create() as browser:
+    await browser.goto("http://localhost:8000/")
+    await browser.find("#load-more").click()
+    print(browser.find("#results").text())
+```
+
+Filling in a form and submitting it works the same way, through `fill()` and `requestSubmit()`:
+
+```python
+from miniclient.browser import Browser
+
+async with await Browser.create() as browser:
+    await browser.goto("http://localhost:8000/signup")
+    browser.find("input[name=name]").fill("Ada")
+    browser.find("input[name=email]").fill("ada@example.com")
+    await browser.find("form").requestSubmit()
+    print(browser.find("#result").text())
+```
+
+For anything not covered by `Browser` / `Element`, you can run arbitrary JavaScript directly
+through `browser.runtime`:
+
+```python
+from miniclient.browser import Browser
+
+async with await Browser.create() as browser:
+    await browser.load("<h1 id='greeting'>Hello</h1>")
+    print(browser.runtime.eval("document.getElementById('greeting').textContent"))
+    browser.runtime.eval("document.getElementById('greeting').textContent = 'Hi!'")
+    print(browser.find("#greeting").text())
+```

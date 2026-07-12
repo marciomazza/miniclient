@@ -54,9 +54,9 @@ repo_name = "marciomazza/miniclient"
 # Read more: https://zensical.org/docs/setup/navigation/
 nav = [
   { "Introduction" = "index.md" },
-  { "Getting started" = "getting-started.md" },
+  { "Getting Started" = "getting-started.md" },
   { "Usage" = "usage.md" },
-  { "Testing" = "testing.md" },
+  { "Development" = "development.md" },
   { "Architecture" = "architecture.md" },
 ]
 
