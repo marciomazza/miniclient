@@ -63,8 +63,9 @@ def hello(request):
 
 with Browser(
     httpx_transport=WSGITransport(app=app.wsgi),
+    url="http://testserver/",
 ) as browser:
-    browser.goto("http://testserver/")
+    browser.goto("/")
     browser.find("button").click()
     print(browser.find("#result").text())  # prints "Hello from Django!"
 ```

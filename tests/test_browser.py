@@ -71,6 +71,30 @@ async def test_goto_navigates_to_different_domain(
     assert browser.runtime.eval("document.baseURI") == "http://example.com/other"
 
 
+@pytest.mark.parametrize(
+    "initial_url, relative_url, expected_url",
+    [
+        ("http://localhost/start/page", "other", "http://localhost/start/other"),
+        ("http://localhost/start/page", "/", "http://localhost/"),
+        (None, "/", "http://localhost/"),
+    ],
+    ids=["relative_to_current_page", "root_relative_after_nav", "root_relative_no_prior_nav"],
+)
+async def test_goto_resolves_relative_urls(
+    browser: AsyncBrowser,
+    httpx_mock: HTTPXMock,
+    initial_url: str | None,
+    relative_url: str,
+    expected_url: str,
+) -> None:
+    if initial_url is not None:
+        httpx_mock.add_response(url=initial_url, text="<html><body><p>start</p></body></html>")
+        await browser.goto(initial_url)
+    httpx_mock.add_response(url=expected_url, text="<html><body><p>target</p></body></html>")
+    await browser.goto(relative_url)
+    assert browser.runtime.eval("location.href") == expected_url
+
+
 # ---------------------------------------------------------------------------
 # AsyncBrowser.load
 # ---------------------------------------------------------------------------
