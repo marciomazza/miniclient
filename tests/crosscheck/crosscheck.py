@@ -13,7 +13,7 @@ import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
-from miniclient.browser import Browser, FormElement
+from miniclient.browser import AsyncBrowser, AsyncFormElement
 from miniclient.runtime import build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
@@ -145,7 +145,7 @@ class _CapturingTransport(httpx.AsyncBaseTransport):
 class CrossCheck:
     def __init__(
         self,
-        browser: Browser,
+        browser: AsyncBrowser,
         page: Page,
         server: HTTPServer,
         port: int,
@@ -172,7 +172,7 @@ class CrossCheck:
             httpx_transport=capturing_transport,
             virtual_servers=[{"url": "http://testserver/", "directory": str(_HTMX_DIST_DIR)}],
         )
-        browser = Browser(runtime)
+        browser = AsyncBrowser(runtime=runtime)
 
         def _wrapped_wsgi(environ, start_response):
             if environ["PATH_INFO"] == "/htmx.js":
@@ -265,7 +265,7 @@ class CrossCheck:
         if self._mode == "plain" and is_submit:
             # submit button lives in a single form; submit the form itself.
             form = self._browser.find("form")
-            assert isinstance(form, FormElement), f"No form for submit control {selector!r}"
+            assert isinstance(form, AsyncFormElement), f"No form for submit control {selector!r}"
             await asyncio.gather(
                 form.requestSubmit(),
                 self._page_click_navigate(selector),

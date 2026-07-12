@@ -7,7 +7,7 @@ from conftest import HTMX_BASE_HTML
 from jsrun import Runtime
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.browser import Browser, FormElement
+from miniclient.browser import AsyncBrowser, AsyncFormElement
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -15,10 +15,10 @@ from miniclient.browser import Browser, FormElement
 
 
 @pytest_asyncio.fixture
-async def htmx_browser(runtime: Runtime) -> AsyncIterator[Browser]:
-    """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
+async def htmx_browser(runtime: Runtime) -> AsyncIterator[AsyncBrowser]:
+    """A fresh htmx-loaded AsyncBrowser, closed automatically unless the test closes it first."""
     runtime.eval(f"__document_write(`{HTMX_BASE_HTML}`)")
-    b = Browser(runtime)
+    b = AsyncBrowser(runtime=runtime)
     try:
         yield b
     finally:
@@ -26,11 +26,11 @@ async def htmx_browser(runtime: Runtime) -> AsyncIterator[Browser]:
 
 
 # ---------------------------------------------------------------------------
-# Browser.goto
+# AsyncBrowser.goto
 # ---------------------------------------------------------------------------
 
 
-async def test_goto_processes_htmx(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+async def test_goto_processes_htmx(htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/page",
         text="""\
@@ -49,11 +49,11 @@ async def test_goto_processes_htmx(htmx_browser: Browser, httpx_mock: HTTPXMock)
 
 
 # ---------------------------------------------------------------------------
-# Browser.trigger / Element.click / Element.dispatch_event
+# AsyncBrowser.trigger / AsyncElement.click / AsyncElement.dispatch_event
 # ---------------------------------------------------------------------------
 
 
-async def test_element_click_hx_get(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+async def test_element_click_hx_get(htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/click-target",
         text="<b>clicked</b>",
@@ -71,7 +71,7 @@ async def test_element_click_hx_get(htmx_browser: Browser, httpx_mock: HTTPXMock
     assert el.innerHTML() == "<b>clicked</b>"
 
 
-async def test_element_trigger_custom(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+async def test_element_trigger_custom(htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/custom",
         text="<i>custom</i>",
@@ -91,11 +91,13 @@ async def test_element_trigger_custom(htmx_browser: Browser, httpx_mock: HTTPXMo
 
 
 # ---------------------------------------------------------------------------
-# FormElement.requestSubmit / submit-via-click
+# AsyncFormElement.requestSubmit / submit-via-click
 # ---------------------------------------------------------------------------
 
 
-async def test_element_request_submit_form(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+async def test_element_request_submit_form(
+    htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock
+) -> None:
     httpx_mock.add_response(
         url="http://localhost/form-action",
         text="<p>submitted</p>",
@@ -108,7 +110,7 @@ async def test_element_request_submit_form(htmx_browser: Browser, httpx_mock: HT
         '<div id="result"></div>'
     )
     form = htmx_browser.find("form")
-    assert isinstance(form, FormElement)
+    assert isinstance(form, AsyncFormElement)
     await form.requestSubmit()
     result = htmx_browser.find("#result")
     assert result is not None
@@ -124,7 +126,7 @@ async def test_element_request_submit_form(htmx_browser: Browser, httpx_mock: HT
     ids=["input-submit", "button-submit"],
 )
 async def test_submit_via_submitter_click(
-    htmx_browser: Browser, httpx_mock: HTTPXMock, submitter_html: str
+    htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock, submitter_html: str
 ) -> None:
     httpx_mock.add_response(
         url="http://localhost/form-action",
@@ -145,11 +147,11 @@ async def test_submit_via_submitter_click(
 
 
 # ---------------------------------------------------------------------------
-# Browser as context manager
+# AsyncBrowser as context manager
 # ---------------------------------------------------------------------------
 
 
-async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: Browser) -> None:
+async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: AsyncBrowser) -> None:
     httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with htmx_browser as b:
         await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
@@ -161,7 +163,9 @@ async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: Brow
         assert result.innerHTML() == "<b>hi</b>"
 
 
-async def test_browser_async_context_manager(httpx_mock: HTTPXMock, htmx_browser: Browser) -> None:
+async def test_browser_async_context_manager(
+    httpx_mock: HTTPXMock, htmx_browser: AsyncBrowser
+) -> None:
     httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with patch.object(htmx_browser, "close", wraps=htmx_browser.close) as close_mock:
         async with htmx_browser as b:

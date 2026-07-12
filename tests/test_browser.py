@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.browser import Browser, Element, FormElement
+from miniclient.browser import AsyncBrowser, AsyncElement, AsyncFormElement
 from miniclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
@@ -15,8 +15,8 @@ from miniclient.runtime import build_runtime
 
 
 @pytest_asyncio.fixture
-async def browser(snapshot: bytes) -> AsyncIterator[Browser]:
-    """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
+async def browser(snapshot: bytes) -> AsyncIterator[AsyncBrowser]:
+    """A fresh htmx-loaded AsyncBrowser, closed automatically unless the test closes it first."""
     runtime = await build_runtime(snapshot=snapshot)
     runtime.eval("""__document_write(`
         <!DOCTYPE html>
@@ -27,7 +27,7 @@ async def browser(snapshot: bytes) -> AsyncIterator[Browser]:
         </html>
     `)""")
     assert runtime.eval("typeof htmx") == "undefined"  # make sure there is no htmx here
-    b = Browser(runtime)
+    b = AsyncBrowser(runtime=runtime)
     try:
         yield b
     finally:
@@ -35,11 +35,11 @@ async def browser(snapshot: bytes) -> AsyncIterator[Browser]:
 
 
 # ---------------------------------------------------------------------------
-# Browser.goto
+# AsyncBrowser.goto
 # ---------------------------------------------------------------------------
 
 
-async def test_goto_head_and_title_body(browser: Browser, httpx_mock: HTTPXMock) -> None:
+async def test_goto_head_and_title_body(browser: AsyncBrowser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/page",
         text="<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
@@ -51,7 +51,9 @@ async def test_goto_head_and_title_body(browser: Browser, httpx_mock: HTTPXMock)
     assert el.innerHTML() == "ok"
 
 
-async def test_goto_navigates_to_different_domain(browser: Browser, httpx_mock: HTTPXMock) -> None:
+async def test_goto_navigates_to_different_domain(
+    browser: AsyncBrowser, httpx_mock: HTTPXMock
+) -> None:
     httpx_mock.add_response(
         url="http://localhost/start",
         text="<html><body><p>start</p></body></html>",
@@ -70,17 +72,17 @@ async def test_goto_navigates_to_different_domain(browser: Browser, httpx_mock: 
 
 
 # ---------------------------------------------------------------------------
-# Browser.load
+# AsyncBrowser.load
 # ---------------------------------------------------------------------------
 
 
-async def test_load_sets_body(browser: Browser) -> None:
+async def test_load_sets_body(browser: AsyncBrowser) -> None:
     await browser.load("<p id='msg'>hello</p>")
     el = browser.find("body")
     assert el and el.innerHTML() == '<p id="msg">hello</p>'
 
 
-async def test_load_replaces_body(browser: Browser) -> None:
+async def test_load_replaces_body(browser: AsyncBrowser) -> None:
     await browser.load("<span id='a'>first</span>")
     await browser.load("<span id='b'>second</span>")
     el = browser.find("#b")
@@ -92,30 +94,30 @@ async def test_load_replaces_body(browser: Browser) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Browser.find / Element queries
+# AsyncBrowser.find / AsyncElement queries
 # ---------------------------------------------------------------------------
 
 
-async def test_find_returns_element(browser: Browser) -> None:
+async def test_find_returns_element(browser: AsyncBrowser) -> None:
     await browser.load("<p id='msg'>hello</p>")
     el = browser.find("#msg")
-    assert isinstance(el, Element)
+    assert isinstance(el, AsyncElement)
     assert el.innerHTML() == "hello"
 
 
-async def test_find_returns_none_for_missing(browser: Browser) -> None:
+async def test_find_returns_none_for_missing(browser: AsyncBrowser) -> None:
     await browser.load("<p>hi</p>")
     assert browser.find("#does-not-exist") is None
 
 
-async def test_element_text(browser: Browser) -> None:
+async def test_element_text(browser: AsyncBrowser) -> None:
     await browser.load("<div id='d'><span>inner</span> text</div>")
     el = browser.find("#d")
     assert el is not None
     assert el.text() == "inner text"
 
 
-async def test_element_attr(browser: Browser) -> None:
+async def test_element_attr(browser: AsyncBrowser) -> None:
     await browser.load("<a id='link' href='/path' data-x='42'>link</a>")
     el = browser.find("#link")
     assert el is not None
@@ -124,7 +126,7 @@ async def test_element_attr(browser: Browser) -> None:
     assert el.attr("missing") is None
 
 
-async def test_element_fill(browser: Browser) -> None:
+async def test_element_fill(browser: AsyncBrowser) -> None:
     await browser.load("<input id='inp' value='old'>")
     el = browser.find("#inp")
     assert el is not None
@@ -132,7 +134,7 @@ async def test_element_fill(browser: Browser) -> None:
     assert browser.runtime.eval("document.querySelector('#inp').value") == "new"
 
 
-async def test_element_fill_textarea(browser: Browser) -> None:
+async def test_element_fill_textarea(browser: AsyncBrowser) -> None:
     await browser.load("<textarea id='ta'>old</textarea>")
     el = browser.find("#ta")
     assert el is not None
@@ -140,7 +142,7 @@ async def test_element_fill_textarea(browser: Browser) -> None:
     assert browser.runtime.eval("document.querySelector('#ta').value") == "new"
 
 
-async def test_find_all_returns_elements(browser: Browser) -> None:
+async def test_find_all_returns_elements(browser: AsyncBrowser) -> None:
     await browser.load("<ul><li>a</li><li>b</li><li>c</li></ul>")
     items = browser.find_all("li")
     assert len(items) == 3
@@ -149,13 +151,13 @@ async def test_find_all_returns_elements(browser: Browser) -> None:
     assert items[2].text() == "c"
 
 
-async def test_find_all_empty(browser: Browser) -> None:
+async def test_find_all_empty(browser: AsyncBrowser) -> None:
     await browser.load("<div>no items</div>")
     assert browser.find_all("li") == []
 
 
 # ---------------------------------------------------------------------------
-# FormElement.requestSubmit
+# AsyncFormElement.requestSubmit
 # ---------------------------------------------------------------------------
 
 
@@ -180,7 +182,7 @@ async def test_find_all_empty(browser: Browser) -> None:
     ids=["POST", "GET"],
 )
 async def test_form_request_submit_plain(
-    browser: Browser,
+    browser: AsyncBrowser,
     httpx_mock: HTTPXMock,
     method: str,
     expected_url: str,
@@ -192,7 +194,7 @@ async def test_form_request_submit_plain(
         '<button type="submit" id="btn">go</button></form>'
     )
     form = browser.find("form")
-    assert isinstance(form, FormElement)
+    assert isinstance(form, AsyncFormElement)
     await form.requestSubmit()
     request = httpx_mock.get_request()
     assert request is not None
@@ -203,13 +205,13 @@ async def test_form_request_submit_plain(
 
 
 # ---------------------------------------------------------------------------
-# Browser virtual servers (external <script src>)
+# AsyncBrowser virtual servers (external <script src>)
 # ---------------------------------------------------------------------------
 
 
 async def test_browser_create_with_virtual_servers(snapshot: bytes, tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    b = await Browser.create(
+    b = await AsyncBrowser(
         snapshot=snapshot,
         mounts={"http://localhost/ext/": tmp_path},
     )

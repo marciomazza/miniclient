@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Generic, TypeVar
 
 import httpx2 as httpx
 from jsrun import Runtime
@@ -51,7 +52,7 @@ def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
         }});"""
 
 
-class Element:
+class AsyncElement:
     """Represents a DOM element found via Browser.find() or Browser.find_all().
 
     Identified by an opaque handle (assigned by the JS-side element registry),
@@ -112,7 +113,7 @@ class Element:
         return self.runtime.eval(js)
 
 
-class FormElement(Element):
+class AsyncFormElement(AsyncElement):
     """A <form> element. Exposes requestSubmit(), which is form-only."""
 
     async def requestSubmit(self) -> None:
@@ -124,38 +125,64 @@ class FormElement(Element):
         await self.runtime.eval_async(f"__zzz_submit({self.handle})")
 
 
-def _element_from(handle: int, tag: str, runtime: Runtime) -> Element:
+_E = TypeVar("_E", bound="AsyncElement", default="AsyncElement")
+
+
+def _element_from(
+    handle: int,
+    tag: str,
+    runtime: Runtime,
+    element_cls: type[_E],
+    form_cls: type[_E],
+) -> _E:
     """Pick the right Element subclass for a matched node."""
-    return FormElement(handle, runtime) if tag == "FORM" else Element(handle, runtime)
+    return form_cls(handle, runtime) if tag == "FORM" else element_cls(handle, runtime)
 
 
-class Browser:
-    def __init__(self, runtime: Runtime) -> None:
-        self.runtime = runtime
-
-    @classmethod
-    async def create(
-        cls,
+class AsyncBrowser(Generic[_E]):
+    def __init__(
+        self,
         url: str = "http://localhost/",
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
         snapshot: bytes | None = None,
-    ) -> Browser:
-        return cls(
-            await build_runtime(
-                url,
-                snapshot=snapshot,
-                httpx_transport=httpx_transport,
+        *,
+        runtime: Runtime | None = None,
+        element_cls: type[_E] = AsyncElement,
+        form_element_cls: type[_E] = AsyncFormElement,
+    ) -> None:
+        self._url = url
+        self._httpx_transport = httpx_transport
+        self._mounts = mounts
+        self._snapshot = snapshot
+        self._runtime = runtime
+        self._element_cls = element_cls
+        self._form_element_cls = form_element_cls
+
+    @property
+    def runtime(self) -> Runtime:
+        assert self._runtime is not None, "AsyncBrowser not built yet — use `await` or `async with`"
+        return self._runtime
+
+    async def _build(self) -> AsyncBrowser[_E]:
+        if self._runtime is None:
+            self._runtime = await build_runtime(
+                self._url,
+                snapshot=self._snapshot,
+                httpx_transport=self._httpx_transport,
                 virtual_servers=[
                     {"url": mount_url, "directory": str(directory)}
-                    for mount_url, directory in (mounts or {}).items()
+                    for mount_url, directory in (self._mounts or {}).items()
                 ],
             )
-        )
+        return self
+
+    def __await__(self):
+        return self._build().__await__()
 
     # --- Element queries ---
 
-    def find(self, selector: str) -> Element | None:
+    def find(self, selector: str) -> _E | None:
         """Return the first matching element, or None if not found."""
         js = f"""
         (() => {{
@@ -166,9 +193,9 @@ class Browser:
         handle, tag = self.runtime.eval(js)
         if handle is None:
             return None
-        return _element_from(handle, tag, self.runtime)
+        return _element_from(handle, tag, self.runtime, self._element_cls, self._form_element_cls)
 
-    def find_all(self, selector: str) -> list[Element]:
+    def find_all(self, selector: str) -> list[_E]:
         """Return all matching elements."""
         js = f"""\
             Array.from(document.querySelectorAll({json.dumps(selector)}), el => [
@@ -176,7 +203,10 @@ class Browser:
               el.tagName,
             ])
         """
-        return [_element_from(handle, tag, self.runtime) for handle, tag in self.runtime.eval(js)]
+        return [
+            _element_from(handle, tag, self.runtime, self._element_cls, self._form_element_cls)
+            for handle, tag in self.runtime.eval(js)
+        ]
 
     # --- Page operations ---
 
@@ -191,14 +221,14 @@ class Browser:
     def close(self) -> None:
         self.runtime.close()
 
-    def __enter__(self) -> Browser:
+    def __enter__(self) -> AsyncBrowser[_E]:
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    async def __aenter__(self) -> Browser:
-        return self
+    async def __aenter__(self) -> AsyncBrowser[_E]:
+        return await self._build()
 
     async def __aexit__(self, *_: object) -> None:
         self.close()
