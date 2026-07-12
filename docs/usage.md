@@ -11,16 +11,16 @@ If the page includes htmx, it runs normally and htmx requests are awaited automa
 
 ## Creating a browser
 
-Create a browser with an async context manager:
+Create a browser with a context manager:
 
 ```python
 from miniclient.browser import Browser
 
-async with await Browser.create() as browser:
+with Browser() as browser:
     ...
 ```
 
-`Browser.create()` accepts:
+`Browser(...)` accepts:
 
 - `url` — the initial page URL (default `"http://localhost/"`).
 - `httpx_transport` — an `httpx2.AsyncBaseTransport`, useful to test an ASGI/WSGI app in-process
@@ -28,10 +28,21 @@ async with await Browser.create() as browser:
 - `mounts` — a `dict[str, Path]` mapping a URL prefix to a local directory, so `<script>` tags can
   load local files (e.g. htmx itself) without a real server.
 
+### Async
+
+An `AsyncBrowser` with the same constructor is available for async codebases:
+
+```python
+from miniclient.browser import AsyncBrowser
+
+async with AsyncBrowser() as browser:
+    ...
+```
+
 ## Testing an ASGI/WSGI app in-process
 
 You can test your ASGI/WSGI app directly (Django, Flask, FastAPI, etc)
-with no HTTP server or network involved, by passing an `httpx2.ASGITransport` to `Browser.create()`.
+with no HTTP server or network involved, by passing an `httpx2.ASGITransport` to `Browser(...)`.
 
 An example with [nanodjango](https://nanodjango.dev/):
 
@@ -50,12 +61,11 @@ def index(request):
 def hello(request):
     return "Hello from Django!"
 
-async with await Browser.create(
-    "http://testserver/",
+with Browser(
     httpx_transport=httpx2.ASGITransport(app=app.asgi),
 ) as browser:
-    await browser.goto("http://testserver/")
-    await browser.find("button").click()
+    browser.goto("http://testserver/")
+    browser.find("button").click()
     print(browser.find("#result").text())  # prints "Hello from Django!"
 ```
 
@@ -64,8 +74,8 @@ async with await Browser.create(
 Serve local files through `mounts` so a `<script>` tag can load them without a real server:
 
 ```python
-browser = await Browser.create(mounts={"http://localhost/ext/": tmp_path})
-browser.runtime.eval(
+browser = Browser(mounts={"http://localhost/ext/": tmp_path})
+browser.eval(
     'document.head.innerHTML = \'<script src="http://localhost/ext/external-script.js"></script>\''
 )
 ```
@@ -76,10 +86,10 @@ Load content either via a real request, or directly as raw HTML:
 
 ```python
 # Fetch a URL, load the full document, and process htmx (real request via httpx_transport/network)
-await browser.goto("http://localhost/page")
+browser.goto("http://localhost/page")
 
 # Load raw HTML directly into the document body, no request involved
-await browser.load("<p id='msg'>hello</p>")
+browser.load("<p id='msg'>hello</p>")
 ```
 
 Each call to `load()` replaces the previous body entirely.
@@ -121,8 +131,8 @@ just like in a real browser.
 Simulate a click, or dispatch any DOM event:
 
 ```python
-await browser.find("button").click()
-await browser.find("div").trigger("my-event")  # any DOM event, e.g. for hx-trigger="my-event"
+browser.find("button").click()
+browser.find("div").trigger("my-event")  # any DOM event, e.g. for hx-trigger="my-event"
 ```
 
 Both wait for htmx to settle if the event fires an htmx request.
@@ -134,7 +144,7 @@ Both wait for htmx to settle if the event fires an htmx request.
 
 ```python
 form = browser.find("form")
-await form.requestSubmit()
+form.requestSubmit()
 ```
 
 If the form is htmx-wired (`hx-post`, `hx-get`, ...), this waits for htmx to settle. If not, it
@@ -142,8 +152,16 @@ performs a plain fetch and reloads the page. Clicking a `<button type="submit">`
 
 ## Executing JavaScript
 
-For anything not covered by `Browser` / `Element`, evaluate JavaScript directly against the
-runtime. Both sync and async code evaluations are possible:
+For anything not covered by `Browser` / `Element`, evaluate JavaScript directly.
+
+With sync `Browser`, use `eval()` (`Browser` doesn't expose a `.runtime` property the way
+`AsyncBrowser` does — the raw `Runtime` isn't thread-safe, so use this method instead):
+
+```python
+browser.eval("document.title")
+```
+
+With `AsyncBrowser`, use `.runtime`, which also supports async evaluation:
 
 ```python
 browser.runtime.eval("document.title")

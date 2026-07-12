@@ -19,11 +19,11 @@ No browser involved.
 ```python
 from miniclient.browser import Browser
 
-async with await Browser.create() as browser:
-    await browser.goto("http://localhost:8000/")
+with Browser() as browser:
+    browser.goto("http://localhost:8000/")
     browser.find("input[name=q]").fill("htmx")
-    await browser.find("form").requestSubmit()
-    await browser.find("#load-more").click()
+    browser.find("form").requestSubmit()
+    browser.find("#load-more").click()
     print(len(browser.find_all("#results li")), "results")
     print(browser.find("#results li:first-child").text())
 ```
