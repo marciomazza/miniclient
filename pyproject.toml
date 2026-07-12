@@ -74,7 +74,12 @@ packages = ["src/miniclient"]
 search_path = ["src", "tests"]
 
 [tool.pytest]
-addopts = ["--cov-report=html", "-mnot cross and not hypo"]
+addopts = [
+  "--cov-report=html",
+  "--cov-report=xml",
+  "--cov=src/miniclient",
+  "-mnot cross and not hypo"
+]
 filterwarnings = [
   "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]

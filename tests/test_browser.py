@@ -134,6 +134,13 @@ async def test_find_returns_none_for_missing(browser: AsyncBrowser) -> None:
     assert browser.find("#does-not-exist") is None
 
 
+async def test_element_html(browser: AsyncBrowser) -> None:
+    await browser.load("<div id='d'><span>inner</span> text</div>")
+    el = browser.find("#d")
+    assert el is not None
+    assert el.html() == '<div id="d"><span>inner</span> text</div>'
+
+
 async def test_element_text(browser: AsyncBrowser) -> None:
     await browser.load("<div id='d'><span>inner</span> text</div>")
     el = browser.find("#d")

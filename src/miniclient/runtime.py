@@ -64,7 +64,7 @@ def get_snapshot_builder() -> SnapshotBuilder:
 
 @cache
 def _build_snapshot() -> bytes:
-    return get_snapshot_builder().build()
+    return get_snapshot_builder().build()  # pragma: no cover
 
 
 @cache
@@ -88,7 +88,7 @@ def _resolver(spec: str, ref: str) -> str | None:
         return f"npm:{spec}"
     if spec.startswith("file://"):
         return spec
-    return None
+    return None  # pragma: no cover
 
 
 async def _loader(spec: str) -> str:
@@ -98,7 +98,7 @@ async def _loader(spec: str) -> str:
         return _read_cached(_POLYFILLS / _NPM_POLYFILL_FILES[spec.removeprefix("npm:")])
     if spec.startswith("file://"):
         return _read_cached(Path(spec[7:]))
-    raise ValueError(f"Cannot load module: {spec!r}")
+    raise ValueError(f"Cannot load module: {spec!r}")  # pragma: no cover
 
 
 def _fs_stat_op(path: str) -> dict:

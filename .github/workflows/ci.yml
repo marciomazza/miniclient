@@ -28,4 +28,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           bash scripts/setup-vendor-htmx.sh
       - run: uv sync
-      - run: uv run pytest tests/ -n auto
+      - run: uv run pytest tests/ -n auto --cov-report=term-missing
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

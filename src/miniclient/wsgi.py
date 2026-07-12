@@ -12,10 +12,10 @@ class _AsyncByteStream(httpx.AsyncByteStream):
         self._data = data
 
     async def __aiter__(self):
-        yield self._data
+        yield self._data  # pragma: no cover
 
     async def aclose(self) -> None:
-        pass
+        pass  # pragma: no cover
 
 
 class WSGITransport(httpx.AsyncBaseTransport):

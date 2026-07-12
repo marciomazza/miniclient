@@ -185,3 +185,13 @@ def test_gc_panic_regression(tmp_path: Path, name: str, body: str) -> None:
     assert result.returncode == 0
     assert result.stdout.strip() == "done"
     assert result.stderr == ""
+
+
+def test_close_clears_runtime_on_held_elements(snapshot: bytes) -> None:
+    # prevents runtime panic when el is garbage collected in another thread
+    b = Browser(snapshot=snapshot)
+    b.load("<p id='p'>hi</p>")
+    el = b.find("#p")
+    assert el is not None
+    b.close()
+    assert el.runtime is None

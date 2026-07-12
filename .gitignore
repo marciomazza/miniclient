@@ -8,6 +8,7 @@ ipython_log.py*
 .pytest_cache
 .coverage
 coverage.json
+coverage.xml
 htmlcov
 .hypothesis
 node_modules

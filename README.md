@@ -1,6 +1,7 @@
 # miniclient
 
 [![CI](https://github.com/marciomazza/miniclient/actions/workflows/ci.yml/badge.svg)](https://github.com/marciomazza/miniclient/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/marciomazza/miniclient/graph/badge.svg)](https://codecov.io/gh/marciomazza/miniclient)
 [![Docs](https://github.com/marciomazza/miniclient/actions/workflows/docs.yml/badge.svg)](https://marciomazza.github.io/miniclient/)
 [![PyPI](https://img.shields.io/pypi/v/miniclient)](https://pypi.org/project/miniclient/)
 [![Python versions](https://img.shields.io/pypi/pyversions/miniclient)](https://pypi.org/project/miniclient/)

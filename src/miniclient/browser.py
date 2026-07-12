@@ -405,5 +405,5 @@ class Browser:
         # guaranteed. Never let cleanup itself raise from a finalizer.
         try:
             self.close()
-        except Exception:
+        except Exception:  # pragma: no cover
             pass
