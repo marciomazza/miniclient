@@ -4,7 +4,7 @@ import threading
 from dataclasses import dataclass
 from http.server import HTTPServer
 from pathlib import Path
-from typing import Iterable, Literal, cast
+from typing import Literal
 from urllib.parse import urlparse
 from wsgiref.simple_server import WSGIRequestHandler, make_server
 from wsgiref.types import WSGIApplication
@@ -15,6 +15,7 @@ from pydantic import BaseModel, field_validator
 
 from miniclient.browser import AsyncBrowser, AsyncFormElement
 from miniclient.runtime import build_runtime
+from miniclient.wsgi import WSGITransport
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
 _SKIP_RESPONSE_HEADERS = {"date", "server", "content-length"}
@@ -92,38 +93,6 @@ class Talk:
         self.request = self.response = None
 
 
-class _AsyncByteStream(httpx.AsyncByteStream):
-    """Wraps a bytes body as an AsyncByteStream (required by httpx.AsyncClient)."""
-
-    def __init__(self, data: bytes) -> None:
-        self._data = data
-
-    async def __aiter__(self):
-        yield self._data
-
-    async def aclose(self) -> None:
-        pass
-
-
-class _AsyncWSGITransport(httpx.AsyncBaseTransport):
-    """Runs a sync WSGI app as an async httpx transport via a thread executor."""
-
-    def __init__(self, app: WSGIApplication) -> None:
-        self._sync = httpx.WSGITransport(app=app)
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        loop = asyncio.get_running_loop()
-        sync_response = await loop.run_in_executor(None, self._sync.handle_request, request)
-        body = b"".join(cast(Iterable[bytes], sync_response.stream))
-        response = httpx.Response(
-            status_code=sync_response.status_code,
-            headers=sync_response.headers,
-            stream=_AsyncByteStream(body),
-        )
-        response._content = body  # pre-set so r.content works without await aread()
-        return response
-
-
 class _CapturingTransport(httpx.AsyncBaseTransport):
     """Wraps an async transport and records the last request/response into a Talk."""
 
@@ -166,7 +135,7 @@ class CrossCheck:
         cls, wsgi_app: WSGIApplication, page: Page, mode: Literal["htmx", "plain"] = "htmx"
     ) -> "CrossCheck":
         client_talk = Talk()
-        capturing_transport = _CapturingTransport(_AsyncWSGITransport(wsgi_app), client_talk)
+        capturing_transport = _CapturingTransport(WSGITransport(wsgi_app), client_talk)
         runtime = await build_runtime(
             "http://testserver/",
             httpx_transport=capturing_transport,

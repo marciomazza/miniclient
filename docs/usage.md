@@ -39,16 +39,16 @@ async with AsyncBrowser() as browser:
     ...
 ```
 
-## Testing an ASGI/WSGI app in-process
+## Testing a WSGI/ASGI app in-process
 
-You can test your ASGI/WSGI app directly (Django, Flask, FastAPI, etc)
-with no HTTP server or network involved, by passing an `httpx2.ASGITransport` to `Browser(...)`.
+You can test your WSGI/ASGI app directly (Django, Flask, FastAPI, etc)
+with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Browser(...)`.
 
 An example with [nanodjango](https://nanodjango.dev/):
 
 ```python
-import httpx2
 from miniclient.browser import Browser
+from miniclient.wsgi import WSGITransport
 from nanodjango import Django
 
 app = Django()
@@ -62,12 +62,15 @@ def hello(request):
     return "Hello from Django!"
 
 with Browser(
-    httpx_transport=httpx2.ASGITransport(app=app.asgi),
+    httpx_transport=WSGITransport(app=app.wsgi),
 ) as browser:
     browser.goto("http://testserver/")
     browser.find("button").click()
     print(browser.find("#result").text())  # prints "Hello from Django!"
 ```
+
+For an ASGI app instead, pass an `httpx2.ASGITransport(app=app.asgi)` — see
+[httpx's documentation](https://www.python-httpx.org/advanced/transports/#asgi-transport).
 
 ## Loading external scripts via `mounts`
 
