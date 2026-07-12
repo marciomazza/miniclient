@@ -1,5 +1,11 @@
 # miniclient
 
+[![CI](https://github.com/marciomazza/miniclient/actions/workflows/ci.yml/badge.svg)](https://github.com/marciomazza/miniclient/actions/workflows/ci.yml)
+[![Docs](https://github.com/marciomazza/miniclient/actions/workflows/docs.yml/badge.svg)](https://marciomazza.github.io/miniclient/)
+[![PyPI](https://img.shields.io/pypi/v/miniclient)](https://pypi.org/project/miniclient/)
+[![Python versions](https://img.shields.io/pypi/pyversions/miniclient)](https://pypi.org/project/miniclient/)
+[![License](https://img.shields.io/github/license/marciomazza/miniclient)](LICENSE)
+
 A minimal python http client that runs JavaScript, without a browser.
 Meant to be used as a lightweight test client to simulate browser interactions.
 Embeds a V8 Runtime, DOM, and is designed to run [htmx](https://htmx.org) especially well.
