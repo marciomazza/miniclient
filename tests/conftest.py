@@ -6,7 +6,7 @@ import pytest_asyncio
 from hypothesis import Phase, settings
 from jsrun import Runtime
 
-from htmxclient.runtime import VirtualServer, build_runtime, get_snapshot_builder
+from miniclient.runtime import VirtualServer, build_runtime, get_snapshot_builder
 
 settings.register_profile(
     "noshrink",

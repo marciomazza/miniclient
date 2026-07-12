@@ -1,4 +1,5 @@
 {
+  "name": "miniclient",
   "dependencies": {
     "fast-text-encoding": "^1.0.6",
     "happy-dom": "^20.10.6",

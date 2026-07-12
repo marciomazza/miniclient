@@ -7,8 +7,8 @@ from playwright.async_api import Page
 
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
-from htmxclient.browser import Browser
-from htmxclient.runtime import build_runtime
+from miniclient.browser import Browser
+from miniclient.runtime import build_runtime
 
 pytestmark = pytest.mark.cross
 

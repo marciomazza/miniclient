@@ -7,10 +7,10 @@ icon: lucide/layers
 ## Runtime stack
 
 - **[jsrun](https://imfing.github.io/jsrun)** (V8 via deno_core + PyO3 bindings) is the JavaScript runtime. It is NOT Node.js and NOT QuickJS.
-- **[happy-dom](https://github.com/capricorn86/happy-dom)** runs inside jsrun, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, `node:vm`, etc.) in `src/htmxclient/js/polyfills/`.
+- **[happy-dom](https://github.com/capricorn86/happy-dom)** runs inside jsrun, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, `node:vm`, etc.) in `src/miniclient/js/polyfills/`.
 - **[htmx](https://htmx.org)** runs in the same jsrun context, loaded like a real page would load it — via `<script src="...">`, resolved through happy-dom's `virtualServers` mechanism (mapped from the `mounts` param on `Browser.create` / `virtual_servers` param on `build_runtime`). It is not baked into the runtime snapshot.
 - HTTP is done with **[httpx2](https://httpx2.pydantic.dev/)**.
-- The Python `Browser` class in `src/htmxclient/browser.py` wraps a jsrun `Runtime`. It has no relation to happy-dom's own `Browser` class.
+- The Python `Browser` class in `src/miniclient/browser.py` wraps a jsrun `Runtime`. It has no relation to happy-dom's own `Browser` class.
 
 ## Limitations and consequences
 

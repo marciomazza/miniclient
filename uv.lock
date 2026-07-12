@@ -250,75 +250,6 @@ wheels = [
 ]
 
 [[package]]
-name = "htmxclient"
-version = "0.0.1"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx2" },
-    { name = "jsrun" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipdb" },
-    { name = "ipython" },
-    { name = "ipython-autoimport" },
-    { name = "zensical" },
-]
-lint = [
-    { name = "hatchling" },
-    { name = "prek" },
-    { name = "pyrefly" },
-    { name = "ruff" },
-]
-test = [
-    { name = "httpx2-pytest" },
-    { name = "hypothesis" },
-    { name = "more-itertools" },
-    { name = "playwright" },
-    { name = "pydantic" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-playwright" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx2", specifier = "~=2.5.0" },
-    { name = "jsrun", specifier = "~=0.1.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ipdb" },
-    { name = "ipython" },
-    { name = "ipython-autoimport" },
-    { name = "zensical" },
-]
-lint = [
-    { name = "hatchling" },
-    { name = "prek", specifier = "~=0.4.5" },
-    { name = "pyrefly", specifier = "~=1.1.1" },
-    { name = "ruff", specifier = "~=0.15.20" },
-]
-test = [
-    { name = "httpx2-pytest", specifier = "~=1.0.1" },
-    { name = "hypothesis", specifier = "~=6.155.7" },
-    { name = "more-itertools", specifier = "~=11.1.0" },
-    { name = "playwright", specifier = "~=1.60.0" },
-    { name = "pydantic", specifier = "~=2.13.4" },
-    { name = "pytest", specifier = "~=9.1.1" },
-    { name = "pytest-asyncio", specifier = "~=1.4.0" },
-    { name = "pytest-cov", specifier = "~=7.1.0" },
-    { name = "pytest-playwright", specifier = "~=0.8.0" },
-    { name = "pytest-timeout", specifier = "~=2.4.0" },
-    { name = "pytest-xdist", specifier = "~=3.8.0" },
-]
-
-[[package]]
 name = "httpcore2"
 version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -533,6 +464,75 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/bd/c0/9f7c9a46090390368a4d7bcb76bb87a4a36c421e4c0792cdb53486ffac7a/matplotlib_inline-0.2.2.tar.gz", hash = "sha256:72f3fe8fce36b70d4a5b612f899090cd0401deddc4ea90e1572b9f4bfb058c79", size = 8150, upload-time = "2026-05-08T17:33:33.49Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/09/5b161152e2d90f7b87f781c2e1267494aef9c32498df793f73ad0a0a494a/matplotlib_inline-0.2.2-py3-none-any.whl", hash = "sha256:3c821cf1c209f59fb2d2d64abbf5b23b67bcb2210d663f9918dd851c6da1fcf6", size = 9534, upload-time = "2026-05-08T17:33:32.055Z" },
+]
+
+[[package]]
+name = "miniclient"
+version = "0.0.4"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx2" },
+    { name = "jsrun" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipdb" },
+    { name = "ipython" },
+    { name = "ipython-autoimport" },
+    { name = "zensical" },
+]
+lint = [
+    { name = "hatchling" },
+    { name = "prek" },
+    { name = "pyrefly" },
+    { name = "ruff" },
+]
+test = [
+    { name = "httpx2-pytest" },
+    { name = "hypothesis" },
+    { name = "more-itertools" },
+    { name = "playwright" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-playwright" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx2", specifier = "~=2.5.0" },
+    { name = "jsrun", specifier = "~=0.1.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipdb" },
+    { name = "ipython" },
+    { name = "ipython-autoimport" },
+    { name = "zensical" },
+]
+lint = [
+    { name = "hatchling" },
+    { name = "prek", specifier = "~=0.4.5" },
+    { name = "pyrefly", specifier = "~=1.1.1" },
+    { name = "ruff", specifier = "~=0.15.20" },
+]
+test = [
+    { name = "httpx2-pytest", specifier = "~=1.0.1" },
+    { name = "hypothesis", specifier = "~=6.155.7" },
+    { name = "more-itertools", specifier = "~=11.1.0" },
+    { name = "playwright", specifier = "~=1.60.0" },
+    { name = "pydantic", specifier = "~=2.13.4" },
+    { name = "pytest", specifier = "~=9.1.1" },
+    { name = "pytest-asyncio", specifier = "~=1.4.0" },
+    { name = "pytest-cov", specifier = "~=7.1.0" },
+    { name = "pytest-playwright", specifier = "~=0.8.0" },
+    { name = "pytest-timeout", specifier = "~=2.4.0" },
+    { name = "pytest-xdist", specifier = "~=3.8.0" },
 ]
 
 [[package]]

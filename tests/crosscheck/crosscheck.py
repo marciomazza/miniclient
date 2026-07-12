@@ -13,8 +13,8 @@ import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
-from htmxclient.browser import Browser, FormElement
-from htmxclient.runtime import build_runtime
+from miniclient.browser import Browser, FormElement
+from miniclient.runtime import build_runtime
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
 _SKIP_RESPONSE_HEADERS = {"date", "server", "content-length"}
@@ -23,7 +23,7 @@ _HX_PREFIX = "hx-"
 _JS_SERIALIZE = (Path(__file__).parent / "serialize_dom.js").read_text()
 
 _ROOT = Path(__file__).parent.parent.parent
-_BUNDLED = _ROOT / "src/htmxclient/_vendor"
+_BUNDLED = _ROOT / "src/miniclient/_vendor"
 _NM = _BUNDLED if _BUNDLED.exists() else _ROOT / "node_modules"
 _HTMX_DIST_DIR = _NM / "htmx.org/dist"
 _HTMX_JS = (_HTMX_DIST_DIR / "htmx.js").read_bytes()

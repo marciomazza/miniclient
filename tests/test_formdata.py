@@ -7,7 +7,7 @@ from collections.abc import Generator
 import pytest
 from jsrun import Runtime
 
-from htmxclient.runtime import build_runtime
+from miniclient.runtime import build_runtime
 
 
 @pytest.fixture(scope="module")

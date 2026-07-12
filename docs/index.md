@@ -2,7 +2,7 @@
 icon: lucide/rocket
 ---
 
-# htmxclient
+# miniclient
 
 A python HTTP client for testing [htmx](https://htmx.org)-powered server applications.
 
@@ -22,7 +22,7 @@ Testing against a real browser is simply too slow. And mostly unnecessary.
 The API simulates a browser's general interaction with the `Browser` and `Element` classes:
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     await browser.goto("http://localhost:8000/")
@@ -33,7 +33,7 @@ async with await Browser.create() as browser:
 Filling in a form and submitting it works the same way, through `fill()` and `requestSubmit()`:
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     await browser.goto("http://localhost:8000/signup")
@@ -47,7 +47,7 @@ For anything not covered by `Browser` / `Element`, you can run arbitrary JavaScr
 through `browser.runtime`:
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     await browser.load("<h1 id='greeting'>Hello</h1>")

@@ -7,7 +7,7 @@ from conftest import HTMX_BASE_HTML
 from jsrun import Runtime
 from pytest_httpx2 import HTTPXMock
 
-from htmxclient.browser import Browser, FormElement
+from miniclient.browser import Browser, FormElement
 
 # ---------------------------------------------------------------------------
 # Fixtures

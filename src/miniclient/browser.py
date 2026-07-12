@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx2 as httpx
 from jsrun import Runtime
 
-from htmxclient.runtime import build_runtime
+from miniclient.runtime import build_runtime
 
 
 def _event_class(event_type: str) -> str:

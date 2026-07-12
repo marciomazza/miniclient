@@ -1,4 +1,4 @@
-# htmxclient
+# miniclient
 
 ## What is this?
 
@@ -16,7 +16,7 @@ that enables running JavaScript code directly from python.
 The api simulates a browser general interaction with the `Browser` and `Element` classes:
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     await browser.goto("http://localhost:8000/")
@@ -30,7 +30,7 @@ your server's actual HTML responses, without browser automation tools like Playw
 Filling in a form and submitting it works the same way, through `fill()` and `requestSubmit()`:
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     await browser.goto("http://localhost:8000/signup")
@@ -44,7 +44,7 @@ For anything not covered by `Browser` / `Element`,
 you can run arbitrary JavaScript directly through `browser.runtime`:
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     await browser.load("<h1 id='greeting'>Hello</h1>")
@@ -68,7 +68,7 @@ An example with [nanodjango](https://nanodjango.dev/):
 
 ```python
 import httpx2
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 from nanodjango import Django
 
 app = Django()

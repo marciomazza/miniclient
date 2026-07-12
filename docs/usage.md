@@ -10,7 +10,7 @@ The examples below are adapted from the test suite (`tests/test_browser.py`,
 ## Creating a browser
 
 ```python
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 
 async with await Browser.create() as browser:
     ...
@@ -28,7 +28,7 @@ async with await Browser.create() as browser:
 
 ```python
 import httpx2
-from htmxclient.browser import Browser
+from miniclient.browser import Browser
 from nanodjango import Django
 
 app = Django()

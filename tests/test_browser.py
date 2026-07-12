@@ -6,8 +6,8 @@ import pytest
 import pytest_asyncio
 from pytest_httpx2 import HTTPXMock
 
-from htmxclient.browser import Browser, Element, FormElement
-from htmxclient.runtime import build_runtime
+from miniclient.browser import Browser, Element, FormElement
+from miniclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures

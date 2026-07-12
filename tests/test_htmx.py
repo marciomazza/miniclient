@@ -6,7 +6,7 @@ from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
-from htmxclient.runtime import build_runtime
+from miniclient.runtime import build_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"

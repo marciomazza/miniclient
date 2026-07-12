@@ -1,6 +1,6 @@
 import pytest
 
-from htmxclient.runtime import build_runtime
+from miniclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
 # <script> elements executed on DOM insertion
