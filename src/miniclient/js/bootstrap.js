@@ -1,4 +1,7 @@
 import { Window } from "happy-dom";
+import CookieStringUtility from "happy-dom/lib/cookie/urilities/CookieStringUtility.js";
+import FetchCORSUtility from "happy-dom/lib/fetch/utilities/FetchCORSUtility.js";
+import WindowBrowserContext from "happy-dom/lib/window/WindowBrowserContext.js";
 import patchHappyDom from "./patch-happy-dom.js";
 
 const win = new Window({
@@ -107,11 +110,40 @@ globalThis.fetch = async (input, init = {}) => {
         method = req.method;
         headers = Object.fromEntries(req.headers.entries());
     }
+
+    // Attach the outgoing Cookie header from happy-dom's own cookie jar and store any
+    // Set-Cookie response headers back into it, mirroring what happy-dom's native Fetch
+    // does internally  -- otherwise this hand-rolled fetch() never touches that jar at all.
+    const credentials =
+        (input instanceof Request ? input.credentials : init.credentials) ?? "same-origin";
+    const targetURL = new URL(url);
+    const browserFrame = new WindowBrowserContext(window).getBrowserFrame();
+    const hasCookieHeader = Object.keys(headers).some((k) => k.toLowerCase() === "cookie");
+    if (browserFrame && !hasCookieHeader) {
+        const isCORS = FetchCORSUtility.isCORS(new URL(location.href), targetURL);
+        if (credentials === "include" || (credentials === "same-origin" && !isCORS)) {
+            // false => include HttpOnly cookies (only document.cookie hides those, not the wire header)
+            const cookies = browserFrame.page.context.cookieContainer.getCookies(targetURL, false);
+            if (cookies.length > 0) headers.cookie = CookieStringUtility.cookiesToString(cookies);
+        }
+    }
+
     const res = await __host_fetch({ url, method, headers, body });
+
+    // Set-Cookie is a forbidden response header per spec: store it in the cookie jar,
+    // don't let it reach Response.headers.
+    const responseHeaders = res.headers.filter(([k]) => !/^set-cookie2?$/i.test(k));
+    if (browserFrame) {
+        for (const [k, v] of res.headers) {
+            if (!/^set-cookie2?$/i.test(k)) continue;
+            const cookie = CookieStringUtility.stringToCookie(targetURL, v);
+            if (cookie) browserFrame.page.context.cookieContainer.addCookies([cookie]);
+        }
+    }
     const response = new Response(res.body != null ? new Uint8Array(res.body) : null, {
         status: res.status,
         statusText: res.statusText ?? "",
-        headers: res.headers,
+        headers: responseHeaders,
     });
     // Response.url has no ResponseInit setter — the platform fills it in as a
     // side effect of the fetch algorithm, so we do the same here.
