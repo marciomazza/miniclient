@@ -1,21 +1,9 @@
 import asyncio
+from concurrent.futures import Executor
 from typing import Iterable, cast
 from wsgiref.types import WSGIApplication
 
 import httpx2 as httpx
-
-
-class _AsyncByteStream(httpx.AsyncByteStream):
-    """Wraps a bytes body as an AsyncByteStream (required by httpx.AsyncClient)."""
-
-    def __init__(self, data: bytes) -> None:
-        self._data = data
-
-    async def __aiter__(self):
-        yield self._data  # pragma: no cover
-
-    async def aclose(self) -> None:
-        pass  # pragma: no cover
 
 
 class WSGITransport(httpx.AsyncBaseTransport):
@@ -26,17 +14,24 @@ class WSGITransport(httpx.AsyncBaseTransport):
     does for ASGI apps.
     """
 
-    def __init__(self, app: WSGIApplication) -> None:
+    def __init__(self, app: WSGIApplication, executor: Executor | None = None) -> None:
+        """`executor`: where each request's WSGI call runs.
+
+        Defaults to asyncio's own default executor (a thread pool, no
+        particular thread per call). Pass a caller-owned `Executor` (e.g. a
+        `ThreadPoolExecutor(max_workers=1)`) to pin every request to a
+        specific thread instead — needed if the WSGI app relies on
+        thread-affine state (e.g. Django's SQLite test connections shared
+        with another thread).
+        """
         self._sync = httpx.WSGITransport(app=app)
+        self._executor = executor
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         loop = asyncio.get_running_loop()
-        sync_response = await loop.run_in_executor(None, self._sync.handle_request, request)
-        body = b"".join(cast(Iterable[bytes], sync_response.stream))
-        response = httpx.Response(
+        sync_response = await loop.run_in_executor(self._executor, self._sync.handle_request, request)
+        return httpx.Response(
             status_code=sync_response.status_code,
             headers=sync_response.headers,
-            stream=_AsyncByteStream(body),
+            content=b"".join(cast(Iterable[bytes], sync_response.stream)),
         )
-        response._content = body  # pre-set so r.content works without await aread()
-        return response
