@@ -67,7 +67,7 @@ with Browser(
 ) as browser:
     browser.goto("/")
     browser.find("button").click()
-    print(browser.find("#result").text())  # prints "Hello from Django!"
+    print(browser.find("#result").text)  # prints "Hello from Django!"
 ```
 
 For an ASGI app instead, pass an `httpx2.ASGITransport(app=app.asgi)` — see
@@ -112,9 +112,9 @@ items = browser.find_all("li")     # a list of all matches, possibly empty
 `Element` exposes the usual ways to read content and attributes:
 
 ```python
-el.html()        # outerHTML — the element's tag plus its content
-el.innerHTML()   # innerHTML — the element's content, without its own tag
-el.text()        # textContent — all text inside, with tags stripped
+el.html          # outerHTML — the element's tag plus its content
+el.innerHTML     # innerHTML — the element's content, without its own tag
+el.text          # textContent — all text inside, with tags stripped
 el.attr("href")  # value of the "href" attribute, or None if absent
 ```
 

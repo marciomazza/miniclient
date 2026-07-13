@@ -45,7 +45,7 @@ async def test_goto_processes_htmx(htmx_browser: AsyncBrowser, httpx_mock: HTTPX
     await btn.click()
     el = htmx_browser.find("#out")
     assert el is not None
-    assert el.innerHTML() == "<b>done</b>"
+    assert el.innerHTML == "<b>done</b>"
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ async def test_element_click_hx_get(htmx_browser: AsyncBrowser, httpx_mock: HTTP
     await btn.click()
     el = htmx_browser.find("#out")
     assert el is not None
-    assert el.innerHTML() == "<b>clicked</b>"
+    assert el.innerHTML == "<b>clicked</b>"
 
 
 async def test_element_trigger_custom(htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock) -> None:
@@ -87,7 +87,7 @@ async def test_element_trigger_custom(htmx_browser: AsyncBrowser, httpx_mock: HT
     await btn.trigger("my-event")
     el = htmx_browser.find("#out")
     assert el is not None
-    assert el.innerHTML() == "<i>custom</i>"
+    assert el.innerHTML == "<i>custom</i>"
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ async def test_element_request_submit_form(
     await form.requestSubmit()
     result = htmx_browser.find("#result")
     assert result is not None
-    assert result.innerHTML() == "<p>submitted</p>"
+    assert result.innerHTML == "<p>submitted</p>"
 
 
 @pytest.mark.parametrize(
@@ -143,7 +143,7 @@ async def test_submit_via_submitter_click(
     await sub.click()
     result = htmx_browser.find("#result")
     assert result is not None
-    assert result.innerHTML() == "<p>sent</p>"
+    assert result.innerHTML == "<p>sent</p>"
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: Asyn
         await btn.click()
         result = b.find("#r")
         assert result is not None
-        assert result.innerHTML() == "<b>hi</b>"
+        assert result.innerHTML == "<b>hi</b>"
 
 
 async def test_browser_async_context_manager(
@@ -175,5 +175,5 @@ async def test_browser_async_context_manager(
             await btn.click()
             result = b.find("#r")
             assert result is not None
-            assert result.innerHTML() == "<b>hi</b>"
+            assert result.innerHTML == "<b>hi</b>"
     close_mock.assert_called_once()

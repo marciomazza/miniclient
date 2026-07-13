@@ -67,7 +67,7 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
 
     el = browser.find("#s")
     assert isinstance(el, Element)
-    assert el.text() == "ok"
+    assert el.text == "ok"
     assert el.attr("data-x") == "1"
     assert el.attr("missing") is None
 
@@ -76,7 +76,7 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
     inp.fill("new")
     assert browser.eval("document.querySelector('#inp').value") == "new"
 
-    assert [i.text() for i in browser.find_all("li")] == ["a", "b"]
+    assert [i.text for i in browser.find_all("li")] == ["a", "b"]
     assert browser.find("#does-not-exist") is None
 
 
@@ -97,13 +97,13 @@ def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPX
     assert btn is not None
     btn.click()
     out = htmx_browser.find("#out")
-    assert out and out.innerHTML() == "<b>clicked</b>"
+    assert out and out.innerHTML == "<b>clicked</b>"
 
     form = htmx_browser.find("form")
     assert isinstance(form, FormElement)
     form.requestSubmit()
     result = htmx_browser.find("#result")
-    assert result and result.innerHTML() == "<p>submitted</p>"
+    assert result and result.innerHTML == "<p>submitted</p>"
 
 
 # ---------------------------------------------------------------------------

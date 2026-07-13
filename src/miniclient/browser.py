@@ -70,17 +70,20 @@ class AsyncElement:
 
     # --- Queries ---
 
+    @property
     def html(self) -> str:
         """Return outerHTML of the element."""
-        return self._eval("el.outerHTML")  # type: ignore[return-value]
+        return str(self._eval("el.outerHTML"))
 
+    @property
     def innerHTML(self) -> str:
         """Return innerHTML of the element."""
-        return self._eval("el.innerHTML")  # type: ignore[return-value]
+        return str(self._eval("el.innerHTML"))
 
+    @property
     def text(self) -> str:
         """Return textContent of the element."""
-        return self._eval("el.textContent")  # type: ignore[return-value]
+        return str(self._eval("el.textContent"))
 
     def attr(self, name: str) -> str | None:
         """Return an attribute value, or None if absent."""

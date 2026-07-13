@@ -32,7 +32,7 @@ with Browser() as browser:
     browser.find("form").requestSubmit()
     browser.find("#load-more").click()
     print(len(browser.find_all("#results li")), "results")
-    print(browser.find("#results li:first-child").text())
+    print(browser.find("#results li:first-child").text)
 ```
 
 Check the full documentation: <https://marciomazza.github.io/miniclient/>

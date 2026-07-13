@@ -15,6 +15,6 @@ async def test_goto_via_wsgi_transport(snapshot: bytes) -> None:
         await browser.goto("http://testserver/")
         el = browser.find("#msg")
         assert el is not None
-        assert el.text() == "hello from wsgi"
+        assert el.text == "hello from wsgi"
     finally:
         browser.close()

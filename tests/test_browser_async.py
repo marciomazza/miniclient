@@ -48,7 +48,7 @@ async def test_goto_head_and_title_body(browser: AsyncBrowser, httpx_mock: HTTPX
     assert browser.runtime.eval("document.title") == "T"
     el = browser.find("#s")
     assert el is not None
-    assert el.innerHTML() == "ok"
+    assert el.innerHTML == "ok"
 
 
 async def test_goto_navigates_to_different_domain(
@@ -103,7 +103,7 @@ async def test_goto_resolves_relative_urls(
 async def test_load_sets_body(browser: AsyncBrowser) -> None:
     await browser.load("<p id='msg'>hello</p>")
     el = browser.find("body")
-    assert el and el.innerHTML() == '<p id="msg">hello</p>'
+    assert el and el.innerHTML == '<p id="msg">hello</p>'
 
 
 async def test_load_replaces_body(browser: AsyncBrowser) -> None:
@@ -111,7 +111,7 @@ async def test_load_replaces_body(browser: AsyncBrowser) -> None:
     await browser.load("<span id='b'>second</span>")
     el = browser.find("#b")
     assert el is not None
-    assert el.innerHTML() == "second"
+    assert el.innerHTML == "second"
     # first load is gone
     result = browser.runtime.eval("document.querySelector('#a')")
     assert result is None
@@ -126,7 +126,7 @@ async def test_find_returns_element(browser: AsyncBrowser) -> None:
     await browser.load("<p id='msg'>hello</p>")
     el = browser.find("#msg")
     assert isinstance(el, AsyncElement)
-    assert el.innerHTML() == "hello"
+    assert el.innerHTML == "hello"
 
 
 async def test_find_returns_none_for_missing(browser: AsyncBrowser) -> None:
@@ -138,14 +138,14 @@ async def test_element_html(browser: AsyncBrowser) -> None:
     await browser.load("<div id='d'><span>inner</span> text</div>")
     el = browser.find("#d")
     assert el is not None
-    assert el.html() == '<div id="d"><span>inner</span> text</div>'
+    assert el.html == '<div id="d"><span>inner</span> text</div>'
 
 
 async def test_element_text(browser: AsyncBrowser) -> None:
     await browser.load("<div id='d'><span>inner</span> text</div>")
     el = browser.find("#d")
     assert el is not None
-    assert el.text() == "inner text"
+    assert el.text == "inner text"
 
 
 async def test_element_attr(browser: AsyncBrowser) -> None:
@@ -177,9 +177,9 @@ async def test_find_all_returns_elements(browser: AsyncBrowser) -> None:
     await browser.load("<ul><li>a</li><li>b</li><li>c</li></ul>")
     items = browser.find_all("li")
     assert len(items) == 3
-    assert items[0].text() == "a"
-    assert items[1].text() == "b"
-    assert items[2].text() == "c"
+    assert items[0].text == "a"
+    assert items[1].text == "b"
+    assert items[2].text == "c"
 
 
 async def test_find_all_empty(browser: AsyncBrowser) -> None:
@@ -232,7 +232,7 @@ async def test_form_request_submit_plain(
     assert check_request(request)
     el = browser.find("p")
     assert el is not None
-    assert el.text() == "done"
+    assert el.text == "done"
 
 
 # ---------------------------------------------------------------------------
