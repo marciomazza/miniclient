@@ -6,7 +6,7 @@ import threading
 import weakref
 from collections.abc import Callable, Coroutine
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Generic, Self, TypeVar
 
 import httpx2 as httpx
 from jsrun import Runtime
@@ -172,7 +172,7 @@ class AsyncBrowser(Generic[_E]):
         assert self._runtime is not None, "AsyncBrowser not built yet — use `await` or `async with`"
         return self._runtime
 
-    async def _build(self) -> AsyncBrowser[_E]:
+    async def _build(self) -> Self:
         if self._runtime is None:
             self._runtime = await build_runtime(
                 self._url,
@@ -229,13 +229,13 @@ class AsyncBrowser(Generic[_E]):
     def close(self) -> None:
         self.runtime.close()
 
-    def __enter__(self) -> AsyncBrowser[_E]:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    async def __aenter__(self) -> AsyncBrowser[_E]:
+    async def __aenter__(self) -> Self:
         return await self._build()
 
     async def __aexit__(self, *_: object) -> None:
@@ -396,7 +396,7 @@ class Browser:
         finally:
             self._loop.close()
 
-    def __enter__(self) -> Browser:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_: object) -> None:
