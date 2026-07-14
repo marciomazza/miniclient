@@ -29,7 +29,9 @@ class WSGITransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         loop = asyncio.get_running_loop()
-        sync_response = await loop.run_in_executor(self._executor, self._sync.handle_request, request)
+        sync_response = await loop.run_in_executor(
+            self._executor, self._sync.handle_request, request
+        )
         return httpx.Response(
             status_code=sync_response.status_code,
             headers=sync_response.headers,
