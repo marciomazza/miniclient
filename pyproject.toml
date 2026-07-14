@@ -17,7 +17,7 @@ classifiers = [
   "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-  "httpx2~=2.5.0",
+  "httpx2~=2.6.0",
   "jsrun~=0.1.0",
 ]
 
@@ -28,12 +28,12 @@ Repository = "https://github.com/marciomazza/miniclient"
 # Grupos de dependências para desenvolvimento e testes
 [dependency-groups]
 dev = ["ipdb", "ipython", "ipython-autoimport", "zensical"]
-lint = ["hatchling", "prek~=0.4.5", "pyrefly~=1.1.1", "ruff~=0.15.20"]
+lint = ["hatchling", "prek~=0.4.9", "pyrefly~=1.1.1", "ruff~=0.15.21"]
 test = [
   "httpx2-pytest~=1.0.1",
-  "hypothesis~=6.155.7",
+  "hypothesis~=6.156.6",
   "more-itertools~=11.1.0",
-  "playwright~=1.60.0",
+  "playwright~=1.61.0",
   "pydantic~=2.13.4",
   "pytest~=9.1.1",
   "pytest-asyncio~=1.4.0",
