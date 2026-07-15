@@ -17,8 +17,8 @@ The API simulates a browser's user interaction with the `Browser` class:
 ```python
 from miniclient.browser import Browser
 
-with Browser(url="http://localhost:8000/") as browser:
-    browser.goto("/")
+with Browser() as browser:
+    browser.goto("http://localhost:8000/")
     browser.find("#load-more").click()
     print(browser.find("#results").text)
 ```
@@ -59,8 +59,8 @@ An `AsyncBrowser` equivalent is available for async codebases:
 ```python
 from miniclient.browser import AsyncBrowser
 
-async with AsyncBrowser(url="http://localhost:8000/") as browser:
-    await browser.goto("/")
+async with AsyncBrowser() as browser:
+    await browser.goto("http://localhost:8000/")
     await browser.find("#load-more").click()
     print(browser.find("#results").text)
 ```

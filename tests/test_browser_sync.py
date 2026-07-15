@@ -156,7 +156,7 @@ def _run_script(tmp_path: Path, name: str, body: str) -> subprocess.CompletedPro
             "held_element.py",
             dedent("""\
                 from miniclient.browser import Browser
-                with Browser('http://localhost/') as b:
+                with Browser() as b:
                     b.load("<button id='x'>hi</button>")
                     el = b.find('#x')
                     assert el is not None
@@ -169,7 +169,7 @@ def _run_script(tmp_path: Path, name: str, body: str) -> subprocess.CompletedPro
             "never_closed.py",
             dedent("""\
                 from miniclient.browser import Browser
-                b = Browser('http://localhost/')
+                b = Browser()
                 b.load("<button id='x'>hi</button>")
                 el = b.find('#x')
                 el.click()

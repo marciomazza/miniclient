@@ -22,7 +22,6 @@ with Browser() as browser:
 
 `Browser(...)` accepts:
 
-- `url` — the initial page URL (default `"http://localhost/"`).
 - `httpx_transport` — an `httpx2.AsyncBaseTransport`, useful to test an ASGI/WSGI app in-process
   with no real HTTP server (see below).
 - `mounts` — a `dict[str, Path]` mapping a URL prefix to a local directory, so `<script>` tags can
@@ -61,10 +60,7 @@ def index(request):
 def hello(request):
     return "Hello from Django!"
 
-with Browser(
-    httpx_transport=WSGITransport(app=app.wsgi),
-    url="http://testserver/",
-) as browser:
+with Browser(httpx_transport=WSGITransport(app=app.wsgi)) as browser:
     browser.goto("/")
     browser.find("button").click()
     print(browser.find("#result").text)  # prints "Hello from Django!"

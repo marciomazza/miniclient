@@ -150,7 +150,6 @@ def _element_from(
 class AsyncBrowser(Generic[_E]):
     def __init__(
         self,
-        url: str = "http://localhost/",
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
         snapshot: bytes | None = None,
@@ -159,7 +158,6 @@ class AsyncBrowser(Generic[_E]):
         element_cls: type[_E] = AsyncElement,
         form_element_cls: type[_E] = AsyncFormElement,
     ) -> None:
-        self._url = url
         self._httpx_transport = httpx_transport
         self._mounts = mounts
         self._snapshot = snapshot
@@ -175,7 +173,6 @@ class AsyncBrowser(Generic[_E]):
     async def _build(self) -> Self:
         if self._runtime is None:
             self._runtime = await build_runtime(
-                self._url,
                 snapshot=self._snapshot,
                 httpx_transport=self._httpx_transport,
                 virtual_servers=[
@@ -331,7 +328,6 @@ class Browser:
 
     def __init__(
         self,
-        url: str = "http://localhost/",
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
         snapshot: bytes | None = None,
@@ -340,7 +336,6 @@ class Browser:
         self._elements: weakref.WeakSet[Element] = weakref.WeakSet()
         self._loop = _BackgroundLoop()
         self._async: AsyncBrowser[Element] = AsyncBrowser(
-            url,
             httpx_transport=httpx_transport,
             mounts=mounts,
             snapshot=snapshot,
