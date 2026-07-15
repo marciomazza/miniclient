@@ -1,7 +1,7 @@
 # Metadados do projeto
 [project]
 name = "miniclient"
-version = "0.0.5"
+version = "0.0.6"
 description = "A minimal python http client that runs real JS/DOM (htmx and friends) without a browser"
 readme = "README.md"
 requires-python = ">=3.14"
