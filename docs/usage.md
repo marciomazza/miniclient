@@ -43,9 +43,12 @@ async with AsyncBrowser() as browser:
 You can test your WSGI/ASGI app directly (Django, Flask, FastAPI, etc)
 with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Browser(...)`.
 
-An example with [nanodjango](https://nanodjango.dev/):
+An example with [nanodjango](https://nanodjango.dev/)
+*(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/to/htmx/dist"`)*:
 
 ```python
+from pathlib import Path
+
 from miniclient.browser import Browser
 from miniclient.wsgi import WSGITransport
 from nanodjango import Django
@@ -54,13 +57,26 @@ app = Django()
 
 @app.route("/")
 def index(request):
-    return '<button hx-get="/hello" hx-target="#result">Say hi</button><div id="result"></div>'
+    return """
+    <html>
+      <head>
+        <script src="http://localhost/static/htmx.min.js"></script>
+      </head>
+      <body>
+        <button hx-get="/hello" hx-target="#result">Say hi</button>
+        <div id="result"></div>
+      </body>
+    </html>
+    """
 
 @app.route("/hello")
 def hello(request):
     return "Hello from Django!"
 
-with Browser(httpx_transport=WSGITransport(app=app.wsgi)) as browser:
+with Browser(
+    httpx_transport=WSGITransport(app=app.wsgi),
+    mounts={"http://localhost/static/": Path("path/to/htmx/dist")},
+) as browser:
     browser.goto("/")
     browser.find("button").click()
     print(browser.find("#result").text)  # prints "Hello from Django!"
