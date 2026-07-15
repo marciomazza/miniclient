@@ -1,0 +1,35 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          python3 -c "
+          import os, re, sys
+          version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
+          text = open('CHANGELOG.md').read()
+          m = re.search(rf'^## \[{re.escape(version)}\]\n(.*?)(?=^## \[|\Z)', text, re.M | re.S)
+          sys.stdout.write(m.group(1) if m else '')
+          " > release-notes.md
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
