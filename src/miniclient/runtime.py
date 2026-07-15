@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from functools import cache
 from pathlib import Path
 from typing import TypedDict
@@ -125,21 +126,20 @@ def _clean_response_headers(r: httpx.Response) -> list[list[str]]:
 
 
 def _make_fetch_op(
-    before_fetch: Callable[[dict], Awaitable[None]] | None = None,
-    httpx_transport=None,
+    before_fetch: Callable[[dict], Awaitable[None]] | None,
+    httpx_client: httpx.AsyncClient,
 ):
     async def _fetch_op_impl(req: dict) -> dict:
         if before_fetch is not None:
             await before_fetch(req)
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
-        async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-            r = await client.request(
-                req["method"],
-                req["url"],
-                headers=req.get("headers", {}),
-                content=content,
-            )
+        r = await httpx_client.request(
+            req["method"],
+            req["url"],
+            headers=req.get("headers", {}),
+            content=content,
+        )
         return {
             "status": r.status_code,
             "statusText": "",
@@ -183,6 +183,7 @@ async def build_runtime(
     snapshot: bytes | None = None,
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
+    httpx_client: httpx.AsyncClient | None = None,
     virtual_servers: list[VirtualServer] | None = None,
 ) -> Runtime:
     r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
@@ -190,7 +191,8 @@ async def build_runtime(
     r.set_module_resolver(_resolver)
     r.set_module_loader(_loader)
 
-    r.bind_function("__host_fetch", _make_fetch_op(before_fetch, httpx_transport))
+    client = httpx_client or httpx.AsyncClient(transport=httpx_transport, follow_redirects=True)
+    r.bind_function("__host_fetch", _make_fetch_op(before_fetch, client))
     r.bind_function("__host_fetch_sync", _make_fetch_sync_op(httpx_transport))
     r.bind_function("__host_fs_stat", _fs_stat_op)
     r.bind_function("__host_fs_read", _fs_read_op)
@@ -200,3 +202,26 @@ async def build_runtime(
     _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
     await r.eval_module_async(_bootstrap_uri)
     return r
+
+
+@asynccontextmanager
+async def open_runtime(
+    url: str = "http://localhost/",
+    snapshot: bytes | None = None,
+    before_fetch: Callable[[dict], Awaitable[None]] | None = None,
+    httpx_transport=None,
+    virtual_servers: list[VirtualServer] | None = None,
+) -> AsyncGenerator[Runtime]:
+    """Like build_runtime(), but pools one httpx.AsyncClient for every fetch made
+    during the context and tears both the client and the runtime down on exit."""
+    async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
+        r = await build_runtime(
+            url,
+            snapshot,
+            before_fetch,
+            httpx_transport,
+            httpx_client=client,
+            virtual_servers=virtual_servers,
+        )
+        with r:
+            yield r

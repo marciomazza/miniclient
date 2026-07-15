@@ -5,13 +5,14 @@ import json
 import threading
 import weakref
 from collections.abc import Callable, Coroutine
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Generic, Self, TypeVar
 
 import httpx2 as httpx
 from jsrun import Runtime
 
-from miniclient.runtime import build_runtime
+from miniclient.runtime import open_runtime
 
 
 def _event_class(event_type: str) -> str:
@@ -164,6 +165,7 @@ class AsyncBrowser(Generic[_E]):
         self._runtime = runtime
         self._element_cls = element_cls
         self._form_element_cls = form_element_cls
+        self._stack: AsyncExitStack | None = None
 
     @property
     def runtime(self) -> Runtime:
@@ -172,13 +174,19 @@ class AsyncBrowser(Generic[_E]):
 
     async def _build(self) -> Self:
         if self._runtime is None:
-            self._runtime = await build_runtime(
-                snapshot=self._snapshot,
-                httpx_transport=self._httpx_transport,
-                virtual_servers=[
-                    {"url": mount_url, "directory": str(directory)}
-                    for mount_url, directory in (self._mounts or {}).items()
-                ],
+            # open_runtime() pools one httpx client for every fetch this browser makes
+            # for the rest of its life; the exit stack lets us hold that context open
+            # across arbitrary later calls and unwind it (client + runtime) in aclose().
+            self._stack = AsyncExitStack()
+            self._runtime = await self._stack.enter_async_context(
+                open_runtime(
+                    snapshot=self._snapshot,
+                    httpx_transport=self._httpx_transport,
+                    virtual_servers=[
+                        {"url": mount_url, "directory": str(directory)}
+                        for mount_url, directory in (self._mounts or {}).items()
+                    ],
+                )
             )
         return self
 
@@ -226,6 +234,13 @@ class AsyncBrowser(Generic[_E]):
     def close(self) -> None:
         self.runtime.close()
 
+    async def aclose(self) -> None:
+        """Like close(), but also awaits the shared httpx client's teardown."""
+        if self._stack is not None:
+            await self._stack.aclose()
+        else:
+            self.close()
+
     def __enter__(self) -> Self:
         return self
 
@@ -236,7 +251,7 @@ class AsyncBrowser(Generic[_E]):
         return await self._build()
 
     async def __aexit__(self, *_: object) -> None:
-        self.close()
+        await self.aclose()
 
 
 # --- Synchronous facade ---
@@ -380,14 +395,14 @@ class Browser:
             return
         self._closed = True
 
-        def _shutdown() -> None:
-            self._async.close()
+        async def _shutdown() -> None:
+            await self._async.aclose()
             self._async._runtime = None
             for el in list(self._elements):
                 el.runtime = None  # type: ignore[assignment]
 
         try:
-            self._loop.run_sync(_shutdown)
+            self._loop.run(_shutdown())
         finally:
             self._loop.close()
 
