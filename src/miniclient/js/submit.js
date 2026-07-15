@@ -19,6 +19,7 @@ globalThis.__zzz_fetch_and_load = async function (url, options) {
     // cross-origin-restricted) navigation — the fetch above already happened.
     window.happyDOM.setURL(new URL(url, location.href).href);
     __document_write(await r.text());
+    await window.happyDOM.waitUntilComplete();
 };
 
 // Runs `doAction(el)`, then resolves once htmx settles the request it triggered.
@@ -35,7 +36,13 @@ globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
             },
             { once: true },
         );
-        document.addEventListener("htmx:finally:request", () => resolve(null), { once: true });
+        document.addEventListener(
+            "htmx:finally:request",
+            () => {
+                window.happyDOM.waitUntilComplete().then(resolve).catch(reject);
+            },
+            { once: true },
+        );
         document.addEventListener(
             "htmx:error",
             (e) => {
@@ -50,7 +57,11 @@ globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
             return;
         }
 
-        doAction(el);
+        try {
+            Promise.resolve(doAction(el)).catch(reject);
+        } catch (err) {
+            reject(err);
+        }
 
         setTimeout(() => {
             if (!willRequest) {
@@ -62,11 +73,11 @@ globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
 
 // __zzz_submit is form-only. FormElement.requestSubmit() (browser.py) calls it;
 // the form's own requestSubmit() dispatches the submit event (and runs validation).
-globalThis.__zzz_submit = function (handle) {
+globalThis.__zzz_submit = async function (handle) {
     let form;
     return __zzz_await_htmx(
         handle,
-        (el) => {
+        async (el) => {
             if (el.tagName !== "FORM") {
                 throw new Error(
                     "requestSubmit() only works on <form> elements (handle " + handle + ")",
