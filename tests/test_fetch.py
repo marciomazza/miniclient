@@ -37,6 +37,20 @@ async def test_fetch_status_not_found(runtime, httpx_mock):
     assert result == {"ok": False, "status": 404}
 
 
+async def test_fetch_follows_redirect(runtime, httpx_mock):
+    httpx_mock.add_response(
+        url="http://api.example.com/old",
+        status_code=302,
+        headers={"location": "http://api.example.com/new"},
+    )
+    httpx_mock.add_response(url="http://api.example.com/new", text="moved")
+    result = await runtime.eval_async(
+        "fetch('http://api.example.com/old')"
+        ".then(async r => ({url: r.url, status: r.status, body: await r.text()}))"
+    )
+    assert result == {"url": "http://api.example.com/new", "status": 200, "body": "moved"}
+
+
 # ---------------------------------------------------------------------------
 # HTTP methods
 # ---------------------------------------------------------------------------

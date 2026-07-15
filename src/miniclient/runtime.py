@@ -133,7 +133,7 @@ def _make_fetch_op(
             await before_fetch(req)
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
-        async with httpx.AsyncClient(transport=httpx_transport) as client:
+        async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
             r = await client.request(
                 req["method"],
                 req["url"],
