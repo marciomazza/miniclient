@@ -1,17 +1,15 @@
 import { Buffer } from "node:buffer";
 
 function execFileSync(_file, args, _options) {
-    let envelope;
-    try {
-        envelope = JSON.parse(args[1]);
-    } catch {
-        envelope = null;
-    }
+    // args[1] is the envelope object our patched SyncFetchScriptBuilder.getScript
+    // hands us directly (see patch-happy-dom.js) — no serialization on this side,
+    // since both ends are our own code sharing the same JS heap.
+    const envelope = args[1];
     if (!envelope?.__sync_fetch__) {
         return Buffer.from(JSON.stringify({ error: "unsupported script", incomingMessage: null }));
     }
     try {
-        const body = envelope.body != null ? Buffer.from(envelope.body, "base64") : undefined;
+        const body = envelope.body ?? undefined;
         const res = __host_fetch_sync({
             url: envelope.url,
             method: envelope.method,

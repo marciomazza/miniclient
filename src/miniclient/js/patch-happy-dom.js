@@ -158,17 +158,19 @@ export default function patch(win) {
     }
     // -----------------------------------------------------------------------------------
     // SyncFetchScriptBuilder.getScript — replace the "spawn node -e <script>" script
-    // generation with a JSON envelope that our node:child_process polyfill's
-    // execFileSync understands (see node-child-process.js).
+    // generation with a plain envelope object for our node:child_process polyfill's
+    // execFileSync (see node-child-process.js). Both ends are our own code passing an
+    // in-heap object, so no serialization is needed here (unlike the real subprocess
+    // this used to emulate, which had to shuttle everything through a text pipe).
     // -----------------------------------------------------------------------------------
     patchMethod(SyncFetchScriptBuilder, "getScript", function (_orig, request) {
-        return JSON.stringify({
+        return {
             __sync_fetch__: true,
             url: request.url.href,
             method: request.method,
             headers: request.headers ?? {},
-            body: request.body ? Buffer.from(request.body).toString("base64") : null,
-        });
+            body: request.body ?? null,
+        };
     });
 
     patchURL(win);
