@@ -1,23 +1,18 @@
 """Tests for the pure-JS FormData implementation (formdata.js)."""
 
-import asyncio
 import json
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 
 import pytest
 from jsrun import Runtime
 
-from miniclient.runtime import build_runtime
+from miniclient.runtime import open_runtime
 
 
 @pytest.fixture(scope="module")
-def formdata_runtime(snapshot) -> Generator[Runtime, None, None]:
-    async def _build() -> Runtime:
-        return await build_runtime("http://localhost/", snapshot=snapshot)
-
-    r = asyncio.run(_build())
-    yield r
-    r.close()
+async def formdata_runtime(snapshot) -> AsyncGenerator[Runtime, None]:
+    async with open_runtime("http://localhost/", snapshot=snapshot) as r:
+        yield r
 
 
 def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
@@ -108,7 +103,9 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ),
     ],
 )
-def test_collects_successful_controls(formdata_runtime: Runtime, html: str, expected: list) -> None:
+async def test_collects_successful_controls(
+    formdata_runtime: Runtime, html: str, expected: list
+) -> None:
     assert _pairs(formdata_runtime, html) == expected
 
 
@@ -132,7 +129,7 @@ def test_collects_successful_controls(formdata_runtime: Runtime, html: str, expe
         '<form><select name="x" multiple><option value="a">A</option></select></form>',
     ],
 )
-def test_excludes_unsuccessful_controls(formdata_runtime: Runtime, html: str) -> None:
+async def test_excludes_unsuccessful_controls(formdata_runtime: Runtime, html: str) -> None:
     assert _pairs(formdata_runtime, html) == []
 
 
@@ -175,7 +172,9 @@ def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
         ('<form><input name="x" value=""></form>', "x="),
     ],
 )
-def test_urlsearchparams_from_formdata(formdata_runtime: Runtime, html: str, expected: str) -> None:
+async def test_urlsearchparams_from_formdata(
+    formdata_runtime: Runtime, html: str, expected: str
+) -> None:
     assert _urlsearchparams_string(formdata_runtime, html) == expected
 
 
@@ -213,5 +212,5 @@ def _set_pairs(r: Runtime, js: str) -> list[tuple[str, str]]:
         ),
     ],
 )
-def test_set_replaces_in_place(formdata_runtime: Runtime, js: str, expected: list) -> None:
+async def test_set_replaces_in_place(formdata_runtime: Runtime, js: str, expected: list) -> None:
     assert _set_pairs(formdata_runtime, js) == expected

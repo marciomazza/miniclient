@@ -1,6 +1,6 @@
 import pytest
 
-from miniclient.runtime import build_runtime
+from miniclient.runtime import open_runtime
 
 # ---------------------------------------------------------------------------
 # <script> elements executed on DOM insertion
@@ -47,12 +47,12 @@ async def test_script_with_data_uri_src_executed(runtime):
 
 async def test_script_with_external_file_src_executed(snapshot, tmp_path):
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    runtime = await build_runtime(
+    async with open_runtime(
         snapshot=snapshot,
         virtual_servers=[{"url": "http://localhost/ext/", "directory": str(tmp_path)}],
-    )
-    result = runtime.eval("""
-        document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>';
-        window.__ran;
-    """)
+    ) as runtime:
+        result = runtime.eval("""
+            document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>';
+            window.__ran;
+        """)
     assert result == 1

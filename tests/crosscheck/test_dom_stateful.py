@@ -8,7 +8,6 @@ from playwright.async_api import Page
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
 from miniclient.browser import AsyncBrowser
-from miniclient.runtime import build_runtime
 
 pytestmark = pytest.mark.cross
 
@@ -29,11 +28,10 @@ class DomCheck:
 
     @classmethod
     async def create(cls, html: str, page: Page) -> "DomCheck":
-        runtime = await build_runtime()
-        browser = AsyncBrowser(runtime=runtime)
+        browser = await AsyncBrowser()
         # Set innerHTML directly without htmx.process so that neither side adds
         # htmx-specific attributes (e.g. data-htmx-powered) during setup.
-        runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
+        browser.runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
         await page.set_content(html, wait_until="domcontentloaded")
         return cls(browser, page)
 
@@ -58,8 +56,8 @@ class DomCheck:
         browser = await self._page.evaluate(_JS_SERIALIZE)
         assert client == browser
 
-    def close(self) -> None:
-        self._browser.close()
+    async def aclose(self) -> None:
+        await self._browser.aclose()
 
 
 @given(form=st_html_form(), data=st.data())
@@ -88,7 +86,7 @@ async def test_dom_stateful(page: Page, form, data):
                 await dc.click(f"#{el_id}")
             await dc.assert_same_dom()
     finally:
-        dc.close()
+        await dc.aclose()
         del dc
         import gc
 

@@ -7,7 +7,6 @@ import pytest_asyncio
 from pytest_httpx2 import HTTPXMock
 
 from miniclient.browser import AsyncBrowser, AsyncElement, AsyncFormElement
-from miniclient.runtime import build_runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -17,8 +16,8 @@ from miniclient.runtime import build_runtime
 @pytest_asyncio.fixture
 async def browser(snapshot: bytes) -> AsyncIterator[AsyncBrowser]:
     """A fresh htmx-loaded AsyncBrowser, closed automatically unless the test closes it first."""
-    runtime = await build_runtime(snapshot=snapshot)
-    runtime.eval("""__document_write(`
+    b = await AsyncBrowser(snapshot=snapshot)
+    b.runtime.eval("""__document_write(`
         <!DOCTYPE html>
         <html>
           <body>
@@ -26,12 +25,11 @@ async def browser(snapshot: bytes) -> AsyncIterator[AsyncBrowser]:
           </body>
         </html>
     `)""")
-    assert runtime.eval("typeof htmx") == "undefined"  # make sure there is no htmx here
-    b = AsyncBrowser(runtime=runtime)
+    assert b.runtime.eval("typeof htmx") == "undefined"  # make sure there is no htmx here
     try:
         yield b
     finally:
-        b.close()
+        await b.aclose()
 
 
 # ---------------------------------------------------------------------------

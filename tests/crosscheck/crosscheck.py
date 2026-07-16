@@ -14,7 +14,6 @@ from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
 from miniclient.browser import AsyncBrowser, AsyncFormElement
-from miniclient.runtime import build_runtime
 from miniclient.wsgi import WSGITransport
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
@@ -136,12 +135,10 @@ class CrossCheck:
     ) -> "CrossCheck":
         client_talk = Talk()
         capturing_transport = _CapturingTransport(WSGITransport(wsgi_app), client_talk)
-        runtime = await build_runtime(
-            "http://testserver/",
+        browser = await AsyncBrowser(
             httpx_transport=capturing_transport,
-            virtual_servers=[{"url": "http://testserver/", "directory": str(_HTMX_DIST_DIR)}],
+            mounts={"http://testserver/": _HTMX_DIST_DIR},
         )
-        browser = AsyncBrowser(runtime=runtime)
 
         def _wrapped_wsgi(environ, start_response):
             if environ["PATH_INFO"] == "/htmx.js":
@@ -293,4 +290,4 @@ class CrossCheck:
         self._page.remove_listener("request", self._hook_request_page)
         self._page.remove_listener("response", self._hook_response_page)
         self._server.shutdown()
-        self._browser.close()
+        await self._browser.aclose()

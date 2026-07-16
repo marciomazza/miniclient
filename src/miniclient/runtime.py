@@ -178,32 +178,6 @@ class VirtualServer(TypedDict):
     directory: str
 
 
-async def build_runtime(
-    url: str = "http://localhost/",
-    snapshot: bytes | None = None,
-    before_fetch: Callable[[dict], Awaitable[None]] | None = None,
-    httpx_transport=None,
-    httpx_client: httpx.AsyncClient | None = None,
-    virtual_servers: list[VirtualServer] | None = None,
-) -> Runtime:
-    r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
-
-    r.set_module_resolver(_resolver)
-    r.set_module_loader(_loader)
-
-    client = httpx_client or httpx.AsyncClient(transport=httpx_transport, follow_redirects=True)
-    r.bind_function("__host_fetch", _make_fetch_op(before_fetch, client))
-    r.bind_function("__host_fetch_sync", _make_fetch_sync_op(httpx_transport))
-    r.bind_function("__host_fs_stat", _fs_stat_op)
-    r.bind_function("__host_fs_read", _fs_read_op)
-    r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
-    r.eval(f"globalThis.__VIRTUAL_SERVERS__ = {json.dumps(virtual_servers or [])}")
-
-    _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
-    await r.eval_module_async(_bootstrap_uri)
-    return r
-
-
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
@@ -212,16 +186,23 @@ async def open_runtime(
     httpx_transport=None,
     virtual_servers: list[VirtualServer] | None = None,
 ) -> AsyncGenerator[Runtime]:
-    """Like build_runtime(), but pools one httpx.AsyncClient for every fetch made
-    during the context and tears both the client and the runtime down on exit."""
+    """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
+    the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = await build_runtime(
-            url,
-            snapshot,
-            before_fetch,
-            httpx_transport,
-            httpx_client=client,
-            virtual_servers=virtual_servers,
-        )
+        r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
+
+        r.set_module_resolver(_resolver)
+        r.set_module_loader(_loader)
+
+        r.bind_function("__host_fetch", _make_fetch_op(before_fetch, client))
+        r.bind_function("__host_fetch_sync", _make_fetch_sync_op(httpx_transport))
+        r.bind_function("__host_fs_stat", _fs_stat_op)
+        r.bind_function("__host_fs_read", _fs_read_op)
+        r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
+        r.eval(f"globalThis.__VIRTUAL_SERVERS__ = {json.dumps(virtual_servers or [])}")
+
+        _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
+        await r.eval_module_async(_bootstrap_uri)
+
         with r:
             yield r

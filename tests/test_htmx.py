@@ -6,7 +6,7 @@ from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
-from miniclient.runtime import build_runtime
+from miniclient.runtime import open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -38,17 +38,16 @@ _INFRA_JS = "\n".join(
 @pytest.fixture(scope="module")
 async def htmx_runtime(snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
-    r = await build_runtime(
+    async with open_runtime(
         "http://localhost/",
         snapshot=snapshot,
         before_fetch=fetch_mock.before_fetch,
         httpx_transport=fetch_mock.transport,
         virtual_servers=[HTMX_VIRTUAL_SERVER],
-    )
-    fetch_mock.install(r)
-    r.eval(_INFRA_JS)
-    yield r
-    r.close()
+    ) as r:
+        fetch_mock.install(r)
+        r.eval(_INFRA_JS)
+        yield r
 
 
 @pytest.fixture(autouse=True)

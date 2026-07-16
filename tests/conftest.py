@@ -6,7 +6,7 @@ import pytest_asyncio
 from hypothesis import Phase, settings
 from jsrun import Runtime
 
-from miniclient.runtime import VirtualServer, build_runtime, get_snapshot_builder
+from miniclient.runtime import VirtualServer, get_snapshot_builder, open_runtime
 
 settings.register_profile(
     "noshrink",
@@ -56,8 +56,5 @@ def snapshot() -> bytes:
 
 @pytest_asyncio.fixture
 async def runtime(snapshot: bytes) -> AsyncIterator[Runtime]:
-    r = await build_runtime(snapshot=snapshot, virtual_servers=[HTMX_VIRTUAL_SERVER])
-    try:
+    async with open_runtime(snapshot=snapshot, virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
         yield r
-    finally:
-        r.close()
