@@ -491,7 +491,6 @@ wheels = [
 
 [[package]]
 name = "miniclient"
-version = "0.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "httpx2" },
