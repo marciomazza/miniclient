@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -151,17 +152,22 @@ def _make_fetch_op(
     return _fetch_op_impl
 
 
-def _make_fetch_sync_op(httpx_transport=None):
+def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractEventLoop):
+    # jsrun calls sync-bound functions from its own OS thread, never the loop's
+    # thread, so blocking here on a coroutine scheduled onto the loop is safe.
     def _fetch_sync_op_impl(req: dict) -> dict:
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
-        with httpx.Client(transport=httpx_transport) as client:
-            r = client.request(
+        future = asyncio.run_coroutine_threadsafe(
+            httpx_client.request(
                 req["method"],
                 req["url"],
                 headers=req.get("headers", {}),
                 content=content,
-            )
+            ),
+            loop,
+        )
+        r = future.result()
         return {
             "status": r.status_code,
             "statusText": "",
@@ -195,7 +201,9 @@ async def open_runtime(
         r.set_module_loader(_loader)
 
         r.bind_function("__host_fetch", _make_fetch_op(before_fetch, client))
-        r.bind_function("__host_fetch_sync", _make_fetch_sync_op(httpx_transport))
+        r.bind_function(
+            "__host_fetch_sync", _make_fetch_sync_op(client, asyncio.get_running_loop())
+        )
         r.bind_function("__host_fs_stat", _fs_stat_op)
         r.bind_function("__host_fs_read", _fs_read_op)
         r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
