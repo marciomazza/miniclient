@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.7]
+
+- `Browser`/`AsyncBrowser` DOM actions that trigger an htmx request (`click`, `submit`, ...) now
+  wait for scripts and resources loaded during the swap to finish, not just the request itself.
+- `Browser`/`AsyncBrowser` now reuse a single `httpx.AsyncClient` for every request (async and
+  sync fetch alike) for the life of the browser, instead of opening a new client per call. Fixes
+  an `AttributeError` from sync fetch when a custom async-only `httpx_transport` (like
+  `WSGITransport`) is used, and unifies cookies/connection pooling/redirects across sync and
+  async requests.
+
 ## [0.0.6]
 
 - `Browser/AsyncBrowser.goto()` now follows redirects.
