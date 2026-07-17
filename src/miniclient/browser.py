@@ -195,11 +195,20 @@ class AsyncBrowser(Generic[_E]):
 
     # --- Element queries ---
 
-    def find(self, selector: str) -> _E | None:
-        """Return the first matching element, or None if not found."""
+    def find(self, selector: str, text: str | None = None) -> _E | None:
+        """Return the first matching element, or None if not found.
+
+        If text is given, only consider elements whose textContent contains it.
+        """
+        find_el_js = (
+            f"els.find(el => el.textContent.includes({json.dumps(text)}))"
+            if text is not None
+            else "els[0]"
+        )
         js = f"""
         (() => {{
-          const el = document.querySelector({json.dumps(selector)});
+          const els = Array.from(document.querySelectorAll({json.dumps(selector)}));
+          const el = {find_el_js};
           return el ? [__zzz_ref(el), el.tagName] : [null, null];
         }})();
         """
@@ -208,13 +217,19 @@ class AsyncBrowser(Generic[_E]):
             return None
         return _element_from(handle, tag, self.runtime, self._element_cls, self._form_element_cls)
 
-    def find_all(self, selector: str) -> list[_E]:
-        """Return all matching elements."""
+    def find_all(self, selector: str, text: str | None = None) -> list[_E]:
+        """Return all matching elements.
+
+        If text is given, only include elements whose textContent contains it.
+        """
+        text_filter_js = (
+            f".filter(el => el.textContent.includes({json.dumps(text)}))"
+            if text is not None
+            else ""
+        )
         js = f"""\
-            Array.from(document.querySelectorAll({json.dumps(selector)}), el => [
-              __zzz_ref(el),
-              el.tagName,
-            ])
+            Array.from(document.querySelectorAll({json.dumps(selector)})){text_filter_js}
+              .map(el => [__zzz_ref(el), el.tagName])
         """
         return [
             _element_from(handle, tag, self.runtime, self._element_cls, self._form_element_cls)
@@ -369,16 +384,16 @@ class Browser:
         """
         return self._loop.run_sync(lambda: self._async.runtime.eval(code))
 
-    def find(self, selector: str) -> Element | None:
+    def find(self, selector: str, text: str | None = None) -> Element | None:
         """Return the first matching element, or None if not found."""
-        el = self._loop.run_sync(lambda: self._async.find(selector))
+        el = self._loop.run_sync(lambda: self._async.find(selector, text))
         if el is not None:
             self._elements.add(el)
         return el
 
-    def find_all(self, selector: str) -> list[Element]:
+    def find_all(self, selector: str, text: str | None = None) -> list[Element]:
         """Return all matching elements."""
-        els = self._loop.run_sync(lambda: self._async.find_all(selector))
+        els = self._loop.run_sync(lambda: self._async.find_all(selector, text))
         self._elements.update(els)
         return els
 

@@ -180,6 +180,39 @@ async def test_find_all_returns_elements(browser: AsyncBrowser) -> None:
     assert items[2].text == "c"
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (None, "apple"),  # no filter: first match wins
+        ("ap", "apple"),  # substring matches multiple: first one wins
+        ("banana", "banana"),  # substring matches a single, non-first element
+        ("xyz", None),  # substring matches nothing
+    ],
+)
+async def test_find_with_text(
+    browser: AsyncBrowser, text: str | None, expected: str | None
+) -> None:
+    await browser.load("<ul><li>apple</li><li>banana</li><li>apricot</li></ul>")
+    el = browser.find("li", text=text)
+    assert (el.text if el is not None else None) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (None, ["apple", "banana", "apricot"]),  # no filter: every match
+        ("ap", ["apple", "apricot"]),  # substring matches some
+        ("xyz", []),  # substring matches none
+    ],
+)
+async def test_find_all_with_text(
+    browser: AsyncBrowser, text: str | None, expected: list[str]
+) -> None:
+    await browser.load("<ul><li>apple</li><li>banana</li><li>apricot</li></ul>")
+    items = browser.find_all("li", text=text)
+    assert [item.text for item in items] == expected
+
+
 async def test_find_all_empty(browser: AsyncBrowser) -> None:
     await browser.load("<div>no items</div>")
     assert browser.find_all("li") == []
