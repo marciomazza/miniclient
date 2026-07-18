@@ -5,12 +5,16 @@
     const _SKIP = Symbol("skip");
 
     globalThis.describe = (name, fn) => {
-        const s = { name, tests: [], _be: [], _ae: [] };
+        const s = { name, tests: [], _be: [], _ae: [], _before: [], _after: [], children: [] };
+        if (_cur) {
+            _cur.children.push(s);
+        } else {
+            _suites.push(s);
+        }
         const prev = _cur;
         _cur = s;
         fn();
         _cur = prev;
-        _suites.push(s);
     };
     globalThis.it = (name, fn) => {
         if (_cur) _cur.tests.push({ name, fn });
@@ -25,10 +29,10 @@
         if (_cur) _cur._ae.push(fn);
     };
     globalThis.before = (fn) => {
-        if (_cur) (_cur._before ??= []).push(fn);
+        if (_cur) _cur._before.push(fn);
     };
     globalThis.after = (fn) => {
-        if (_cur) (_cur._after ??= []).push(fn);
+        if (_cur) _cur._after.push(fn);
     };
 
     // Test context passed as `this` — supports mocha's this.skip() and this.timeout()
@@ -70,31 +74,39 @@
         _suites.length = 0;
     };
 
+    // Runs a suite's own before()/after() once, its tests with beforeEach/afterEach
+    // inherited from ancestors (outermost-first for beforeEach, innermost-first for
+    // afterEach — matching mocha), then recurses into nested describe() blocks.
+    async function _runSuite(s, ancestorsBe, ancestorsAe, results) {
+        for (const fn of s._before) await fn.call(_ctx);
+        const be = [...ancestorsBe, ...s._be];
+        const ae = [...s._ae, ...ancestorsAe];
+        for (const t of s.tests) {
+            for (const b of be) await b.call(_ctx);
+            try {
+                await t.fn.call(_ctx);
+                results.push({ suite: s.name, name: t.name, passed: true });
+            } catch (e) {
+                if (e === _SKIP) {
+                    results.push({ suite: s.name, name: t.name, passed: true });
+                } else {
+                    results.push({
+                        suite: s.name,
+                        name: t.name,
+                        passed: false,
+                        error: String(e.message || e),
+                    });
+                }
+            }
+            for (const a of ae) await a.call(_ctx);
+        }
+        for (const child of s.children) await _runSuite(child, be, ae, results);
+        for (const fn of s._after) await fn.call(_ctx);
+    }
+
     globalThis.__runAllTests = async function () {
         const results = [];
-        for (const s of _suites) {
-            for (const fn of s._before ?? []) await fn.call(_ctx);
-            for (const t of s.tests) {
-                for (const be of s._be) await be.call(_ctx);
-                try {
-                    await t.fn.call(_ctx);
-                    results.push({ suite: s.name, name: t.name, passed: true });
-                } catch (e) {
-                    if (e === _SKIP) {
-                        results.push({ suite: s.name, name: t.name, passed: true });
-                    } else {
-                        results.push({
-                            suite: s.name,
-                            name: t.name,
-                            passed: false,
-                            error: String(e.message || e),
-                        });
-                    }
-                }
-                for (const ae of s._ae) await ae.call(_ctx);
-            }
-            for (const fn of s._after ?? []) await fn.call(_ctx);
-        }
+        for (const s of _suites) await _runSuite(s, [], [], results);
         return results;
     };
 })();
