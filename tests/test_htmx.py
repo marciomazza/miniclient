@@ -18,6 +18,14 @@ _HELPERS_JS = _HTMX_TEST / "lib/helpers.js"
 
 _SKIP = {
     "package.js",  # asserts htmx has no dependencies — not relevant to this runtime
+    # hx-live.js's debounce implementation (src/ext/hx-live.js:360) intentionally
+    # rejects a pending promise chain with a bare Symbol() sentinel to cancel
+    # superseded calls; a real browser just logs an orphaned rejection like that, but
+    # jsrun treats any unhandled promise rejection as fatal to the whole eval_async
+    # call. That aborts every test in the file mid-run — including its own cleanup —
+    # which then leaks dirty extension/mock state into every alphabetically-later
+    # ext test file. Skipping is required, not just cosmetic.
+    "hx-live.js",
 }
 # Individual JS tests to skip, keyed by file stem → set of (suite, test-name).
 # Use for tests that are inherently untestable in a headless environment.

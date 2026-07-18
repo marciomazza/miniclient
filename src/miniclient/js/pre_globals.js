@@ -160,6 +160,18 @@
         concat: () => new Uint8Array(),
     };
 
+    // crypto: neither happy-dom nor this jsrun embedding provides it. Polyfill
+    // randomUUID with Math.random — not cryptographically secure, fine for a
+    // test/dev runtime where nothing depends on unpredictability.
+    globalThis.crypto ??= {
+        randomUUID() {
+            return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+                const r = (Math.random() * 16) | 0;
+                return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+            });
+        },
+    };
+
     globalThis.CSS = {
         escape(value) {
             value = String(value);

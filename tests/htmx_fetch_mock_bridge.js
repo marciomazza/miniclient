@@ -11,6 +11,15 @@
     // runs before bootstrap.js sets globalThis.fetch) does not capture undefined.
     let _origFetch = null;
 
+    // A plain string urlPattern (e.g. '/test?name=test') is meant as a literal
+    // substring to match, not a regex — but Python compiles it with re.compile().
+    // Escape regex metacharacters so literal '?', '.', etc. in real paths/query
+    // strings don't get misinterpreted. RegExp patterns pass through untouched.
+    function toPatternStr(urlPattern) {
+        if (urlPattern instanceof RegExp) return urlPattern.source;
+        return String(urlPattern).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
     // Minimal MockResponse for compatibility with end2end tests that pass
     // `new MockResponse(body, {status, headers})` to mockResponse().
     class MockResponse {
@@ -28,12 +37,17 @@
         constructor() {
             this.calls = [];
             this.pendingRequests = [];
+            // Function-based responses (e.g. a "was this hit" flag test) must run at
+            // actual fetch time, not at registration time — handled entirely on the JS
+            // side in fetch() below, bypassing the Python-backed httpx transport.
+            this.functionMocks = [];
         }
 
         reset() {
             __host_fm_reset({});
             this.calls = [];
             this.pendingRequests = [];
+            this.functionMocks = [];
         }
 
         mockResponse(method, urlPattern, response, options) {
@@ -46,8 +60,12 @@
             if (typeof response === "string") {
                 body = response;
             } else if (typeof response === "function") {
-                // Function-based responses (e.g. streams) are not supported;
-                // they only appear in SSE ext tests which are not collected.
+                const patternStr = toPatternStr(urlPattern);
+                this.functionMocks.push({
+                    method: method.toUpperCase(),
+                    regex: new RegExp(patternStr),
+                    fn: response,
+                });
                 return;
             } else if (response && typeof response === "object") {
                 body = typeof response.body === "string" ? response.body : "";
@@ -56,8 +74,7 @@
                 }
             }
 
-            const patternStr =
-                urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
+            const patternStr = toPatternStr(urlPattern);
 
             __host_fm_register({
                 method: method.toUpperCase(),
@@ -73,8 +90,7 @@
 
         mockJsonResponse(method, urlPattern, data, status) {
             status = status || 200;
-            const patternStr =
-                urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
+            const patternStr = toPatternStr(urlPattern);
             __host_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
@@ -90,8 +106,7 @@
         mockErrorResponse(method, urlPattern, status, message) {
             status = status || 500;
             message = message || "Server Error";
-            const patternStr =
-                urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
+            const patternStr = toPatternStr(urlPattern);
             __host_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
@@ -106,8 +121,7 @@
 
         mockNetworkError(method, urlPattern, error) {
             error = error || new Error("Network Error");
-            const patternStr =
-                urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
+            const patternStr = toPatternStr(urlPattern);
             const msg = error instanceof Error ? error.message : String(error);
             __host_fm_register({
                 method: method.toUpperCase(),
@@ -131,8 +145,7 @@
             const status = options.status || 200;
             const headers = options.headers || {};
             const body = typeof response === "string" ? response : JSON.stringify(response);
-            const patternStr =
-                urlPattern instanceof RegExp ? urlPattern.source : String(urlPattern);
+            const patternStr = toPatternStr(urlPattern);
 
             const seqId = __host_fm_register_seq({
                 method: method.toUpperCase(),
@@ -169,7 +182,40 @@
             options.method = options.method.toUpperCase();
             // Record before calling _origFetch so FormData is still accessible.
             this.calls.push({ url: url, request: options });
+
+            // Most-recently-registered function mock wins, matching the Python
+            // transport's behavior for string/object mocks (see _dispatch).
+            for (let i = this.functionMocks.length - 1; i >= 0; i--) {
+                const mock = this.functionMocks[i];
+                if (mock.method === options.method && mock.regex.test(String(url))) {
+                    return this._resolveFunctionMock(mock);
+                }
+            }
             return _origFetch(url, options);
+        }
+
+        async _resolveFunctionMock(mock) {
+            let result;
+            try {
+                result = await mock.fn();
+            } catch (e) {
+                throw new TypeError(e && e.message ? e.message : String(e));
+            }
+            if (result instanceof MockResponse) {
+                return new Response(result.body, {
+                    status: result.status,
+                    statusText: result.statusText,
+                    headers: result.headers,
+                });
+            }
+            if (typeof result === "string") {
+                return new Response(result, { status: 200 });
+            }
+            // Unsupported dynamic shape (e.g. a ReadableStream-based SSE mock) —
+            // this bridge can't emulate per-call streaming behavior.
+            throw new TypeError(
+                `fetchMock: unsupported function-mock return value for ${mock.regex}`,
+            );
         }
 
         waitForRequests() {
