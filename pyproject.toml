@@ -1,7 +1,6 @@
 # Metadados do projeto
 [project]
 name = "miniclient"
-dynamic = ["version"]
 description = "A minimal python http client that runs real JS/DOM (htmx and friends) without a browser"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -20,6 +19,7 @@ dependencies = [
   "httpx2~=2.6.0",
   "jsrun~=0.1.0",
 ]
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/marciomazza/miniclient"
@@ -28,7 +28,7 @@ Repository = "https://github.com/marciomazza/miniclient"
 # Grupos de dependências para desenvolvimento e testes
 [dependency-groups]
 dev = ["ipdb", "ipython", "ipython-autoimport", "zensical"]
-lint = ["hatchling", "prek~=0.4.9", "pyrefly~=1.1.1", "ruff~=0.15.21"]
+lint = ["hatchling", "prek~=0.4.9", "pyrefly~=1.1.1", "ruff~=0.15.22"]
 test = [
   "httpx2-pytest~=1.0.1",
   "hypothesis~=6.156.6",
@@ -44,14 +44,14 @@ test = [
 ]
 
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatch-vcs", "hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.version]
-source = "vcs"
 
 [tool.coverage.report]
 exclude_also = []
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
@@ -108,6 +108,7 @@ asyncio_mode = "auto"
 line-length = 100
 fix = true
 show-fixes = true
+preview = true  # required until the E402 fix stabilizes
 
 [tool.ruff.lint]
 select = [
@@ -120,6 +121,7 @@ select = [
   "Q",  # https://docs.astral.sh/ruff/rules/#flake8-quotes-q
 ]
 fixable = ["ALL"]
+extend-safe-fixes = ["E402"]  # isort float-to-top
 unfixable = [
   "F841",  # Report but don't auto-remove unused variables
 ]

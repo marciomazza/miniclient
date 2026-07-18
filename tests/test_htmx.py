@@ -27,12 +27,10 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
         # scroll position is always 0 in a headless DOM
     },
 }
-_INFRA_JS = "\n".join(
-    [
-        f"__document_write(`{HTMX_BASE_HTML}`);",
-        _HELPERS_JS.read_text(),
-    ]
-)
+_INFRA_JS = "\n".join([
+    f"__document_write(`{HTMX_BASE_HTML}`);",
+    _HELPERS_JS.read_text(),
+])
 
 
 @pytest.fixture(scope="module")

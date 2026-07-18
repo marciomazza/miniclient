@@ -440,9 +440,16 @@ def st_htmx_element(draw) -> SimpleElement:
     tag = draw(st.sampled_from(("div", "span", "button", "a", "li", "p")))
     method = draw(st.from_type(HxMethod))
     hx_trigger = draw(
-        st.sampled_from(
-            ("click", "mouseenter", "focus", "dblclick", "mouseover", "change", "blur", "input")
-        )
+        st.sampled_from((
+            "click",
+            "mouseenter",
+            "focus",
+            "dblclick",
+            "mouseover",
+            "change",
+            "blur",
+            "input",
+        ))
     )
     content = draw(st_some_text | st.lists(_st_plain_inline(), min_size=1, max_size=2))
     return SimpleElement(
