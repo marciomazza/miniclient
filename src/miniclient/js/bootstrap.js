@@ -1,8 +1,16 @@
-import { Window } from "happy-dom";
+import { Window, PropertySymbol } from "happy-dom";
 import CookieStringUtility from "happy-dom/lib/cookie/urilities/CookieStringUtility.js";
 import FetchCORSUtility from "happy-dom/lib/fetch/utilities/FetchCORSUtility.js";
 import WindowBrowserContext from "happy-dom/lib/window/WindowBrowserContext.js";
 import patchHappyDom from "./patch-happy-dom.js";
+
+// Snapshot the global names that already exist before Window is constructed: native
+// jsrun/V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
+// polyfills baked into the snapshot (FormData, CSS, setTimeout/setInterval, console,
+// atob/btoa, ...). Window provides its own same-named versions of several of these
+// (e.g. FormData, setTimeout) that are worse fits for jsrun; the registration step
+// below must not let its blanket copy overwrite something that was already there.
+const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
 const win = new Window({
     url: globalThis.__BASE_URL__,
@@ -12,66 +20,44 @@ const win = new Window({
     },
 });
 
-globalThis.window = win;
-globalThis.document = win.document;
-globalThis.location = win.location;
-globalThis.navigator = win.navigator;
-globalThis.history = win.history;
-
-// Bulk-assign globals from win.
-const _globals = [
-    "AbortController",
-    "AbortSignal",
-    "CSSStyleSheet",
-    "CustomEvent",
-    "DOMException",
-    "Document",
-    "DocumentFragment",
-    "Element",
-    "Event",
-    "EventTarget",
-    "FocusEvent",
-    "HTMLAnchorElement",
-    "HTMLButtonElement",
-    "HTMLElement",
-    "HTMLFormElement",
-    "HTMLInputElement",
-    "HTMLSelectElement",
-    "HTMLTemplateElement",
-    "HTMLTextAreaElement",
-    "Headers",
-    "InputEvent",
-    "KeyboardEvent",
-    "MouseEvent",
-    "MutationObserver",
-    "Node",
-    "PointerEvent",
-    "Request",
-    "Response",
-    "ShadowRoot",
-    "SubmitEvent",
-    "XMLHttpRequest",
-    "customElements",
-];
-// FormData is intentionally absent — replaced by a pure-JS implementation in formdata.js (loaded after this module).
-for (const g of _globals) globalThis[g] = win[g];
-
-// IntersectionObserver: polyfill if absent, then expose via proxy so win and globalThis stay in sync.
+// IntersectionObserver: happy-dom doesn't implement it, polyfill as a no-op.
 win.IntersectionObserver ??= class {
     constructor(cb, options) {}
     observe() {}
     unobserve() {}
     disconnect() {}
 };
-Object.defineProperty(globalThis, "IntersectionObserver", {
-    get() {
-        return window.IntersectionObserver;
-    },
-    set(v) {
-        window.IntersectionObserver = v;
-    },
-    configurable: true,
-});
+
+// Make window behave like the global object, following the same approach as
+// @happy-dom/global-registrator: copy every own property (and symbol) of the window
+// instance onto globalThis, redirecting any self-reference (window.window/self/top/
+// parent) to point at globalThis instead of the original instance. Afterwards
+// `window === globalThis`, so code like `window.foo = x; foo` works as in a real
+// browser, and there's no need to keep the two objects in sync after this point.
+{
+    const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis"]);
+    const keys = [
+        ...Object.keys(Object.getOwnPropertyDescriptors(win)),
+        ...Object.getOwnPropertySymbols(win),
+    ];
+    for (const key of keys) {
+        if (_ignored.has(key) || _preExistingGlobals.has(key)) continue;
+        const winDescriptor = Object.getOwnPropertyDescriptor(win, key);
+        const globalDescriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+        if (globalDescriptor?.value !== undefined && globalDescriptor.value === winDescriptor.value)
+            continue;
+        if (winDescriptor.value === win) {
+            win[key] = globalThis;
+            winDescriptor.value = globalThis;
+        }
+        Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
+    }
+    win.document[PropertySymbol.defaultView] = globalThis;
+}
+
+// Runs last so its patches (e.g. patch-happy-dom-url.js's globalThis.URLSearchParams
+// override) are the final, authoritative values — not overwritten by the registration
+// copy above, which only knows about happy-dom's unpatched classes.
 patchHappyDom(win);
 globalThis.fetch = async (input, init = {}) => {
     let url, method, headers, body;
@@ -150,45 +136,3 @@ globalThis.fetch = async (input, init = {}) => {
     Object.defineProperty(response, "url", { value: res.url, configurable: true });
     return response;
 };
-// Make window.fetch a live proxy to globalThis.fetch so test mocks installed on
-// globalThis (e.g. installFetchMock) are immediately visible to htmx, which reads
-// window.fetch.bind(window) when building each request context.
-Object.defineProperty(win, "fetch", {
-    get() {
-        return globalThis.fetch;
-    },
-    set(v) {
-        globalThis.fetch = v;
-    },
-    configurable: true,
-    enumerable: true,
-});
-
-// Make window behave like the global object: property writes propagate to
-// globalThis so code like `window.foo = x; foo` works as in real browsers
-// (where window === globalThis).  Only user-defined properties are synced —
-// built-ins already on the Window prototype are left alone.
-{
-    const _winBuiltins = new Set();
-    for (let p = win; p; p = Object.getPrototypeOf(p))
-        for (const k of Object.getOwnPropertyNames(p)) _winBuiltins.add(k);
-    const _winProxy = new Proxy(win, {
-        set(target, prop, value) {
-            target[prop] = value;
-            if (typeof prop === "string" && !_winBuiltins.has(prop))
-                try {
-                    globalThis[prop] = value;
-                } catch {}
-            return true;
-        },
-        deleteProperty(target, prop) {
-            delete target[prop];
-            if (typeof prop === "string" && !_winBuiltins.has(prop))
-                try {
-                    delete globalThis[prop];
-                } catch {}
-            return true;
-        },
-    });
-    globalThis.window = _winProxy;
-}
