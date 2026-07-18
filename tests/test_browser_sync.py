@@ -76,6 +76,11 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
     inp.fill("new")
     assert browser.eval("document.querySelector('#inp').value") == "new"
 
+    ul = browser.find("ul")
+    assert ul is not None
+    assert [i.text for i in ul.find_all("li")] == ["a", "b"]
+    assert ul.find("li") is not None
+
     assert [i.text for i in browser.find_all("li")] == ["a", "b"]
     assert browser.find("#does-not-exist") is None
 
@@ -194,4 +199,4 @@ def test_close_clears_runtime_on_held_elements(snapshot: bytes) -> None:
     el = b.find("#p")
     assert el is not None
     b.close()
-    assert el.runtime is None
+    assert el._runtime is None

@@ -57,7 +57,66 @@ def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
         }});"""
 
 
-class AsyncElement:
+_E = TypeVar("_E", bound="AsyncElement", default="AsyncElement")
+
+
+class _FindMixin(Generic[_E]):
+    """Shared find()/find_all(), scoped to whatever `_root_js` resolves to in JS."""
+
+    _runtime: Runtime
+    _element_cls: type[_E]
+    _form_element_cls: type[_E]
+    _root_js: str
+
+    def _eval(self, expr: str) -> object:
+        raise NotImplementedError
+
+    def _make_element(self, handle: int, tag: str) -> _E:
+        """Wrap a matched (handle, tagName) pair in the right Element subclass."""
+
+        cls = self._form_element_cls if tag == "FORM" else self._element_cls
+        return cls(handle, self._runtime, self._element_cls, self._form_element_cls)
+
+    def find(self, selector: str, text: str | None = None) -> _E | None:
+        """Return the first matching element, or None if not found.
+
+        If text is given, only consider elements whose textContent contains it.
+        """
+        # "match"/"matches", not "el": _root_js can itself be "el" (element
+        # scope), and redeclaring `const el` in the same block as that would
+        # shadow it into the temporal dead zone (ReferenceError) before this
+        # code even runs.
+        js = f"""
+        (() => {{
+          const text = {json.dumps(text)};
+          const matches = Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}));
+          const match =
+            text === null ? matches[0] : matches.find(m => m.textContent.includes(text));
+          return match ? [__zzz_ref(match), match.tagName] : [null, null];
+        }})();
+        """
+        handle, tag = self._eval(js)  # type: ignore[misc]
+        if handle is None:
+            return None
+        return self._make_element(handle, tag)
+
+    def find_all(self, selector: str, text: str | None = None) -> list[_E]:
+        """Return all matching elements.
+
+        If text is given, only include elements whose textContent contains it.
+        """
+        js = f"""\
+            (() => {{
+              const text = {json.dumps(text)};
+              return Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}))
+                .filter(m => text === null || m.textContent.includes(text))
+                .map(m => [__zzz_ref(m), m.tagName]);
+            }})();
+        """
+        return [self._make_element(handle, tag) for handle, tag in self._eval(js)]  # type: ignore[misc]
+
+
+class AsyncElement(_FindMixin["AsyncElement"]):
     """Represents a DOM element found via Browser.find() or Browser.find_all().
 
     Identified by an opaque handle (assigned by the JS-side element registry),
@@ -65,9 +124,19 @@ class AsyncElement:
     as long as the underlying node remains connected to the document.
     """
 
-    def __init__(self, handle: int, runtime: Runtime) -> None:
+    _root_js = "el"
+
+    def __init__(
+        self,
+        handle: int,
+        runtime: Runtime,
+        element_cls: type[AsyncElement] | None = None,
+        form_element_cls: type[AsyncElement] | None = None,
+    ) -> None:
         self.handle = handle
-        self.runtime = runtime
+        self._runtime = runtime
+        self._element_cls = element_cls or AsyncElement
+        self._form_element_cls = form_element_cls or AsyncFormElement
 
     # --- Queries ---
 
@@ -105,7 +174,7 @@ class AsyncElement:
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for htmx to settle."""
         js = _dispatch_js(self.handle, event, event_init)
-        await self.runtime.eval_async(js)
+        await self._runtime.eval_async(js)
 
     # --- Internal ---
 
@@ -115,10 +184,10 @@ class AsyncElement:
         (() => {{
           const el = __zzz_deref({self.handle});
           if (!el) throw new Error('Element not found (handle {self.handle})');
-          return {expr};
+          return {expr.strip()};
         }})();
         """
-        return self.runtime.eval(js)
+        return self._runtime.eval(js)
 
 
 class AsyncFormElement(AsyncElement):
@@ -130,25 +199,15 @@ class AsyncFormElement(AsyncElement):
         If htmx handles the submission, waits for htmx to settle.
         If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
-        await self.runtime.eval_async(f"__zzz_submit({self.handle})")
+        await self._runtime.eval_async(f"__zzz_submit({self.handle})")
 
 
-_E = TypeVar("_E", bound="AsyncElement", default="AsyncElement")
 _T = TypeVar("_T")
 
 
-def _element_from(
-    handle: int,
-    tag: str,
-    runtime: Runtime,
-    element_cls: type[_E],
-    form_cls: type[_E],
-) -> _E:
-    """Pick the right Element subclass for a matched node."""
-    return form_cls(handle, runtime) if tag == "FORM" else element_cls(handle, runtime)
+class AsyncBrowser(_FindMixin[_E], Generic[_E]):
+    _root_js = "document"
 
-
-class AsyncBrowser(Generic[_E]):
     def __init__(
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
@@ -193,48 +252,8 @@ class AsyncBrowser(Generic[_E]):
     def __await__(self):
         return self._build().__await__()
 
-    # --- Element queries ---
-
-    def find(self, selector: str, text: str | None = None) -> _E | None:
-        """Return the first matching element, or None if not found.
-
-        If text is given, only consider elements whose textContent contains it.
-        """
-        find_el_js = (
-            f"els.find(el => el.textContent.includes({json.dumps(text)}))"
-            if text is not None
-            else "els[0]"
-        )
-        js = f"""
-        (() => {{
-          const els = Array.from(document.querySelectorAll({json.dumps(selector)}));
-          const el = {find_el_js};
-          return el ? [__zzz_ref(el), el.tagName] : [null, null];
-        }})();
-        """
-        handle, tag = self.runtime.eval(js)
-        if handle is None:
-            return None
-        return _element_from(handle, tag, self.runtime, self._element_cls, self._form_element_cls)
-
-    def find_all(self, selector: str, text: str | None = None) -> list[_E]:
-        """Return all matching elements.
-
-        If text is given, only include elements whose textContent contains it.
-        """
-        text_filter_js = (
-            f".filter(el => el.textContent.includes({json.dumps(text)}))"
-            if text is not None
-            else ""
-        )
-        js = f"""\
-            Array.from(document.querySelectorAll({json.dumps(selector)})){text_filter_js}
-              .map(el => [__zzz_ref(el), el.tagName])
-        """
-        return [
-            _element_from(handle, tag, self.runtime, self._element_cls, self._form_element_cls)
-            for handle, tag in self.runtime.eval(js)
-        ]
+    def _eval(self, expr: str) -> object:
+        return self.runtime.eval(expr)
 
     # --- Page operations ---
 
@@ -275,7 +294,7 @@ class AsyncBrowser(Generic[_E]):
 # that created it. _BackgroundLoop owns one dedicated thread + event loop and
 # routes every runtime-touching call through it — including reads that are
 # plain synchronous methods on AsyncElement/AsyncBrowser (find, html, text,
-# ...) — since those still call self.runtime.eval() directly.
+# ...) — since those still call the underlying Runtime's eval() directly.
 
 _bridge_loop: threading.local = threading.local()
 
@@ -316,8 +335,14 @@ class Element(AsyncElement):
     routes through the background thread that owns the Runtime.
     """
 
-    def __init__(self, handle: int, runtime: Runtime) -> None:
-        super().__init__(handle, runtime)
+    def __init__(
+        self,
+        handle: int,
+        runtime: Runtime,
+        element_cls: type[AsyncElement] | None = None,
+        form_element_cls: type[AsyncElement] | None = None,
+    ) -> None:
+        super().__init__(handle, runtime, element_cls, form_element_cls)
         self._loop: _BackgroundLoop = _bridge_loop.loop
 
     def click(self) -> None:  # type: ignore[override]
@@ -330,6 +355,9 @@ class Element(AsyncElement):
 
     def _eval(self, expr: str) -> object:
         return self._loop.run_sync(lambda: AsyncElement._eval(self, expr))
+
+    def _make_element(self, handle: int, tag: str) -> Element:
+        return self._loop.run_sync(lambda: _FindMixin._make_element(self, handle, tag))  # type: ignore[bad-return]
 
 
 class FormElement(Element, AsyncFormElement):
@@ -414,7 +442,7 @@ class Browser:
             await self._async.aclose()
             self._async._runtime = None
             for el in list(self._elements):
-                el.runtime = None  # type: ignore[assignment]
+                el._runtime = None  # type: ignore[assignment]
 
         try:
             self._loop.run(_shutdown())

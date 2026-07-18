@@ -219,6 +219,51 @@ async def test_find_all_empty(browser: AsyncBrowser) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AsyncElement.find / find_all — scoped to the element, not the whole document
+# ---------------------------------------------------------------------------
+
+
+async def test_element_find_returns_descendant(browser: AsyncBrowser) -> None:
+    await browser.load("<div id='d'><p id='msg'>hello</p></div>")
+    d = browser.find("#d")
+    assert d is not None
+    el = d.find("#msg")
+    assert isinstance(el, AsyncElement)
+    assert el.innerHTML == "hello"
+
+
+async def test_element_find_ignores_matches_outside_itself(browser: AsyncBrowser) -> None:
+    await browser.load("<div id='d'><p class='x'>inside</p></div><p class='x'>outside</p>")
+    d = browser.find("#d")
+    assert d is not None
+    items = d.find_all(".x")
+    assert [item.text for item in items] == ["inside"]
+
+
+async def test_element_find_returns_none_for_missing(browser: AsyncBrowser) -> None:
+    await browser.load("<div id='d'><p>hi</p></div>")
+    d = browser.find("#d")
+    assert d is not None
+    assert d.find("#does-not-exist") is None
+
+
+async def test_element_find_all_returns_elements(browser: AsyncBrowser) -> None:
+    await browser.load("<ul id='list'><li>a</li><li>b</li></ul>")
+    ul = browser.find("#list")
+    assert ul is not None
+    items = ul.find_all("li")
+    assert [item.text for item in items] == ["a", "b"]
+
+
+async def test_element_find_returns_form_element(browser: AsyncBrowser) -> None:
+    await browser.load("<div id='d'><form id='f'></form></div>")
+    d = browser.find("#d")
+    assert d is not None
+    form = d.find("form")
+    assert isinstance(form, AsyncFormElement)
+
+
+# ---------------------------------------------------------------------------
 # AsyncFormElement.requestSubmit
 # ---------------------------------------------------------------------------
 
