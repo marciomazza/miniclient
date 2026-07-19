@@ -210,3 +210,18 @@ async def test_dispatch_event_restores_global_event_after(runtime):
         globalThis.event;
     """)
     assert result == "sentinel"
+
+
+@pytest.mark.parametrize("attr", ["foo", ":foo", "foo:bar"])
+async def test_colon_attribute_setattribute_overwrites(runtime, attr):
+    # setAttribute must keep overwriting, not silently freeze at the first value,
+    # for colon-containing names (e.g. "hx-on:click"), colon-prefixed names (e.g.
+    # hx-live's ":foo" bindings), and plain names with a colon-prefixed sibling.
+    result = runtime.eval(f"""\
+        document.body.innerHTML = '<div id="a" foo="x" :foo="y"></div>';
+        const d = document.getElementById('a');
+        d.setAttribute('{attr}', 'first');
+        d.setAttribute('{attr}', 'updated');
+        d.getAttribute('{attr}');
+    """)
+    assert result == "updated"

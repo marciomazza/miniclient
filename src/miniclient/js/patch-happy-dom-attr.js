@@ -1,22 +1,22 @@
-// Element.setAttribute — colon-containing attribute names (e.g. hx-on:click) never
-// update their value past the first call.
+// happy-dom's Document.createAttribute() always splits names on ":", even for plain
+// (non-namespaced) setAttribute calls. That leaves the Attr with a prefix but no
+// namespaceURI, which getNamedItemNS() refuses to resolve — so setNamedItem() can't
+// find the "previous" attribute to replace and just appends instead of overwriting.
+// getAttribute() then forever returns the first value ever set.
 //
-// happy-dom's Document.createAttribute() always splits the name on ":" into a
-// prefix/localName pair, even for plain (non-namespaced) setAttribute calls, where the
-// DOM spec says the qualified name must be kept whole with no namespace and no prefix.
-// The resulting Attr ends up with a prefix but no namespaceURI — a combination
-// NamedNodeMap#getNamedItemNS() (correctly) refuses to resolve, since real namespaced
-// attributes always have both. That makes setNamedItem() unable to find the "previous"
-// attribute to replace, so it keeps appending instead of overwriting: getAttribute()
-// (which reads index 0) forever returns the very first value ever set.
+// This bug hits colon-containing names directly (e.g. hx-on:click), and also plain
+// attrs that share a lookup slot with a colon-prefixed sibling (e.g. "style" next to
+// ":style") — setting one can corrupt the other's slot too.
 //
-// Fix: before assigning a colon-named attribute, drain any existing entries for that
-// name via the (correctly working) removeAttribute() path, so setAttribute() always
-// starts from a clean slate instead of piling up stale duplicates.
+// Fix: drain existing entries for the affected name via removeAttribute() (which
+// works correctly) before calling the original setAttribute(), so it always starts
+// from a clean slate instead of piling up duplicates.
 export default function patch(win) {
     const _origSetAttribute = win.Element.prototype.setAttribute;
     win.Element.prototype.setAttribute = function (name, value) {
-        if (String(name).includes(":")) {
+        name = String(name);
+        const bareName = name.startsWith(":") ? name.slice(1) : name;
+        if (name.includes(":") || this.hasAttribute(":" + bareName)) {
             while (this.hasAttribute(name)) this.removeAttribute(name);
         }
         return _origSetAttribute.call(this, name, value);
