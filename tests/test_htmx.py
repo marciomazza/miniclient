@@ -18,21 +18,24 @@ _HELPERS_JS = _HTMX_TEST / "lib/helpers.js"
 
 _SKIP = {
     "package.js",  # asserts htmx has no dependencies — not relevant to this runtime
-    # hx-live.js's debounce implementation (src/ext/hx-live.js:360) intentionally
-    # rejects a pending promise chain with a bare Symbol() sentinel to cancel
-    # superseded calls; a real browser just logs an orphaned rejection like that, but
-    # jsrun treats any unhandled promise rejection as fatal to the whole eval_async
-    # call. That aborts every test in the file mid-run — including its own cleanup —
-    # which then leaks dirty extension/mock state into every alphabetically-later
-    # ext test file. Skipping is required, not just cosmetic.
-    "hx-live.js",
 }
 # Individual JS tests to skip, keyed by file stem → set of (suite, test-name).
-# Use for tests that are inherently untestable in a headless environment.
+# Rewritten to it.skip(...) before the file runs — not just filtered from results —
+# since some failures (e.g. an orphaned promise rejection) are fatal to the whole
+# eval_async call and never produce a result to filter.
 _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
     "hx-swap": {
         ("hx-swap modifiers", "swap with scroll:bottom modifier scrolls to bottom"),
         # scroll position is always 0 in a headless DOM
+    },
+    # Keep this until (and if) our PR is merged and release
+    # https://github.com/bigskysoftware/htmx/pull/3902
+    "hx-live": {
+        ("hx-live extension", "debounce(ms) supersedes prior calls"),
+        # body uses a self-invoking async IIFE under expression=false;
+        # __executeJavaScript (htmx.js:920) never awaits it, so debounce's
+        # cancellation rejection is truly orphaned — fatal in jsrun, silent
+        # console noise in a real browser.
     },
 }
 _INFRA_JS = "\n".join([
@@ -76,12 +79,11 @@ async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     # real htmx repo layout (repo/src/ext, repo/test/lib) — rewrite to our virtual servers.
     js = js.replace("'../src/ext/", "'http://localhost/vendor/ext/")
     js = js.replace("'../test/lib/", "'http://localhost/test/lib/")
+    for _suite, name in _SKIP_TESTS.get(js_file.stem, set()):
+        js = js.replace(f"it('{name}'", f"it.skip('{name}'")
     r.eval(js)
     results = await r.eval_async("__runAllTests()")
-    skip = _SKIP_TESTS.get(js_file.stem, set())
-    failures = [
-        res for res in results if not res["passed"] and (res["suite"], res["name"]) not in skip
-    ]
+    failures = [res for res in results if not res["passed"]]
     if failures:
         lines = [f"  [{res['suite']}] {res['name']}: {res['error']}" for res in failures]
         pytest.fail(f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines))
