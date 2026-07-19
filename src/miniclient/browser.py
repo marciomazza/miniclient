@@ -221,7 +221,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
         self._httpx_transport = httpx_transport
         self._mounts = mounts
         self._snapshot = snapshot
-        self._runtime = runtime
+        self._runtime = runtime  # type: ignore[assignment]
         self._element_cls = element_cls
         self._form_element_cls = form_element_cls
         self._stack: AsyncExitStack | None = None
@@ -236,7 +236,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
             # open_runtime() pools one httpx client for every fetch this browser makes
             # for the rest of its life; the exit stack lets us hold that context open
             # across arbitrary later calls and unwind it (client + runtime) in aclose().
-            self._stack = AsyncExitStack()
+            self._stack = AsyncExitStack()  # type: ignore[assignment]
             self._runtime = await self._stack.enter_async_context(
                 open_runtime(
                     snapshot=self._snapshot,
@@ -440,7 +440,7 @@ class Browser:
 
         async def _shutdown() -> None:
             await self._async.aclose()
-            self._async._runtime = None
+            self._async._runtime = None  # type: ignore[assignment]
             for el in list(self._elements):
                 el._runtime = None  # type: ignore[assignment]
 

@@ -44,7 +44,7 @@ You can test your WSGI/ASGI app directly (Django, Flask, FastAPI, etc)
 with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Browser(...)`.
 
 An example with [nanodjango](https://nanodjango.dev/)
-*(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/to/htmx/dist"`)*:
+_(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/to/htmx/dist"`)_:
 
 ```python
 from pathlib import Path
@@ -119,6 +119,22 @@ el = browser.find("#msg")          # the first match, or None
 items = browser.find_all("li")     # a list of all matches, possibly empty
 ```
 
+Pass `text` to also filter by contained text (a substring match against `textContent`):
+
+```python
+el = browser.find("li", text="Buy milk")        # first <li> containing this text, or None
+items = browser.find_all("li", text="urgent")   # all <li>s containing this text
+```
+
+`Element` also exposes `find()`/`find_all()`, scoped to that element instead of the whole
+document:
+
+```python
+row = browser.find("#results li")
+label = row.find(".label")                      # searches only within `row`
+badges = row.find_all(".badge", text="new")
+```
+
 ## Reading elements
 
 `Element` exposes the usual ways to read content and attributes:
@@ -138,6 +154,7 @@ Set an input's value directly:
 input = browser.find("#input-id")
 input.fill("new value")
 ```
+
 This works for `<input>`, `<textarea>` and `<select>` elements.
 For `<select>`, this only takes effect if the value matches an existing `<option>`'s value,
 just like in a real browser.
