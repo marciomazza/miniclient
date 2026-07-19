@@ -24,19 +24,37 @@ export default function patch(win) {
     });
 
     // -----------------------------------------------------------------------------------
-    // Element.matches — :disabled not propagated from <fieldset disabled>
+    // SelectorItem.matchPseudoItem — happy-dom gaps in constraint/disabled pseudo-classes:
+    // - :disabled doesn't propagate from an ancestor <fieldset disabled>
+    // - :required/:invalid/:valid have no case in the switch at all
+    // Patched here (not Element.matches) so :has(), :is(), :not(), and querySelectorAll()
+    // see the fix too, not just direct .matches() calls.
     // -----------------------------------------------------------------------------------
-    patchMethod(win.Element.prototype, "matches", function (_origMatches, selector) {
-        const result = _origMatches.call(this, selector);
-        if (!result && selector === ":disabled") {
-            let p = this.parentElement;
-            while (p) {
-                if (p.tagName === "FIELDSET" && p.disabled) return true;
-                p = p.parentElement;
+    patchMethod(
+        SelectorItem.prototype,
+        "matchPseudoItem",
+        function (_orig, scope, element, parentChildren, pseudo, ignoreErrors) {
+            const result = _orig.call(this, scope, element, parentChildren, pseudo, ignoreErrors);
+            if (result) return result;
+            if (pseudo.name === "disabled") {
+                let p = element.parentElement;
+                while (p) {
+                    if (p.tagName === "FIELDSET" && p.disabled) return { priorityWeight: 10 };
+                    p = p.parentElement;
+                }
+                return null;
             }
-        }
-        return result;
-    });
+            if (pseudo.name === "required") {
+                return element.hasAttribute?.("required") ? { priorityWeight: 10 } : null;
+            }
+            if (pseudo.name === "invalid" || pseudo.name === "valid") {
+                if (typeof element.checkValidity !== "function") return null;
+                const valid = element.checkValidity();
+                return (pseudo.name === "invalid" ? !valid : valid) ? { priorityWeight: 10 } : null;
+            }
+            return null;
+        },
+    );
 
     // -----------------------------------------------------------------------------------
     // :checked pseudo-class — only matches <input>, but per spec it also applies to a
