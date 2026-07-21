@@ -55,6 +55,24 @@ win.IntersectionObserver ??= class {
     win.document[PropertySymbol.defaultView] = globalThis;
 }
 
+// Copy prototype-chain Symbol-keyed methods: a couple of internal happy-dom code
+// paths (dispatchError, evaluateScript) call pseudo-private Symbol methods directly
+// on the bare `window` global, which is now globalThis, not the win instance they're
+// defined on (Window/BrowserWindow.prototype). Own-property copying above misses
+// them. Restricted to symbols only — those are invisible to normal enumeration, so
+// this can't leak public API surface (addEventListener, close, ...) onto globalThis.
+for (
+    let proto = Object.getPrototypeOf(win);
+    proto && proto !== Object.prototype;
+    proto = Object.getPrototypeOf(proto)
+) {
+    for (const key of Object.getOwnPropertySymbols(proto)) {
+        if (key in globalThis) continue;
+        const { value } = Object.getOwnPropertyDescriptor(proto, key);
+        if (typeof value === "function") globalThis[key] = value.bind(win);
+    }
+}
+
 // Runs last so its patches (e.g. patch-happy-dom-url.js's globalThis.URLSearchParams
 // override) are the final, authoritative values — not overwritten by the registration
 // copy above, which only knows about happy-dom's unpatched classes.

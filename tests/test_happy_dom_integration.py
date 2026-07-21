@@ -56,3 +56,18 @@ async def test_script_with_external_file_src_executed(snapshot, tmp_path):
             window.__ran;
         """)
     assert result == 1
+
+
+async def test_inline_event_handler_attribute_is_compiled(runtime):
+    # Parsing an element with an inline event handler attribute (onclick, ...)
+    # compiles it via window[PropertySymbol.evaluateScript]/[dispatchError]
+    # (ElementEventAttributeUtility.getEventListener), where `window` is read off
+    # as `element[...][PropertySymbol.defaultView]` -- which bootstrap.js points at
+    # globalThis. Used to crash immediately on parsing, with "window[PropertySymbol.
+    # dispatchError] is not a function", because own-property copying missed these
+    # Symbol-keyed prototype methods.
+    result = runtime.eval("""
+        document.body.innerHTML = '<button onclick="window.__ran = 1">hi</button>';
+        "survived";
+    """)
+    assert result == "survived"
