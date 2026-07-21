@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.0.9]
+
+- Fixed a regression crash during script evaluation caused by missing
+  Symbol-keyed `Window`/`BrowserWindow` prototype methods on `globalThis`
+
 ## [0.0.8]
 
 - `Browser`/`AsyncBrowser` `find()`/`find_all()` now accept an optional `text` argument to filter
