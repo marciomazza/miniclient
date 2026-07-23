@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 - Added `Element`/`AsyncElement.parent` property.
+- Fixed the `:checked` pseudo-class to also match a selected `<option>`, not just
+  checked `<input>` elements, per spec.
 
 ## [0.0.9]
 

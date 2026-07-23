@@ -22,6 +22,39 @@ async def test_innerhtml_selected_reflected(runtime):
 
 
 # ---------------------------------------------------------------------------
+# :checked pseudo-class also matches a selected <option>
+# ---------------------------------------------------------------------------
+
+
+async def test_option_checked_pseudo_class_matches_selected_option(runtime):
+    # happy-dom bug: :checked only matches <input>, but per spec it also applies to a
+    # selected <option> — querySelectorAll (not just .matches()) must see this.
+    runtime.eval("""
+        document.body.innerHTML =
+          '<select><option value="a">a</option><option value="b" selected>b</option></select>'
+    """)
+    assert runtime.eval("document.querySelectorAll('option:checked').length") == 1
+    assert runtime.eval("document.querySelector('option:checked').value") == "b"
+
+
+async def test_option_checked_pseudo_class_updates_after_value_assignment(runtime):
+    runtime.eval("""
+        document.body.innerHTML =
+          '<select id="s"><option value="a">a</option><option value="b">b</option></select>';
+        document.getElementById('s').value = 'b';
+    """)
+    assert runtime.eval("document.querySelector('option:checked').value") == "b"
+
+
+async def test_input_checked_pseudo_class_still_works(runtime):
+    # regression: the <option> fix must not affect <input type=checkbox/radio>
+    runtime.eval("""
+        document.body.innerHTML = '<input type="checkbox" checked><input type="checkbox">'
+    """)
+    assert runtime.eval("document.querySelectorAll('input:checked').length") == 1
+
+
+# ---------------------------------------------------------------------------
 # history.pushState / replaceState update location
 # ---------------------------------------------------------------------------
 

@@ -2,6 +2,7 @@ import patchURL from "./patch-happy-dom-url.js";
 import patchDomParser from "./patch-happy-dom-parser.js";
 import patchAttr from "./patch-happy-dom-attr.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
+import SelectorItem from "happy-dom/lib/query-selector/SelectorItem.js";
 
 function patchMethod(proto, method, wrapper) {
     const orig = proto[method];
@@ -36,6 +37,30 @@ export default function patch(win) {
         }
         return result;
     });
+
+    // -----------------------------------------------------------------------------------
+    // :checked pseudo-class — only matches <input>, but per spec it also applies to a
+    // selected <option> within a <select>. Unlike :disabled above, querySelectorAll
+    // reaches this through SelectorItem.matchPseudoItem directly (QuerySelector.findAll
+    // calls selectorItem.match()), bypassing the patchable public Element.prototype.matches.
+    // -----------------------------------------------------------------------------------
+    patchMethod(
+        SelectorItem.prototype,
+        "matchPseudoItem",
+        function (_origMatchPseudoItem, scope, element, parentChildren, pseudo, ignoreErrors) {
+            if (pseudo.name === "checked" && element.tagName === "OPTION") {
+                return element.selected ? { priorityWeight: 10 } : null;
+            }
+            return _origMatchPseudoItem.call(
+                this,
+                scope,
+                element,
+                parentChildren,
+                pseudo,
+                ignoreErrors,
+            );
+        },
+    );
 
     // -----------------------------------------------------------------------------------
     // HTMLElement.attachInternals — missing polyfill for form-associated custom elements
