@@ -144,6 +144,7 @@ el.html          # outerHTML — the element's tag plus its content
 el.innerHTML     # innerHTML — the element's content, without its own tag
 el.text          # textContent — all text inside, with tags stripped
 el.attr("href")  # value of the "href" attribute, or None if absent
+el.parent        # the parent Element, or None if there is no parent
 ```
 
 ## Filling inputs

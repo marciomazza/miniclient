@@ -159,6 +159,22 @@ class AsyncElement(_FindMixin["AsyncElement"]):
         """Return an attribute value, or None if absent."""
         return self._eval(f"el.getAttribute({json.dumps(name)})")  # type: ignore[return-value]
 
+    @property
+    def parent(self) -> AsyncElement | None:
+        """Return the parent element, or None if it has no parent (e.g.
+        it's the root <html> element, or has been removed from the DOM).
+        """
+        js = """
+        (() => {
+          const p = el.parentElement;
+          return p ? [__zzz_ref(p), p.tagName] : [null, null];
+        })();
+        """
+        handle, tag = self._eval(js)  # type: ignore[misc]
+        if handle is None:
+            return None
+        return self._make_element(handle, tag)
+
     # --- Form / Input ---
 
     def fill(self, value: str) -> None:

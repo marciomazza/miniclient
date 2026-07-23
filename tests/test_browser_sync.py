@@ -70,6 +70,8 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
     assert el.text == "ok"
     assert el.attr("data-x") == "1"
     assert el.attr("missing") is None
+    # parent is <body>, containing the other elements
+    assert el.parent and el.parent.find("#inp") is not None
 
     inp = browser.find("#inp")
     assert inp is not None

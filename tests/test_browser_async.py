@@ -155,6 +155,19 @@ async def test_element_attr(browser: AsyncBrowser) -> None:
     assert el.attr("missing") is None
 
 
+async def test_element_parent(browser: AsyncBrowser) -> None:
+    await browser.load("<div id='d'><span id='s'>hi</span></div>")
+    el = browser.find("#s")
+    assert el and el.parent and el.parent.attr("id") == "d"
+
+
+async def test_element_parent_is_none_for_root_html_element(browser: AsyncBrowser) -> None:
+    # <html>'s parent is the document node, not an Element, so parentElement is null
+    el = browser.find("html")
+    assert el is not None
+    assert el.parent is None
+
+
 async def test_element_fill(browser: AsyncBrowser) -> None:
     await browser.load("<input id='inp' value='old'>")
     el = browser.find("#inp")
