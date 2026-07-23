@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `Element`/`AsyncElement.fill()` now dispatches a `change` event and waits for htmx to
   settle, matching `click()`/`trigger()`. Previously it only set `.value` directly, so
   htmx's default `change` trigger (and any `hx-trigger` listening for it) never fired.
+- Fixed `HTMLSelectElement.value` not invalidating happy-dom's `:checked` query cache,
+  causing stale results for `:checked` selectors evaluated before a selection change.
 
 ## [0.0.9]
 

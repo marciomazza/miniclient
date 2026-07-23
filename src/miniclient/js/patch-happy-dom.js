@@ -3,6 +3,7 @@ import patchDomParser from "./patch-happy-dom-parser.js";
 import patchAttr from "./patch-happy-dom-attr.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
 import SelectorItem from "happy-dom/lib/query-selector/SelectorItem.js";
+import * as PropertySymbol from "happy-dom/lib/PropertySymbol.js";
 
 function patchMethod(proto, method, wrapper) {
     const orig = proto[method];
@@ -61,6 +62,30 @@ export default function patch(win) {
             );
         },
     );
+
+    // -----------------------------------------------------------------------------------
+    // HTMLSelectElement.value setter — sets each <option>'s internal selectedness symbol
+    // directly, bypassing HTMLOptionElement's own `selected` setter entirely. Unlike
+    // HTMLInputElement's #setChecked (which does call [clearCache]() after flipping
+    // `checked`), this leaves any previously-cached querySelectorAll/matches/querySelector
+    // result that depends on `:checked` (e.g. `option:checked`) stale forever, since the
+    // cache is keyed by selector string and invalidated per-node via [clearCache](), which
+    // nothing here ever calls.
+    // -----------------------------------------------------------------------------------
+    {
+        const selectProto = Object.getPrototypeOf(win.document.createElement("select"));
+        const desc = Object.getOwnPropertyDescriptor(selectProto, "value");
+        Object.defineProperty(selectProto, "value", {
+            get: desc.get,
+            set(value) {
+                desc.set.call(this, value);
+                for (const option of this.querySelectorAll("option")) {
+                    option[PropertySymbol.clearCache]();
+                }
+            },
+            configurable: true,
+        });
+    }
 
     // -----------------------------------------------------------------------------------
     // HTMLElement.attachInternals — missing polyfill for form-associated custom elements

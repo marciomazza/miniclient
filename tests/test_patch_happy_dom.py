@@ -54,6 +54,23 @@ async def test_input_checked_pseudo_class_still_works(runtime):
     assert runtime.eval("document.querySelectorAll('input:checked').length") == 1
 
 
+async def test_select_value_setter_invalidates_stale_checked_query_cache(runtime):
+    # happy-dom bug: querySelectorAll caches its result per selector string, invalidated
+    # by a node's [clearCache](). HTMLInputElement's checked setter calls it; the <select>
+    # value setter mutates each <option>'s selectedness directly and never did — so a
+    # ":checked" query evaluated once (e.g. by hx-live on initial render, before anything
+    # is selected) stayed stuck at its stale result even after a real selection happened.
+    runtime.eval("""
+        document.body.innerHTML =
+          '<select id="s"><option value="a">a</option><option value="b">b</option></select>'
+    """)
+    # warm the querySelectorAll cache for this exact selector string while nothing is selected
+    assert runtime.eval("document.querySelectorAll(\"option[value='b']:checked\").length") == 0
+    runtime.eval("document.getElementById('s').value = 'b'")
+    # same selector string as above — must reflect the new selection, not the stale cached result
+    assert runtime.eval("document.querySelectorAll(\"option[value='b']:checked\").length") == 1
+
+
 # ---------------------------------------------------------------------------
 # history.pushState / replaceState update location
 # ---------------------------------------------------------------------------
