@@ -39,7 +39,7 @@ class DomCheck:
         el = self._browser.find(selector)
         if el is None:
             raise LookupError(f"No element matches {selector!r}")
-        el.fill(value)  # sync V8 eval — must stay on main thread (Runtime is !Send)
+        await el.fill(value)
         await self._page.locator(selector).fill(value)
 
     async def click(self, selector: str) -> None:

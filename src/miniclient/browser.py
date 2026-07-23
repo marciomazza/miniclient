@@ -177,9 +177,17 @@ class AsyncElement(_FindMixin["AsyncElement"]):
 
     # --- Form / Input ---
 
-    def fill(self, value: str) -> None:
-        """Set the element's value (for input, textarea, select)."""
-        self._eval(f"el.value = {json.dumps(value)}")
+    async def fill(self, value: str) -> None:
+        """Set the element's value, dispatch `change`, and wait for htmx to settle."""
+        js = f"""
+        __zzz_await_htmx({self.handle}, el => {{
+          el.value = {json.dumps(value)};
+          // TODO: change only, not input — real typing fires input per keystroke too, so
+          // hx-trigger="input" (e.g. live search) won't react to fill(). Add input dispatch
+          // if that coverage is needed.
+          el.dispatchEvent(new Event('change', {{bubbles: true}}));
+        }});"""
+        await self._runtime.eval_async(js)
 
     # --- Interactions ---
 
@@ -368,6 +376,10 @@ class Element(AsyncElement):
     def trigger(self, event: str, event_init: dict | None = None) -> None:  # type: ignore[override]
         """Dispatch a DOM event and wait for htmx to settle."""
         self._loop.run(AsyncElement.trigger(self, event, event_init))
+
+    def fill(self, value: str) -> None:  # type: ignore[override]
+        """Set the element's value, dispatch `change`, and wait for htmx to settle."""
+        self._loop.run(AsyncElement.fill(self, value))
 
     def _eval(self, expr: str) -> object:
         return self._loop.run_sync(lambda: AsyncElement._eval(self, expr))

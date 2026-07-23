@@ -261,9 +261,7 @@ class CrossCheck:
             raise LookupError(f"No element matches {selector!r}")
         self._reset_capture()
         await self._page.evaluate("window.__htmxSettled = false;")
-        el.fill(value)
-        await el.trigger("change")
-        # todo: perhaps we should emulate the browser behaviour instead
+        await el.fill(value)  # dispatches change only — see TODO in AsyncElement.fill
         # Use evaluate instead of locator.fill() + dispatch_event() to avoid Playwright's CDP
         # focus causing Chrome to fire a native trusted change event when htmx's swap removes
         # the focused element from the DOM, which would queue a second spurious htmx request.

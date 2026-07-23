@@ -172,7 +172,7 @@ async def test_element_fill(browser: AsyncBrowser) -> None:
     await browser.load("<input id='inp' value='old'>")
     el = browser.find("#inp")
     assert el is not None
-    el.fill("new")
+    await el.fill("new")
     assert browser.runtime.eval("document.querySelector('#inp').value") == "new"
 
 
@@ -180,7 +180,7 @@ async def test_element_fill_textarea(browser: AsyncBrowser) -> None:
     await browser.load("<textarea id='ta'>old</textarea>")
     el = browser.find("#ta")
     assert el is not None
-    el.fill("new")
+    await el.fill("new")
     assert browser.runtime.eval("document.querySelector('#ta').value") == "new"
 
 
