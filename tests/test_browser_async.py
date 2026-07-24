@@ -385,3 +385,14 @@ async def test_browser_module_script_relative_import(snapshot: bytes, tmp_path: 
         _load_script_js("script.type = 'module';", "http://localhost/ext/entry.js")
     )
     assert b.runtime.eval("window.__ran") == 1
+
+
+async def test_browser_load_fires_dom_content_loaded_after_module_script(
+    snapshot: bytes, tmp_path: Path
+) -> None:
+    (tmp_path / "entry.js").write_text(
+        "document.addEventListener('DOMContentLoaded', () => { window.__dclFired = true; });"
+    )
+    b = await AsyncBrowser(snapshot=snapshot, mounts={"http://localhost/ext/": tmp_path})
+    await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
+    assert b.runtime.eval("window.__dclFired") is True

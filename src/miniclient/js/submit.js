@@ -9,6 +9,24 @@ globalThis.__document_write = function (html) {
     if (typeof htmx !== "undefined") {
         htmx.process(document.body);
     }
+    // happy-dom never dispatches DOMContentLoaded natively (no "loading" readyState,
+    // and its one native `load` event fires once for the whole Window's lifetime —
+    // not per document.write(), which is how every goto()/load() here simulates a
+    // fresh navigation). Synthesize it once this write's own deferred/module scripts
+    // have actually finished running, mirroring the real-browser rule that plain
+    // `async` scripts don't delay DOMContentLoaded but `defer`/`type=module` do.
+    const pending = [...document.querySelectorAll("script[src]")]
+        .filter((script) => script.type === "module" || script.defer)
+        .map(
+            (script) =>
+                new Promise((resolve) => {
+                    script.addEventListener("load", resolve, { once: true });
+                    script.addEventListener("error", resolve, { once: true });
+                }),
+        );
+    return Promise.all(pending).then(() => {
+        document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true, cancelable: false }));
+    });
 };
 
 // Fetches url and loads the response body as the new document. Shared by
@@ -18,7 +36,7 @@ globalThis.__zzz_fetch_and_load = async function (url, options) {
     // window.happyDOM.setURL() updates location without a real (re-fetching,
     // cross-origin-restricted) navigation — the fetch above already happened.
     window.happyDOM.setURL(new URL(url, location.href).href);
-    __document_write(await r.text());
+    await __document_write(await r.text());
     await window.happyDOM.waitUntilComplete();
 };
 

@@ -325,7 +325,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""
-        self.runtime.eval(f"__document_write({json.dumps(html)})")
+        await self.runtime.eval_async(f"__document_write({json.dumps(html)})")
 
     def close(self) -> None:
         self.runtime.close()
