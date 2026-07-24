@@ -7,7 +7,7 @@ import weakref
 from collections.abc import Callable, Coroutine
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Generic, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar, cast
 
 import httpx2 as httpx
 from jsrun import Runtime
@@ -57,7 +57,7 @@ def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
         }});"""
 
 
-_E = TypeVar("_E", bound="AsyncElement", default="AsyncElement")
+_E = TypeVar("_E", bound="AsyncElementBase", default="AsyncElement")
 
 
 class _FindMixin(Generic[_E]):
@@ -68,8 +68,13 @@ class _FindMixin(Generic[_E]):
     _form_element_cls: type[_E]
     _root_js: str
 
-    def _eval(self, expr: str) -> object:
-        raise NotImplementedError
+    if TYPE_CHECKING:
+        # Real implementation always comes from a sibling in the MRO
+        # (AsyncElementBase for AsyncElement/Element, or AsyncBrowser's own
+        # method). Declared here only so find()/find_all() type-check; a real
+        # `def` would shadow the sibling's implementation depending on base
+        # order, since Python MRO doesn't know one side is "just a stub".
+        def _eval(self, expr: str) -> object: ...
 
     def _make_element(self, handle: int, tag: str) -> _E:
         """Wrap a matched (handle, tagName) pair in the right Element subclass."""
@@ -116,8 +121,11 @@ class _FindMixin(Generic[_E]):
         return [self._make_element(handle, tag) for handle, tag in self._eval(js)]  # type: ignore[misc]
 
 
-class AsyncElement(_FindMixin["AsyncElement"]):
-    """Represents a DOM element found via Browser.find() or Browser.find_all().
+class AsyncElementBase(Generic[_E]):
+    """Shared element implementation (queries, form/input, interactions),
+    used by both the async and sync facades. `AsyncElement`/`Element` each
+    combine this with `_FindMixin[_E]` bound to their own concrete class, so
+    find()/find_all()/parent stay in the right facade.
 
     Identified by an opaque handle (assigned by the JS-side element registry),
     not by the selector used to locate it — it stays valid across DOM changes
@@ -130,13 +138,16 @@ class AsyncElement(_FindMixin["AsyncElement"]):
         self,
         handle: int,
         runtime: Runtime,
-        element_cls: type[AsyncElement] | None = None,
-        form_element_cls: type[AsyncElement] | None = None,
+        # Loosely typed to the common base rather than `type[_E]`: a generic
+        # class can't statically promise its own __init__ accepts exactly
+        # `type[Self]` for these, so the precise cast happens below instead.
+        element_cls: type[AsyncElementBase[Any]],
+        form_element_cls: type[AsyncElementBase[Any]],
     ) -> None:
         self.handle = handle
         self._runtime = runtime
-        self._element_cls = element_cls or AsyncElement
-        self._form_element_cls = form_element_cls or AsyncFormElement
+        self._element_cls = cast(type[_E], element_cls)
+        self._form_element_cls = cast(type[_E], form_element_cls)
 
     # --- Queries ---
 
@@ -159,8 +170,14 @@ class AsyncElement(_FindMixin["AsyncElement"]):
         """Return an attribute value, or None if absent."""
         return self._eval(f"el.getAttribute({json.dumps(name)})")  # type: ignore[return-value]
 
+    if TYPE_CHECKING:
+        # Real implementation always comes from _FindMixin, the sibling this
+        # class is combined with in AsyncElement/Element. See the matching
+        # note on _FindMixin._eval for why this isn't a real `def`.
+        def _make_element(self, handle: int, tag: str) -> _E: ...
+
     @property
-    def parent(self) -> AsyncElement | None:
+    def parent(self) -> _E | None:
         """Return the parent element, or None if it has no parent (e.g.
         it's the root <html> element, or has been removed from the DOM).
         """
@@ -214,8 +231,20 @@ class AsyncElement(_FindMixin["AsyncElement"]):
         return self._runtime.eval(js)
 
 
-class AsyncFormElement(AsyncElement):
-    """A <form> element. Exposes requestSubmit(), which is form-only."""
+class AsyncElement(_FindMixin["AsyncElement"], AsyncElementBase["AsyncElement"]):
+    """Async-facade element: `AsyncElementBase` + find()/find_all() that
+    return `AsyncElement`."""
+
+
+class AsyncFormElementBase:
+    """Shared <form>-only requestSubmit(), used by both `AsyncFormElement`
+    and `FormElement`. Kept separate from `AsyncElementBase` so combining it
+    with `Element` (which is not an `AsyncElement` subclass) doesn't create
+    a diamond with two different `AsyncElementBase[_E]` type arguments.
+    """
+
+    handle: int
+    _runtime: Runtime
 
     async def requestSubmit(self) -> None:
         """Submit this form and wait for it to settle.
@@ -224,6 +253,10 @@ class AsyncFormElement(AsyncElement):
         If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
         await self._runtime.eval_async(f"__zzz_submit({self.handle})")
+
+
+class AsyncFormElement(AsyncElement, AsyncFormElementBase):
+    """A <form> element. Exposes requestSubmit(), which is form-only."""
 
 
 _T = TypeVar("_T")
@@ -352,19 +385,18 @@ class _BackgroundLoop:
         self._loop.close()
 
 
-class Element(AsyncElement):
-    """Synchronous facade over AsyncElement.
-
-    Every method (including the ones that are plain sync on AsyncElement)
-    routes through the background thread that owns the Runtime.
+class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
+    """Sync-facade element: `AsyncElementBase` + find()/find_all() that
+    return `Element`, with every method routed through the background
+    thread that owns the Runtime.
     """
 
     def __init__(
         self,
         handle: int,
         runtime: Runtime,
-        element_cls: type[AsyncElement] | None = None,
-        form_element_cls: type[AsyncElement] | None = None,
+        element_cls: type[Element],
+        form_element_cls: type[Element],
     ) -> None:
         super().__init__(handle, runtime, element_cls, form_element_cls)
         self._loop: _BackgroundLoop = _bridge_loop.loop
@@ -375,20 +407,20 @@ class Element(AsyncElement):
 
     def trigger(self, event: str, event_init: dict | None = None) -> None:  # type: ignore[override]
         """Dispatch a DOM event and wait for htmx to settle."""
-        self._loop.run(AsyncElement.trigger(self, event, event_init))
+        self._loop.run(AsyncElementBase.trigger(self, event, event_init))
 
     def fill(self, value: str) -> None:  # type: ignore[override]
         """Set the element's value, dispatch `change`, and wait for htmx to settle."""
-        self._loop.run(AsyncElement.fill(self, value))
+        self._loop.run(AsyncElementBase.fill(self, value))
 
     def _eval(self, expr: str) -> object:
-        return self._loop.run_sync(lambda: AsyncElement._eval(self, expr))
+        return self._loop.run_sync(lambda: AsyncElementBase._eval(self, expr))
 
     def _make_element(self, handle: int, tag: str) -> Element:
-        return self._loop.run_sync(lambda: _FindMixin._make_element(self, handle, tag))  # type: ignore[bad-return]
+        return self._loop.run_sync(lambda: _FindMixin._make_element(self, handle, tag))
 
 
-class FormElement(Element, AsyncFormElement):
+class FormElement(Element, AsyncFormElementBase):
     """A <form> element. Exposes requestSubmit(), which is form-only."""
 
     def requestSubmit(self) -> None:  # type: ignore[override]
@@ -397,7 +429,7 @@ class FormElement(Element, AsyncFormElement):
         If htmx handles the submission, waits for htmx to settle.
         If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
-        self._loop.run(AsyncFormElement.requestSubmit(self))
+        self._loop.run(AsyncFormElementBase.requestSubmit(self))
 
 
 class Browser:
