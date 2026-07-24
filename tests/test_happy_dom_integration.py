@@ -1,3 +1,6 @@
+import json
+import re
+
 import pytest
 
 from miniclient.runtime import open_runtime
@@ -56,6 +59,26 @@ async def test_script_with_external_file_src_executed(snapshot, tmp_path):
             window.__ran;
         """)
     assert result == 1
+
+
+async def test_window_crypto_is_available(runtime):
+    # window.crypto used to be undefined: happy-dom's own BrowserWindow resolves it via
+    # `import { webcrypto } from 'crypto'`, which node-crypto.js forwards from
+    # globalThis.crypto -- and jsrun provides no native one, so it stayed unset unless
+    # pre_globals.js polyfills it before happy-dom is imported.
+    result = runtime.eval("""
+        JSON.stringify({
+            sameObject: window.crypto === globalThis.crypto,
+            randomLength: window.crypto.getRandomValues(new Uint8Array(4)).length,
+            uuid: window.crypto.randomUUID(),
+        })
+    """)
+    parsed = json.loads(result)
+    assert parsed["sameObject"] is True
+    assert parsed["randomLength"] == 4
+    assert re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", parsed["uuid"]
+    )
 
 
 async def test_inline_event_handler_attribute_is_compiled(runtime):

@@ -16,6 +16,28 @@
         getEntriesByName: () => [],
     };
 
+    // ponytail: Math.random()-backed, not cryptographically secure -- fine here since
+    // jsrun has no native CSPRNG and this runtime only ever drives test/dev DOM code.
+    // Must exist before happy-dom is imported: its BrowserWindow does
+    // `import { webcrypto } from 'crypto'; crypto = webcrypto`, which resolves through
+    // node-crypto.js's `globalThis.crypto` forwarding -- upgrade to a real RNG binding
+    // in jsrun if this is ever used somewhere security-sensitive.
+    globalThis.crypto ??= {
+        getRandomValues(arr) {
+            for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() * 256) | 0;
+            return arr;
+        },
+        randomUUID() {
+            const b = [...globalThis.crypto.getRandomValues(new Uint8Array(16))];
+            b[6] = (b[6] & 0x0f) | 0x40;
+            b[8] = (b[8] & 0x3f) | 0x80;
+            const h = b.map((x) => x.toString(16).padStart(2, "0"));
+            return [h.slice(0, 4), h.slice(4, 6), h.slice(6, 8), h.slice(8, 10), h.slice(10, 16)]
+                .map((g) => g.join(""))
+                .join("-");
+        },
+    };
+
     // Must exist before happy-dom is imported: its modules do
     // `globalThis.setTimeout.bind(globalThis)` at import time and keep that bound
     // reference forever, so happy-dom's internal timers run on whatever is defined here.
