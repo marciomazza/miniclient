@@ -361,10 +361,15 @@ async def _call(fn: Callable[[], _T]) -> _T:
 
 
 class _BackgroundLoop:
-    """Owns one asyncio event loop running in a dedicated background thread."""
+    """Owns one asyncio event loop running in a dedicated background thread,
+    plus the set of every Element ever created on it — regardless of whether
+    it came from Browser.find() or a child Element.find() — so close() can
+    defuse all of them, not just top-level ones.
+    """
 
     def __init__(self) -> None:
         self._loop = asyncio.new_event_loop()
+        self.elements: weakref.WeakSet[Element] = weakref.WeakSet()
 
         def _run() -> None:
             _bridge_loop.loop = self
@@ -400,6 +405,7 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     ) -> None:
         super().__init__(handle, runtime, element_cls, form_element_cls)
         self._loop: _BackgroundLoop = _bridge_loop.loop
+        self._loop.elements.add(self)
 
     def click(self) -> None:  # type: ignore[override]
         """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
@@ -451,7 +457,6 @@ class Browser:
         snapshot: bytes | None = None,
     ) -> None:
         self._closed = False
-        self._elements: weakref.WeakSet[Element] = weakref.WeakSet()
         self._loop = _BackgroundLoop()
         self._async: AsyncBrowser[Element] = AsyncBrowser(
             httpx_transport=httpx_transport,
@@ -474,16 +479,11 @@ class Browser:
 
     def find(self, selector: str, text: str | None = None) -> Element | None:
         """Return the first matching element, or None if not found."""
-        el = self._loop.run_sync(lambda: self._async.find(selector, text))
-        if el is not None:
-            self._elements.add(el)
-        return el
+        return self._loop.run_sync(lambda: self._async.find(selector, text))
 
     def find_all(self, selector: str, text: str | None = None) -> list[Element]:
         """Return all matching elements."""
-        els = self._loop.run_sync(lambda: self._async.find_all(selector, text))
-        self._elements.update(els)
-        return els
+        return self._loop.run_sync(lambda: self._async.find_all(selector, text))
 
     def goto(self, url: str) -> None:
         """Fetch url, load the full document, and process htmx."""
@@ -501,7 +501,7 @@ class Browser:
         async def _shutdown() -> None:
             await self._async.aclose()
             self._async._runtime = None  # type: ignore[assignment]
-            for el in list(self._elements):
+            for el in list(self._loop.elements):
                 el._runtime = None  # type: ignore[assignment]
 
         try:
