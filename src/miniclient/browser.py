@@ -312,6 +312,11 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
     def _eval(self, expr: str) -> object:
         return self.runtime.eval(expr)
 
+    @property
+    def url(self) -> str:
+        """The current document URL (`location.href`)."""
+        return cast(str, self._eval("location.href"))
+
     # --- Page operations ---
 
     async def goto(self, url: str) -> None:
@@ -476,6 +481,11 @@ class Browser:
         otherwise defuses. Use this method (or find()/goto()/load()) instead.
         """
         return self._loop.run_sync(lambda: self._async.runtime.eval(code))
+
+    @property
+    def url(self) -> str:
+        """The current document URL (`location.href`)."""
+        return self._loop.run_sync(lambda: self._async.url)
 
     def find(self, selector: str, text: str | None = None) -> Element | None:
         """Return the first matching element, or None if not found."""
