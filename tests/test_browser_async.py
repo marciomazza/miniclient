@@ -339,3 +339,49 @@ async def test_browser_create_with_virtual_servers(snapshot: bytes, tmp_path: Pa
         """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
     )
     assert b.runtime.eval("window.__ran") == 1
+
+
+def _load_script_js(attr_setup_js: str, url: str) -> str:
+    """JS that appends a <script src=url>, applying attr_setup_js first, awaits its load/error."""
+    return f"""
+        new Promise((resolve, reject) => {{
+            const script = document.createElement('script');
+            {attr_setup_js}
+            script.src = {url!r};
+            script.onload = resolve;
+            script.onerror = () => reject(new Error('script failed to load'));
+            document.head.appendChild(script);
+        }})
+    """
+
+
+@pytest.mark.parametrize(
+    "attr_setup_js",
+    ["script.async = true;", "script.defer = true;", "script.type = 'module';"],
+    ids=["async", "defer", "module"],
+)
+async def test_browser_script_src_virtual_server(
+    snapshot: bytes, tmp_path: Path, attr_setup_js: str
+) -> None:
+    (tmp_path / "external-script.js").write_text("window.__ran = 1;")
+    b = await AsyncBrowser(
+        snapshot=snapshot,
+        mounts={"http://localhost/ext/": tmp_path},
+    )
+    await b.runtime.eval_async(
+        _load_script_js(attr_setup_js, "http://localhost/ext/external-script.js")
+    )
+    assert b.runtime.eval("window.__ran") == 1
+
+
+async def test_browser_module_script_relative_import(snapshot: bytes, tmp_path: Path) -> None:
+    (tmp_path / "helper.js").write_text("export const value = 1;")
+    (tmp_path / "entry.js").write_text("import { value } from './helper.js'; window.__ran = value;")
+    b = await AsyncBrowser(
+        snapshot=snapshot,
+        mounts={"http://localhost/ext/": tmp_path},
+    )
+    await b.runtime.eval_async(
+        _load_script_js("script.type = 'module';", "http://localhost/ext/entry.js")
+    )
+    assert b.runtime.eval("window.__ran") == 1

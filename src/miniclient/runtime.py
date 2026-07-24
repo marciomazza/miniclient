@@ -90,17 +90,42 @@ def _resolver(spec: str, ref: str) -> str | None:
         return f"npm:{spec}"
     if spec.startswith("file://"):
         return spec
+    if spec.startswith("http://") or spec.startswith("https://"):
+        return spec
     return None  # pragma: no cover
 
 
-async def _loader(spec: str) -> str:
-    if spec.startswith("node:"):
-        return _read_cached(_POLYFILLS / _NODE_POLYFILL_FILES[spec.removeprefix("node:")])
-    if spec.startswith("npm:"):
-        return _read_cached(_POLYFILLS / _NPM_POLYFILL_FILES[spec.removeprefix("npm:")])
-    if spec.startswith("file://"):
-        return _read_cached(Path(spec[7:]))
-    raise ValueError(f"Cannot load module: {spec!r}")  # pragma: no cover
+def _match_virtual_server(url: str, virtual_servers: list[VirtualServer]) -> Path | None:
+    """Mirror happy-dom's VirtualServerUtility.getFilepath prefix matching, so
+    module imports resolve mounts the same way classic <script src> does."""
+    for server in virtual_servers:
+        base = server["url"].removesuffix("/")
+        if url.startswith(base):
+            rest = url[len(base) :].split("?")[0].split("#")[0]
+            return Path(server["directory"]) / rest.lstrip("/")
+    return None
+
+
+def _make_loader(
+    virtual_servers: list[VirtualServer], httpx_client: httpx.AsyncClient
+) -> Callable[[str], Awaitable[str]]:
+    async def _loader(spec: str) -> str:
+        if spec.startswith("node:"):
+            return _read_cached(_POLYFILLS / _NODE_POLYFILL_FILES[spec.removeprefix("node:")])
+        if spec.startswith("npm:"):
+            return _read_cached(_POLYFILLS / _NPM_POLYFILL_FILES[spec.removeprefix("npm:")])
+        if spec.startswith("file://"):
+            return _read_cached(Path(spec[7:]))
+        if spec.startswith("http://") or spec.startswith("https://"):
+            mounted = _match_virtual_server(spec, virtual_servers)
+            if mounted is not None:
+                return mounted.read_text()
+            r = await httpx_client.get(spec)
+            r.raise_for_status()
+            return r.text
+        raise ValueError(f"Cannot load module: {spec!r}")  # pragma: no cover
+
+    return _loader
 
 
 def _fs_stat_op(path: str) -> dict:
@@ -198,7 +223,7 @@ async def open_runtime(
         r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
 
         r.set_module_resolver(_resolver)
-        r.set_module_loader(_loader)
+        r.set_module_loader(_make_loader(virtual_servers or [], client))
 
         r.bind_function("__host_fetch", _make_fetch_op(before_fetch, client))
         r.bind_function(
