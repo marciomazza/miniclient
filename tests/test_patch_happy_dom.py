@@ -97,6 +97,25 @@ async def test_history_pushstate_url_parts(runtime, url, expected_pathname, expe
 
 
 # ---------------------------------------------------------------------------
+# Location.hash setter resets history.state instead of carrying it forward
+# ---------------------------------------------------------------------------
+
+
+async def test_location_hash_change_resets_history_state(runtime):
+    # happy-dom bug: the hash setter pushed a new history entry but carried the
+    # *previous* entry's state forward instead of nulling it. Per spec, a
+    # script-driven hash-only navigation always gets a fresh state: null entry
+    # (htmx's hx-history-cache extension relies on this).
+    runtime.eval("""
+        history.replaceState({foo: 1}, '', '/page');
+        location.hash = '#section';
+    """)
+    assert runtime.eval("history.state") is None
+    assert runtime.eval("location.hash") == "#section"
+    assert runtime.eval("location.pathname") == "/page"
+
+
+# ---------------------------------------------------------------------------
 # Element.matches :disabled propagated from <fieldset disabled>
 # ---------------------------------------------------------------------------
 

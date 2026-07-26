@@ -24,6 +24,28 @@ export default function patch(win) {
     });
 
     // -----------------------------------------------------------------------------------
+    // Location.hash setter — happy-dom's own setter pushes a new history entry but carries
+    // the *previous* entry's state forward instead of nulling it. Per spec, a script-driven
+    // hash-only navigation always gets a fresh entry with state: null (only explicit
+    // pushState/replaceState calls carry a state object). Delegate to history.pushState,
+    // which already creates a fresh entry with an explicit state and updates the URL
+    // (including firing hashchange) the same way the original setter did.
+    // -----------------------------------------------------------------------------------
+    {
+        const locProto = Object.getPrototypeOf(win.location);
+        const desc = Object.getOwnPropertyDescriptor(locProto, "hash");
+        Object.defineProperty(locProto, "hash", {
+            get: desc.get,
+            set(hash) {
+                const url = new URL(this.href);
+                url.hash = hash;
+                if (url.hash !== this.hash) win.history.pushState(null, "", url.href);
+            },
+            configurable: true,
+        });
+    }
+
+    // -----------------------------------------------------------------------------------
     // SelectorItem.matchPseudoItem — happy-dom gaps in constraint/disabled pseudo-classes:
     // - :disabled doesn't propagate from an ancestor <fieldset disabled>
     // - :required/:invalid/:valid have no case in the switch at all
