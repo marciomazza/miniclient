@@ -62,12 +62,6 @@
                 seen.add(el);
                 _collectElement(el, this.#data);
             }
-            // form-associated custom elements inside the form (not in form.elements in happy-dom)
-            for (const el of form.querySelectorAll("*")) {
-                if (seen.has(el) || typeof el.__internalsFormValue === "undefined") continue;
-                seen.add(el);
-                _collectElement(el, this.#data);
-            }
             // Elements outside the form that reference it via form="id"
             const formId = form.id;
             if (formId) {

@@ -105,6 +105,34 @@ export default function patch(win) {
     });
 
     // -----------------------------------------------------------------------------------
+    // HTMLFormElement[getFormControlItems] — form-associated custom elements are "listed"
+    // per spec and belong in form.elements, but happy-dom's query only covers
+    // input/select/textarea/button/fieldset/object/output. Without this, form.elements
+    // (and anything built from it, e.g. htmx's __collectFormData dedup set) treats such
+    // elements as absent from the form.
+    // -----------------------------------------------------------------------------------
+    {
+        const _probe = win.document.createElement("form");
+        let _formProto = Object.getPrototypeOf(_probe);
+        while (
+            _formProto &&
+            !Object.getOwnPropertyDescriptor(_formProto, PropertySymbol.getFormControlItems)
+        )
+            _formProto = Object.getPrototypeOf(_formProto);
+        if (_formProto) {
+            patchMethod(_formProto, PropertySymbol.getFormControlItems, function (_orig) {
+                const items = _orig.call(this);
+                for (const el of this.querySelectorAll("*")) {
+                    if (typeof el.__internalsFormValue !== "undefined" && !items.includes(el)) {
+                        items.push(el);
+                    }
+                }
+                return items;
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------------------
     // document.getElementById — doesn't respect tree order with duplicate IDs
     // (e.g. when htmx stores a preserved element in a pantry node after <body>)
     // -----------------------------------------------------------------------------------
