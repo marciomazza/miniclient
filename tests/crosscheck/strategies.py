@@ -111,7 +111,7 @@ class SimpleElement:
 
 @st.composite
 def st_htmx_node(draw) -> SimpleElement:
-    tag = draw(st.sampled_from(("div", "span", "button")))
+    tag = draw(st.sampled_from(("div", "span", "button", "a")))
     method = draw(st.from_type(HxMethod))
     return SimpleElement(
         tag=tag,
