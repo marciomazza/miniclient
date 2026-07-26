@@ -194,11 +194,8 @@ def test_gc_panic_regression(tmp_path: Path, name: str, body: str) -> None:
     assert result.stderr == ""
 
 
-def test_close_clears_runtime_on_held_elements(v8_snapshot: bytes) -> None:
-    # prevents runtime panic when el is garbage collected in another thread
-    b = Browser(v8_snapshot=v8_snapshot)
-    b.load("<p id='p'>hi</p>")
-    el = b.find("#p")
-    assert el is not None
-    b.close()
-    assert el._runtime is None
+async def test_browser_rejects_running_event_loop() -> None:
+    # Browser drives its own event loop on the caller's thread; it can't nest
+    # inside one that's already running (e.g. this test coroutine's own loop).
+    with pytest.raises(RuntimeError, match="running event loop"):
+        Browser()

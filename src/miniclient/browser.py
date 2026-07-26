@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 import weakref
-from collections.abc import Callable, Coroutine
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Self, TypeVar, cast
@@ -251,9 +249,6 @@ class AsyncFormElement(AsyncElement, AsyncFormElementBase):
     """A <form> element. Exposes requestSubmit(), which is form-only."""
 
 
-_T = TypeVar("_T")
-
-
 class AsyncBrowser(_FindMixin[_E], Generic[_E]):
     _root_js = "document"
     _element_cls: type[_E] = AsyncElement  # type: ignore[bad-assignment]
@@ -344,53 +339,34 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
 
 # --- Synchronous facade ---
 #
-# jsrun's Runtime is not thread-safe: every call must happen on the thread
-# that created it. _BackgroundLoop owns one dedicated thread + event loop and
-# routes every runtime-touching call through it — including reads that are
-# plain synchronous methods on AsyncElement/AsyncBrowser (find, html, text,
-# ...) — since those still call the underlying Runtime's eval() directly.
+# jsrun's Runtime must be created, called, and garbage-collected on the same
+# thread. Browser satisfies this by creating its own persistent event loop
+# on the caller's own thread (never a separate thread) and driving every
+# async-facing call through `loop.run_until_complete()`; plain reads (find,
+# eval, attr, ...) call straight through with no loop involved at all, since
+# they're already synchronous. Because everything -- creation, calls, and
+# eventual GC -- happens on that one thread, jsrun's cross-thread panic can't
+# occur here regardless of what a caller does with a returned Element.
+#
+# This only works if the caller's thread has no event loop of its own
+# already running (asyncio can't nest run_until_complete on one thread) --
+# Browser.__init__ checks for that and raises up front rather than let a
+# violation surface later as a cryptic RuntimeError. Async callers should use
+# AsyncBrowser instead.
 
-# Element construction needs to know which _BackgroundLoop owns its Runtime;
-# looked up explicitly by Runtime identity rather than assumed from "what
-# thread is this running on".
-_loop_by_runtime: weakref.WeakKeyDictionary[Runtime, "_BackgroundLoop"] = (
+# Element construction needs to know which loop drives its Runtime; looked
+# up explicitly by Runtime identity since it's not otherwise passed through
+# the shared _FindMixin._make_element() construction path.
+_loop_by_runtime: weakref.WeakKeyDictionary[Runtime, asyncio.AbstractEventLoop] = (
     weakref.WeakKeyDictionary()
 )
 
 
-async def _call(fn: Callable[[], _T]) -> _T:
-    return fn()
-
-
-class _BackgroundLoop:
-    """Owns one asyncio event loop running in a dedicated background thread,
-    plus the set of every Element ever created on it — regardless of whether
-    it came from Browser.find() or a child Element.find() — so close() can
-    defuse all of them, not just top-level ones.
-    """
-
-    def __init__(self) -> None:
-        self._loop = asyncio.new_event_loop()
-        self.elements: weakref.WeakSet[Element] = weakref.WeakSet()
-        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
-        self._thread.start()
-
-    def run(self, coro: Coroutine[object, object, _T]) -> _T:
-        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
-
-    def run_sync(self, fn: Callable[[], _T]) -> _T:
-        return self.run(_call(fn))
-
-    def close(self) -> None:
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join()
-        self._loop.close()
-
-
 class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     """Sync-facade element: `AsyncElementBase` + find()/find_all() that
-    return `Element`, with every method routed through the background
-    thread that owns the Runtime.
+    return `Element`. Async-facing methods (trigger/fill) run to completion
+    on the same event loop as the owning `Browser`; reads call straight
+    through to the inherited `AsyncElementBase`/`_FindMixin` implementation.
     """
 
     def __init__(
@@ -400,7 +376,6 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     ) -> None:
         super().__init__(handle, runtime)
         self._loop = _loop_by_runtime[runtime]
-        self._loop.elements.add(self)
 
     def click(self) -> None:  # type: ignore[override]
         """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
@@ -408,17 +383,11 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
 
     def trigger(self, event: str, event_init: dict | None = None) -> None:  # type: ignore[override]
         """Dispatch a DOM event and wait for htmx to settle."""
-        self._loop.run(AsyncElementBase.trigger(self, event, event_init))
+        self._loop.run_until_complete(AsyncElementBase.trigger(self, event, event_init))
 
     def fill(self, value: str) -> None:  # type: ignore[override]
         """Set the element's value, dispatch `change`, and wait for htmx to settle."""
-        self._loop.run(AsyncElementBase.fill(self, value))
-
-    def _eval(self, expr: str) -> object:
-        return self._loop.run_sync(lambda: AsyncElementBase._eval(self, expr))
-
-    def _make_element(self, handle: int, tag: str) -> Element:
-        return self._loop.run_sync(lambda: _FindMixin._make_element(self, handle, tag))
+        self._loop.run_until_complete(AsyncElementBase.fill(self, value))
 
 
 class FormElement(Element, AsyncFormElementBase):
@@ -430,7 +399,7 @@ class FormElement(Element, AsyncFormElementBase):
         If htmx handles the submission, waits for htmx to settle.
         If the form is not htmx-wired, performs a plain fetch and reloads the page.
         """
-        self._loop.run(AsyncFormElementBase.requestSubmit(self))
+        self._loop.run_until_complete(AsyncFormElementBase.requestSubmit(self))
 
 
 form_classes = {AsyncElement: AsyncFormElement, Element: FormElement}
@@ -439,15 +408,12 @@ Element._element_cls = Element
 
 
 class Browser:
-    """Synchronous facade over AsyncBrowser, backed by a dedicated background thread.
+    """Synchronous facade over AsyncBrowser, running on a persistent event
+    loop on the caller's own thread (see the "Synchronous facade" note
+    above).
 
-    jsrun's Runtime panics (at the Rust level, uncatchable-looking but not
-    fatal to the process) if it is ever garbage-collected on a thread other
-    than the one that created it — not just called from one. close() defuses
-    this by clearing every reference it knows about (its own and every
-    Element/FormElement it has ever handed out) while still running on the
-    background thread, so a caller holding onto a stale Element after close()
-    can't trigger the panic when that Element is eventually collected.
+    Must not be constructed from a thread that already has a running event
+    loop (e.g. inside `async def` code) — use AsyncBrowser there instead.
     """
 
     def __init__(
@@ -456,61 +422,58 @@ class Browser:
         mounts: dict[str, Path] | None = None,
         v8_snapshot: bytes | None = None,
     ) -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(
+                "Browser() can't be used on a thread with a running event loop "
+                "(e.g. inside `async def` code) — use AsyncBrowser instead."
+            )
+
         self._closed = False
-        self._loop = _BackgroundLoop()
+        self._loop = asyncio.new_event_loop()
         self._async: AsyncBrowser[Element] = AsyncBrowser(
             httpx_transport=httpx_transport,
             mounts=mounts,
             v8_snapshot=v8_snapshot,
         )
         self._async._element_cls = Element
-        self._loop.run(self._async._build())
+        self._loop.run_until_complete(self._async._build())
         _loop_by_runtime[self._async.runtime] = self._loop
 
     def eval(self, code: str) -> object:
-        """Evaluate arbitrary JavaScript and return the result.
-
-        Unlike AsyncBrowser, Browser does not expose a `.runtime` property:
-        the raw Runtime is not thread-safe, so any direct use of it from the
-        caller's thread would risk the same cross-thread panic close()
-        otherwise defuses. Use this method (or find()/goto()/load()) instead.
-        """
-        return self._loop.run_sync(lambda: self._async.runtime.eval(code))
+        """Evaluate arbitrary JavaScript and return the result."""
+        return self._async.runtime.eval(code)
 
     @property
     def url(self) -> str:
         """The current document URL (`location.href`)."""
-        return self._loop.run_sync(lambda: self._async.url)
+        return self._async.url
 
     def find(self, selector: str, text: str | None = None) -> Element | None:
         """Return the first matching element, or None if not found."""
-        return self._loop.run_sync(lambda: self._async.find(selector, text))
+        return self._async.find(selector, text)
 
     def find_all(self, selector: str, text: str | None = None) -> list[Element]:
         """Return all matching elements."""
-        return self._loop.run_sync(lambda: self._async.find_all(selector, text))
+        return self._async.find_all(selector, text)
 
     def goto(self, url: str) -> None:
         """Fetch url, load the full document, and process htmx."""
-        self._loop.run(self._async.goto(url))
+        self._loop.run_until_complete(self._async.goto(url))
 
     def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""
-        self._loop.run(self._async.load(html))
+        self._loop.run_until_complete(self._async.load(html))
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-
-        async def _shutdown() -> None:
-            await self._async.aclose()
-            self._async._runtime = None  # type: ignore[assignment]
-            for el in list(self._loop.elements):
-                el._runtime = None  # type: ignore[assignment]
-
         try:
-            self._loop.run(_shutdown())
+            self._loop.run_until_complete(self._async.aclose())
         finally:
             self._loop.close()
 
