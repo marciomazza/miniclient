@@ -322,4 +322,15 @@ export default function patch(win) {
     // properties across at startup), so win.DOMParser would miss patchDomParser's
     // table-repair wrapper, which lives on globalThis.DOMParser.
     win.Document.parseHTMLUnsafe = (html) => new DOMParser().parseFromString(html, "text/html");
+
+    // -----------------------------------------------------------------------------------
+    // Response.prototype.bytes — a newer Fetch spec addition (real browsers shipped it a
+    // few years back); happy-dom's Response still only has arrayBuffer()/text()/blob().
+    // hx-multipart.js calls it directly (`new Response(this.body).bytes()`).
+    // -----------------------------------------------------------------------------------
+    if (typeof win.Response.prototype.bytes !== "function") {
+        win.Response.prototype.bytes = async function () {
+            return new Uint8Array(await this.arrayBuffer());
+        };
+    }
 }
