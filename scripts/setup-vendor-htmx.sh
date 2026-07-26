@@ -2,7 +2,7 @@
 # Clones bigskysoftware/htmx at a pinned tag into vendor/htmx for local dev/testing.
 set -euo pipefail
 
-TAG="v4.0.0-beta5"
+TAG="v4.0.0-beta6"
 REPO="git@github.com:bigskysoftware/htmx.git"
 DEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/vendor/htmx"
 
