@@ -210,7 +210,20 @@ async def test_fetch_sends_arbitrary_headers(runtime, httpx_mock, headers):
     ).filter(
         lambda d: (
             len({k.lower() for k in d}) == len(d)
-            and all(k.lower() not in {"__proto__", "constructor", "prototype"} for k in d)
+            and all(
+                k.lower()
+                not in {
+                    "__proto__",
+                    "constructor",
+                    "prototype",
+                    # headers computed by the transport, not passed through as-is
+                    # httpx_mock recomputes these regardless of what we ask it to send
+                    "content-length",
+                    "transfer-encoding",
+                    "connection",
+                }
+                for k in d
+            )
         )
     )
 )
