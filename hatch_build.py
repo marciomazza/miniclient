@@ -9,3 +9,6 @@ class CustomBuildHook(BuildHookInterface):
         node_modules = Path(self.root) / "node_modules"
         if not (node_modules / "htmx.org").exists():
             subprocess.run(["npm", "ci"], cwd=self.root, check=True)
+        subprocess.run(
+            ["node", "src/miniclient/js/build-happydom-bundle.mjs"], cwd=self.root, check=True
+        )

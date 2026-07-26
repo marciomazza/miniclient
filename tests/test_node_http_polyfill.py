@@ -42,6 +42,25 @@ async def test_script_src_real_network_executes(runtime, httpx_mock, attr_setup_
     assert result == 1
 
 
+async def test_module_script_relative_import_real_network(runtime, httpx_mock):
+    httpx_mock.add_response(
+        url="http://localhost/entry.js",
+        text="import { value } from './helper.js'; window.__ran = value;",
+    )
+    httpx_mock.add_response(url="http://localhost/helper.js", text="export const value = 1;")
+    result = await runtime.eval_async("""
+        new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.type = 'module';
+          script.src = 'http://localhost/entry.js';
+          script.onload = () => resolve(window.__ran);
+          script.onerror = () => reject(new Error('script failed to load'));
+          document.head.appendChild(script);
+        });
+    """)
+    assert result == 1
+
+
 async def test_script_src_non_ok_status_fires_error_not_exception(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/missing.js", status_code=404)
     result = await runtime.eval_async("""

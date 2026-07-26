@@ -1,8 +1,23 @@
-import { Window, PropertySymbol } from "happy-dom";
-import CookieStringUtility from "happy-dom/lib/cookie/urilities/CookieStringUtility.js";
-import FetchCORSUtility from "happy-dom/lib/fetch/utilities/FetchCORSUtility.js";
-import WindowBrowserContext from "happy-dom/lib/window/WindowBrowserContext.js";
-import patchHappyDom from "./patch-happy-dom.js";
+// Window, PropertySymbol, CookieStringUtility, FetchCORSUtility, WindowBrowserContext and
+// patchHappyDom all come from globalThis.__happyDomBundle instead of `import`, because that
+// bundle (built by build-happydom-bundle.mjs) is baked into the V8 snapshot: importing
+// happy-dom's ~500-file module graph fresh on every Runtime() startup cost ~100ms of a
+// ~110ms open_runtime() call, almost all of it V8 parsing/compiling that graph rather than
+// running it.
+const {
+    Window,
+    PropertySymbol,
+    CookieStringUtility,
+    FetchCORSUtility,
+    WindowBrowserContext,
+    patchHappyDom,
+    __refreshStreamGlobals,
+} = globalThis.__happyDomBundle;
+
+// The jsrun host only provides ReadableStream once a real Runtime starts, which is after
+// the bundle above was baked into the snapshot — refresh node-stream-web.js's cached
+// reference (and its async-iterator patch) now that it actually exists.
+__refreshStreamGlobals();
 
 // Snapshot the global names that already exist before Window is constructed: native
 // jsrun/V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
