@@ -251,6 +251,22 @@ export default function patch(win) {
         };
     });
 
+    // -----------------------------------------------------------------------------------
+    // Node[connectedToNode] — for node types whose constructor returns a Proxy standing in
+    // for `this` (HTMLFormElement, HTMLSelectElement — needed for named-item access like
+    // form.username), the proxy's `get` trap permanently binds every symbol-keyed method to
+    // the raw target the first time it's read. connectedToNode then stamps
+    // `childNodes[i][parentNode] = this` using that raw target instead of the canonical
+    // proxy, so a child's `.parentElement` and the parent's own `.querySelector()`/
+    // `.firstChild` end up disagreeing about node identity after any move (appendChild/
+    // insertBefore). Force `this` back to the proxy (if any) before delegating, mirroring
+    // how appendChild/insertBefore/removeChild already resolve
+    // `self = this[PropertySymbol.proxy] || this` elsewhere in happy-dom's own Node.js.
+    // -----------------------------------------------------------------------------------
+    patchMethod(win.Node.prototype, PropertySymbol.connectedToNode, function (_orig) {
+        return _orig.call(this[PropertySymbol.proxy] || this);
+    });
+
     patchURL(win);
     patchDomParser(win);
     patchAttr(win);

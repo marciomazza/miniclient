@@ -157,6 +157,31 @@ async def test_getelementbyid_returns_first_in_tree_order(runtime):
 
 
 # ---------------------------------------------------------------------------
+# Node[connectedToNode] preserves proxy identity for form/select after a move
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tag, child_tag",
+    [("form", "input"), ("select", "option")],
+)
+async def test_moved_form_or_select_child_parent_identity_preserved(runtime, tag, child_tag):
+    # happy-dom bug: <form>/<select> constructors return a Proxy; moving one via
+    # appendChild left a child's .parentElement pointing at a different object than
+    # the new parent's own .firstChild — silently broke any ===/Map identity check.
+    result = runtime.eval(f"""
+        const helper = document.createElement('div');
+        helper.innerHTML = '<{tag} id="src"><{child_tag} id="x"></{child_tag}></{tag}>';
+        const moved = helper.firstChild;
+        const child = moved.firstChild;
+        const dest = document.createElement('div');
+        dest.appendChild(moved);
+        child.parentElement === dest.firstChild;
+    """)
+    assert result is True
+
+
+# ---------------------------------------------------------------------------
 # EventTarget.dispatchEvent sets globalThis.event
 # ---------------------------------------------------------------------------
 
