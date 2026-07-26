@@ -33,7 +33,8 @@ _INFRA_JS = "\n".join([
 ])
 
 
-@pytest.fixture(scope="module")
+# todo: Perhaps make this a module scoped feature again after the tests pass.
+@pytest.fixture
 async def htmx_runtime(v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
     async with open_runtime(
