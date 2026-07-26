@@ -4,7 +4,7 @@ icon: lucide/zap
 
 # miniclient
 
-A minimal **python http client that runs JavaScript**, without a browser.<br>
+A minimal **python http client that runs real JS/DOM**, without a browser.<br>
 Meant to be used as a lightweight test client to simulate browser interactions.<br>
 Embeds a V8 Runtime, DOM, and is designed to run [htmx](https://htmx.org) especially well.
 
