@@ -350,7 +350,12 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
 # plain synchronous methods on AsyncElement/AsyncBrowser (find, html, text,
 # ...) — since those still call the underlying Runtime's eval() directly.
 
-_bridge_loop: threading.local = threading.local()
+# Element construction needs to know which _BackgroundLoop owns its Runtime;
+# looked up explicitly by Runtime identity rather than assumed from "what
+# thread is this running on".
+_loop_by_runtime: weakref.WeakKeyDictionary[Runtime, "_BackgroundLoop"] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 async def _call(fn: Callable[[], _T]) -> _T:
@@ -367,12 +372,7 @@ class _BackgroundLoop:
     def __init__(self) -> None:
         self._loop = asyncio.new_event_loop()
         self.elements: weakref.WeakSet[Element] = weakref.WeakSet()
-
-        def _run() -> None:
-            _bridge_loop.loop = self
-            self._loop.run_forever()
-
-        self._thread = threading.Thread(target=_run, daemon=True)
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
 
     def run(self, coro: Coroutine[object, object, _T]) -> _T:
@@ -399,7 +399,7 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
         runtime: Runtime,
     ) -> None:
         super().__init__(handle, runtime)
-        self._loop: _BackgroundLoop = _bridge_loop.loop
+        self._loop = _loop_by_runtime[runtime]
         self._loop.elements.add(self)
 
     def click(self) -> None:  # type: ignore[override]
@@ -465,6 +465,7 @@ class Browser:
         )
         self._async._element_cls = Element
         self._loop.run(self._async._build())
+        _loop_by_runtime[self._async.runtime] = self._loop
 
     def eval(self, code: str) -> object:
         """Evaluate arbitrary JavaScript and return the result.
