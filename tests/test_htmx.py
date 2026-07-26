@@ -34,11 +34,11 @@ _INFRA_JS = "\n".join([
 
 
 @pytest.fixture(scope="module")
-async def htmx_runtime(snapshot: bytes) -> AsyncGenerator[Runtime, None]:
+async def htmx_runtime(v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
     async with open_runtime(
         "http://localhost/",
-        snapshot=snapshot,
+        v8_snapshot=v8_snapshot,
         before_fetch=fetch_mock.before_fetch,
         httpx_transport=fetch_mock.transport,
         virtual_servers=[HTMX_VIRTUAL_SERVER],

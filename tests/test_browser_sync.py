@@ -16,9 +16,9 @@ from miniclient.browser import Browser, Element, FormElement
 
 
 @pytest.fixture
-def browser(snapshot: bytes) -> Iterator[Browser]:
+def browser(v8_snapshot: bytes) -> Iterator[Browser]:
     """A fresh Browser, closed automatically unless the test closes it first."""
-    b = Browser(snapshot=snapshot)
+    b = Browser(v8_snapshot=v8_snapshot)
     try:
         yield b
     finally:
@@ -26,10 +26,10 @@ def browser(snapshot: bytes) -> Iterator[Browser]:
 
 
 @pytest.fixture
-def htmx_browser(snapshot: bytes) -> Iterator[Browser]:
+def htmx_browser(v8_snapshot: bytes) -> Iterator[Browser]:
     """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
     b = Browser(
-        snapshot=snapshot,
+        v8_snapshot=v8_snapshot,
         mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])},
     )
     b.load(HTMX_BASE_HTML)
@@ -118,16 +118,16 @@ def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPX
 # ---------------------------------------------------------------------------
 
 
-def test_browser_context_manager_closes(snapshot: bytes) -> None:
-    with Browser(snapshot=snapshot) as b:
+def test_browser_context_manager_closes(v8_snapshot: bytes) -> None:
+    with Browser(v8_snapshot=v8_snapshot) as b:
         b.load("<p>hi</p>")
         assert b.find("p") is not None
     assert b._closed
 
 
-def test_browser_virtual_servers(snapshot: bytes, tmp_path: Path) -> None:
+def test_browser_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    with Browser(snapshot=snapshot, mounts={"http://localhost/ext/": tmp_path}) as b:
+    with Browser(v8_snapshot=v8_snapshot, mounts={"http://localhost/ext/": tmp_path}) as b:
         b.eval(
             """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
         )
@@ -194,9 +194,9 @@ def test_gc_panic_regression(tmp_path: Path, name: str, body: str) -> None:
     assert result.stderr == ""
 
 
-def test_close_clears_runtime_on_held_elements(snapshot: bytes) -> None:
+def test_close_clears_runtime_on_held_elements(v8_snapshot: bytes) -> None:
     # prevents runtime panic when el is garbage collected in another thread
-    b = Browser(snapshot=snapshot)
+    b = Browser(v8_snapshot=v8_snapshot)
     b.load("<p id='p'>hi</p>")
     el = b.find("#p")
     assert el is not None

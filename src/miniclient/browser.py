@@ -269,7 +269,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
-        snapshot: bytes | None = None,
+        v8_snapshot: bytes | None = None,
         *,
         runtime: Runtime | None = None,
         element_cls: type[_E] = AsyncElement,
@@ -277,7 +277,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
     ) -> None:
         self._httpx_transport = httpx_transport
         self._mounts = mounts
-        self._snapshot = snapshot
+        self._v8_snapshot = v8_snapshot
         self._runtime = runtime  # type: ignore[assignment]
         self._element_cls = element_cls
         self._form_element_cls = form_element_cls
@@ -296,7 +296,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
             self._stack = AsyncExitStack()  # type: ignore[assignment]
             self._runtime = await self._stack.enter_async_context(
                 open_runtime(
-                    snapshot=self._snapshot,
+                    v8_snapshot=self._v8_snapshot,
                     httpx_transport=self._httpx_transport,
                     virtual_servers=[
                         {"url": mount_url, "directory": str(directory)}
@@ -459,14 +459,14 @@ class Browser:
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
-        snapshot: bytes | None = None,
+        v8_snapshot: bytes | None = None,
     ) -> None:
         self._closed = False
         self._loop = _BackgroundLoop()
         self._async: AsyncBrowser[Element] = AsyncBrowser(
             httpx_transport=httpx_transport,
             mounts=mounts,
-            snapshot=snapshot,
+            v8_snapshot=v8_snapshot,
             element_cls=Element,
             form_element_cls=FormElement,
         )

@@ -14,9 +14,9 @@ from miniclient.browser import AsyncBrowser, AsyncElement, AsyncFormElement
 
 
 @pytest_asyncio.fixture
-async def browser(snapshot: bytes) -> AsyncIterator[AsyncBrowser]:
+async def browser(v8_snapshot: bytes) -> AsyncIterator[AsyncBrowser]:
     """A fresh htmx-loaded AsyncBrowser, closed automatically unless the test closes it first."""
-    b = await AsyncBrowser(snapshot=snapshot)
+    b = await AsyncBrowser(v8_snapshot=v8_snapshot)
     b.runtime.eval("""__document_write(`
         <!DOCTYPE html>
         <html>
@@ -329,10 +329,10 @@ async def test_form_request_submit_plain(
 # ---------------------------------------------------------------------------
 
 
-async def test_browser_create_with_virtual_servers(snapshot: bytes, tmp_path: Path) -> None:
+async def test_browser_create_with_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await AsyncBrowser(
-        snapshot=snapshot,
+        v8_snapshot=v8_snapshot,
         mounts={"http://localhost/ext/": tmp_path},
     )
     b.runtime.eval(
@@ -361,11 +361,11 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
     ids=["async", "defer", "module"],
 )
 async def test_browser_script_src_virtual_server(
-    snapshot: bytes, tmp_path: Path, attr_setup_js: str
+    v8_snapshot: bytes, tmp_path: Path, attr_setup_js: str
 ) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await AsyncBrowser(
-        snapshot=snapshot,
+        v8_snapshot=v8_snapshot,
         mounts={"http://localhost/ext/": tmp_path},
     )
     await b.runtime.eval_async(
@@ -374,11 +374,11 @@ async def test_browser_script_src_virtual_server(
     assert b.runtime.eval("window.__ran") == 1
 
 
-async def test_browser_module_script_relative_import(snapshot: bytes, tmp_path: Path) -> None:
+async def test_browser_module_script_relative_import(v8_snapshot: bytes, tmp_path: Path) -> None:
     (tmp_path / "helper.js").write_text("export const value = 1;")
     (tmp_path / "entry.js").write_text("import { value } from './helper.js'; window.__ran = value;")
     b = await AsyncBrowser(
-        snapshot=snapshot,
+        v8_snapshot=v8_snapshot,
         mounts={"http://localhost/ext/": tmp_path},
     )
     await b.runtime.eval_async(
@@ -388,11 +388,11 @@ async def test_browser_module_script_relative_import(snapshot: bytes, tmp_path: 
 
 
 async def test_browser_load_fires_dom_content_loaded_after_module_script(
-    snapshot: bytes, tmp_path: Path
+    v8_snapshot: bytes, tmp_path: Path
 ) -> None:
     (tmp_path / "entry.js").write_text(
         "document.addEventListener('DOMContentLoaded', () => { window.__dclFired = true; });"
     )
-    b = await AsyncBrowser(snapshot=snapshot, mounts={"http://localhost/ext/": tmp_path})
+    b = await AsyncBrowser(v8_snapshot=v8_snapshot, mounts={"http://localhost/ext/": tmp_path})
     await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
     assert b.runtime.eval("window.__dclFired") is True

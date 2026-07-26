@@ -7,7 +7,7 @@
  * fetchMock.calls[0].request.body (FormData) remains accessible to tests.
  */
 (function () {
-    // Captured lazily by installFetchMock() so the snapshot build (which
+    // Captured lazily by installFetchMock() so the v8_snapshot build (which
     // runs before bootstrap.js sets globalThis.fetch) does not capture undefined.
     let _origFetch = null;
 

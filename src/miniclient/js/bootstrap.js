@@ -6,7 +6,7 @@ import patchHappyDom from "./patch-happy-dom.js";
 
 // Snapshot the global names that already exist before Window is constructed: native
 // jsrun/V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
-// polyfills baked into the snapshot (FormData, CSS, setTimeout/setInterval, console,
+// polyfills baked into the v8_snapshot (FormData, CSS, setTimeout/setInterval, console,
 // atob/btoa, ...). Window provides its own same-named versions of several of these
 // (e.g. FormData, setTimeout) that are worse fits for jsrun; the registration step
 // below must not let its blanket copy overwrite something that was already there.

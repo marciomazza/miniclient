@@ -9,8 +9,8 @@ def _app(environ: WSGIEnvironment, start_response: StartResponse):
     return [b"<html><body><p id='msg'>hello from wsgi</p></body></html>"]
 
 
-async def test_goto_via_wsgi_transport(snapshot: bytes) -> None:
-    browser = await AsyncBrowser(snapshot=snapshot, httpx_transport=WSGITransport(app=_app))
+async def test_goto_via_wsgi_transport(v8_snapshot: bytes) -> None:
+    browser = await AsyncBrowser(v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_app))
     try:
         await browser.goto("http://testserver/")
         el = browser.find("#msg")
@@ -20,12 +20,12 @@ async def test_goto_via_wsgi_transport(snapshot: bytes) -> None:
         browser.close()
 
 
-async def test_sync_xhr_via_wsgi_transport(snapshot: bytes) -> None:
+async def test_sync_xhr_via_wsgi_transport(v8_snapshot: bytes) -> None:
     # WSGITransport is async-only (handle_async_request, no handle_request), so a
     # sync XHR going through the old per-call `httpx.Client(transport=...)` would
     # raise AttributeError. Regression test for routing sync fetch through the
     # shared AsyncClient instead.
-    browser = await AsyncBrowser(snapshot=snapshot, httpx_transport=WSGITransport(app=_app))
+    browser = await AsyncBrowser(v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_app))
     try:
         await browser.goto("http://testserver/")
         result = await browser.runtime.eval_async("""

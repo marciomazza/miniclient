@@ -338,8 +338,8 @@ async def test_clearinterval_stops_firing(runtime):
           }, 10);
           setTimeout(() => {
             clearInterval(id);
-            const snapshot = count;
-            setTimeout(() => resolve(snapshot === count), 50);
+            const current_count = count;
+            setTimeout(() => resolve(current_count === count), 50);
           }, 35);
         });
     """)

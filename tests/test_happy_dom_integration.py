@@ -48,10 +48,10 @@ async def test_script_with_data_uri_src_executed(runtime):
     assert result == 1
 
 
-async def test_script_with_external_file_src_executed(snapshot, tmp_path):
+async def test_script_with_external_file_src_executed(v8_snapshot, tmp_path):
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     async with open_runtime(
-        snapshot=snapshot,
+        v8_snapshot=v8_snapshot,
         virtual_servers=[{"url": "http://localhost/ext/", "directory": str(tmp_path)}],
     ) as runtime:
         result = runtime.eval("""

@@ -41,7 +41,7 @@ HTMX_VIRTUAL_SERVER: VirtualServer = {
 
 
 @pytest.fixture(scope="session")
-def snapshot() -> bytes:
+def v8_snapshot() -> bytes:
     builder = get_snapshot_builder()
     builder.execute_script(
         "chai",
@@ -55,6 +55,6 @@ def snapshot() -> bytes:
 
 
 @pytest_asyncio.fixture
-async def runtime(snapshot: bytes) -> AsyncIterator[Runtime]:
-    async with open_runtime(snapshot=snapshot, virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
+async def runtime(v8_snapshot: bytes) -> AsyncIterator[Runtime]:
+    async with open_runtime(v8_snapshot=v8_snapshot, virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
         yield r

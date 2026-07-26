@@ -65,7 +65,7 @@ def get_snapshot_builder() -> SnapshotBuilder:
 
 
 @cache
-def _build_snapshot() -> bytes:
+def _build_v8_snapshot() -> bytes:
     return get_snapshot_builder().build()  # pragma: no cover
 
 
@@ -212,7 +212,7 @@ class VirtualServer(TypedDict):
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
-    snapshot: bytes | None = None,
+    v8_snapshot: bytes | None = None,
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
     virtual_servers: list[VirtualServer] | None = None,
@@ -220,7 +220,7 @@ async def open_runtime(
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(RuntimeConfig(snapshot=snapshot or _build_snapshot()))
+        r = Runtime(RuntimeConfig(snapshot=v8_snapshot or _build_v8_snapshot()))
 
         r.set_module_resolver(_resolver)
         r.set_module_loader(_make_loader(virtual_servers or [], client))
