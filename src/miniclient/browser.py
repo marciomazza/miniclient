@@ -7,7 +7,7 @@ import weakref
 from collections.abc import Callable, Coroutine
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar, cast
+from typing import TYPE_CHECKING, Generic, Self, TypeVar, cast
 
 import httpx2 as httpx
 from jsrun import Runtime
@@ -64,9 +64,8 @@ class _FindMixin(Generic[_E]):
     """Shared find()/find_all(), scoped to whatever `_root_js` resolves to in JS."""
 
     _runtime: Runtime
-    _element_cls: type[_E]
-    _form_element_cls: type[_E]
     _root_js: str
+    _element_cls: type[_E]
 
     if TYPE_CHECKING:
         # Real implementation always comes from a sibling in the MRO
@@ -79,8 +78,8 @@ class _FindMixin(Generic[_E]):
     def _make_element(self, handle: int, tag: str) -> _E:
         """Wrap a matched (handle, tagName) pair in the right Element subclass."""
 
-        cls = self._form_element_cls if tag == "FORM" else self._element_cls
-        return cls(handle, self._runtime, self._element_cls, self._form_element_cls)
+        cls = form_classes[self._element_cls] if tag == "FORM" else self._element_cls
+        return cls(handle, self._runtime)  # type: ignore[bad-return]
 
     def find(self, selector: str, text: str | None = None) -> _E | None:
         """Return the first matching element, or None if not found.
@@ -138,16 +137,9 @@ class AsyncElementBase(Generic[_E]):
         self,
         handle: int,
         runtime: Runtime,
-        # Loosely typed to the common base rather than `type[_E]`: a generic
-        # class can't statically promise its own __init__ accepts exactly
-        # `type[Self]` for these, so the precise cast happens below instead.
-        element_cls: type[AsyncElementBase[Any]],
-        form_element_cls: type[AsyncElementBase[Any]],
     ) -> None:
         self.handle = handle
         self._runtime = runtime
-        self._element_cls = cast(type[_E], element_cls)
-        self._form_element_cls = cast(type[_E], form_element_cls)
 
     # --- Queries ---
 
@@ -264,6 +256,7 @@ _T = TypeVar("_T")
 
 class AsyncBrowser(_FindMixin[_E], Generic[_E]):
     _root_js = "document"
+    _element_cls: type[_E] = AsyncElement  # type: ignore[bad-assignment]
 
     def __init__(
         self,
@@ -272,15 +265,11 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
         v8_snapshot: bytes | None = None,
         *,
         runtime: Runtime | None = None,
-        element_cls: type[_E] = AsyncElement,
-        form_element_cls: type[_E] = AsyncFormElement,
     ) -> None:
         self._httpx_transport = httpx_transport
         self._mounts = mounts
         self._v8_snapshot = v8_snapshot
         self._runtime = runtime  # type: ignore[assignment]
-        self._element_cls = element_cls
-        self._form_element_cls = form_element_cls
         self._stack: AsyncExitStack | None = None
 
     @property
@@ -405,10 +394,8 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
         self,
         handle: int,
         runtime: Runtime,
-        element_cls: type[Element],
-        form_element_cls: type[Element],
     ) -> None:
-        super().__init__(handle, runtime, element_cls, form_element_cls)
+        super().__init__(handle, runtime)
         self._loop: _BackgroundLoop = _bridge_loop.loop
         self._loop.elements.add(self)
 
@@ -443,6 +430,11 @@ class FormElement(Element, AsyncFormElementBase):
         self._loop.run(AsyncFormElementBase.requestSubmit(self))
 
 
+form_classes = {AsyncElement: AsyncFormElement, Element: FormElement}
+AsyncElement._element_cls = AsyncElement
+Element._element_cls = Element
+
+
 class Browser:
     """Synchronous facade over AsyncBrowser, backed by a dedicated background thread.
 
@@ -467,9 +459,8 @@ class Browser:
             httpx_transport=httpx_transport,
             mounts=mounts,
             v8_snapshot=v8_snapshot,
-            element_cls=Element,
-            form_element_cls=FormElement,
         )
+        self._async._element_cls = Element
         self._loop.run(self._async._build())
 
     def eval(self, code: str) -> object:
