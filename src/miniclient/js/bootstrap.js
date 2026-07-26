@@ -14,9 +14,10 @@ const {
     __refreshStreamGlobals,
 } = globalThis.__happyDomBundle;
 
-// The jsrun host only provides ReadableStream once a real Runtime starts, which is after
-// the bundle above was baked into the snapshot — refresh node-stream-web.js's cached
-// reference (and its async-iterator patch) now that it actually exists.
+// Reassert node-stream-web.js's spec-compliant ReadableStream/WritableStream/
+// TransformStream onto globalThis: jsrun's own runtime installs its own (admittedly
+// minimal) ReadableStream fallback once a real Runtime starts, which is after the bundle
+// above was baked into the snapshot, so it can otherwise still win.
 __refreshStreamGlobals();
 
 // Snapshot the global names that already exist before Window is constructed: native
