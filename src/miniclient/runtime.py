@@ -20,9 +20,27 @@ _POLYFILLS = _JS / "polyfills"
 _HAPPYDOM_BUNDLE = _JS / "_generated" / "happy-dom-bundle.js"
 
 
+def _happydom_bundle_source_list() -> list[Path]:
+    # Nearly every file in polyfills/ ends up inlined into the bundle (happy-dom's static
+    # import graph reaches almost all Node builtins) -- glob instead of hand-listing, so a
+    # new polyfill file can't silently go unwatched the way node-stream-web.js's staleness
+    # check originally did.
+    return [
+        _JS / "build-happydom-bundle.mjs",
+        _JS / "happydom-entry.js",
+        *_JS.glob("patch-*.js"),
+        *_POLYFILLS.glob("*.js"),
+    ]
+
+
 def _happydom_bundle_source() -> str:
-    if not _HAPPYDOM_BUNDLE.exists():
-        # Packaged wheels ship this pre-built; a local checkout builds it once on first use.
+    stale = not _HAPPYDOM_BUNDLE.exists() or any(
+        p.stat().st_mtime > _HAPPYDOM_BUNDLE.stat().st_mtime for p in _happydom_bundle_source_list()
+    )
+    if stale:
+        # Packaged wheels ship this pre-built; a local checkout (re)builds it here on first
+        # use or whenever one of the files above changes. Doesn't track node_modules/happy-dom
+        # itself -- after bumping that version, also `rm -rf src/miniclient/js/_generated`.
         subprocess.run(
             ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True
         )  # pragma: no cover
