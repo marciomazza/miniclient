@@ -131,8 +131,7 @@ def st_htmx_node(draw) -> SimpleElement:
 
 def _page_with_node(node) -> bytes:
     return dedent(f"""\
-        <html><head></head><body>
-          <script src="/htmx.js"></script>
+        <html><head><script src="/htmx.js"></script></head><body>
           {node.html}
           <div id="result"></div>
           <input id="out-a" name="out_a" value="1">
@@ -504,10 +503,9 @@ def st_rich_page(draw) -> SimpleNamespace:
 
     elements_html = "\n  ".join(e.html for e in all_elements)
     html = dedent(f"""\
-        <html><head></head><body>
-          <script src="/htmx.js"></script>
-          <!-- anchor: ensures hx-target="previous" on the first generated element
-               resolves here rather than to the <script> tag above -->
+        <html><head><script src="/htmx.js"></script></head><body>
+          <!-- anchor: gives hx-target="previous" on the first generated element
+               a real content element to resolve to -->
           <div id="anchor"></div>
           {elements_html}
           <div id="result"></div>
