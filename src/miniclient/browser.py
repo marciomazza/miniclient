@@ -327,6 +327,9 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
             self.close()
 
     def __enter__(self) -> Self:
+        assert self._runtime is not None, (
+            "AsyncBrowser not built yet — await it or use `async with`"
+        )
         return self
 
     def __exit__(self, *_: object) -> None:
