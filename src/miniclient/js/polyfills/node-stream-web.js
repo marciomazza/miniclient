@@ -28,6 +28,20 @@ export function __refreshStreamGlobals() {
             }
         };
     }
+
+    // This engine's getReader() returns a plain object (read/cancel as own properties,
+    // no shared reader prototype to patch once), and it has no releaseLock at all —
+    // there's no multi-reader lock to release here, so callers that follow the spec and
+    // call reader.releaseLock() unconditionally (e.g. htmx's hx-multipart extension) throw.
+    if (!ReadableStream.prototype.getReader.__patchedReleaseLock) {
+        const _origGetReader = ReadableStream.prototype.getReader;
+        ReadableStream.prototype.getReader = function (...args) {
+            const reader = _origGetReader.apply(this, args);
+            if (reader && typeof reader.releaseLock !== "function") reader.releaseLock = () => {};
+            return reader;
+        };
+        ReadableStream.prototype.getReader.__patchedReleaseLock = true;
+    }
 }
 
 if (typeof globalThis.ReadableStream !== "undefined") __refreshStreamGlobals();

@@ -59,12 +59,16 @@
 
             if (typeof response === "string") {
                 body = response;
-            } else if (typeof response === "function") {
+            } else if (typeof response === "function" || response instanceof Response) {
+                // A real Response can't be registered through the Python-backed
+                // __host_fm_register (its body/headers require an async .text() read,
+                // and a ReadableStream body must stay a live stream, not be flattened to
+                // a string) — resolve it lazily in JS instead, same as a function mock.
                 const patternStr = toPatternStr(urlPattern);
                 this.functionMocks.push({
                     method: method.toUpperCase(),
                     regex: new RegExp(patternStr),
-                    fn: response,
+                    fn: typeof response === "function" ? response : () => response,
                 });
                 return;
             } else if (response && typeof response === "object") {
@@ -200,6 +204,9 @@
                 result = await mock.fn();
             } catch (e) {
                 throw new TypeError(e && e.message ? e.message : String(e));
+            }
+            if (result instanceof Response) {
+                return result;
             }
             if (result instanceof MockResponse) {
                 return new Response(result.body, {
