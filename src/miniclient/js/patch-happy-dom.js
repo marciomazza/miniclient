@@ -287,4 +287,17 @@ export default function patch(win) {
     patchURL(win);
     patchDomParser(win);
     patchAttr(win);
+
+    // -----------------------------------------------------------------------------------
+    // Document.parseHTMLUnsafe — static method real browsers expose to parse an HTML
+    // string into a detached Document (e.g. htmx's hx-csp extension uses it to read a
+    // CSP meta tag out of response text without touching the live document).
+    // happy-dom has no equivalent; DOMParser.parseFromString(html, "text/html") does the
+    // same parse, just via an instance instead of a static call.
+    // -----------------------------------------------------------------------------------
+    // Uses the bare global DOMParser, not win.DOMParser: `win` is the original Window
+    // instance, a separate object from globalThis (bootstrap.js only one-time-copies
+    // properties across at startup), so win.DOMParser would miss patchDomParser's
+    // table-repair wrapper, which lives on globalThis.DOMParser.
+    win.Document.parseHTMLUnsafe = (html) => new DOMParser().parseFromString(html, "text/html");
 }

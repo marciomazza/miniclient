@@ -6,7 +6,7 @@ __pycache__
 *.so
 ipython_log.py*
 .pytest_cache
-.coverage
+.coverage*
 coverage.json
 coverage.xml
 htmlcov
