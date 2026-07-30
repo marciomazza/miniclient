@@ -17,11 +17,10 @@ export default function patch(win) {
     // history.pushState / replaceState — don't update location.href
     // -----------------------------------------------------------------------------------
     ["pushState", "replaceState"].forEach((method) => {
-        const orig = win.history[method].bind(win.history);
-        win.history[method] = function (state, title, url) {
-            orig(state, title, url);
+        patchMethod(win.history, method, function (orig, state, title, url) {
+            orig.call(this, state, title, url);
             if (url != null) win.location.href = String(url);
-        };
+        });
     });
 
     // -----------------------------------------------------------------------------------
