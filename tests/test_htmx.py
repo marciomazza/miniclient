@@ -28,27 +28,6 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
         ("hx-swap modifiers", "swap with scroll:bottom modifier scrolls to bottom"),
         # scroll position is always 0 in a headless DOM
     },
-    # Keep this until (and if) our PR is merged and release
-    # https://github.com/bigskysoftware/htmx/pull/3902
-    "hx-live": {
-        # body uses a self-invoking async IIFE under expression=false;
-        # __executeJavaScript (htmx.js:920) never awaits it, so debounce's
-        # cancellation rejection is truly orphaned — fatal in jsrun, silent
-        # console noise in a real browser.
-        ("hx-live extension", "debounce(ms) supersedes prior calls"),
-        #
-        # hx-live.js's runaway-recompute rate limiter tracks warned/i/start as
-        # module-level state shared by every test in this file. An earlier
-        # test's burst can consume the one-shot "warned" latch for the
-        # current 1s window, so this test's own burst never re-triggers
-        # console.warn — even though the recompute itself still fires
-        # (__runawayCountLive still reaches ~101). Order-dependent false
-        # negative, not a real bug; passes in isolation.
-        #
-        # Watch this issue for a possible way out
-        # https://github.com/bigskysoftware/htmx/issues/3903
-        ("hx-live extension", "iteration cap warns on runaway"),
-    },
 }
 _INFRA_JS = "\n".join([
     f"__document_write(`{HTMX_BASE_HTML}`);",
