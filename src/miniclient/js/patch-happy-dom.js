@@ -14,6 +14,43 @@ function patchMethod(proto, method, wrapper) {
 
 export default function patch(win) {
     // -----------------------------------------------------------------------------------
+    // MutationObserver — happy-dom wraps each listener's delivery callback in a bare
+    // WeakRef with nothing else keeping the closure alive (MutationObserverListener.ts).
+    // Once V8's GC collects it — which can happen at any point, since nothing but the
+    // WeakRef references it — mutation delivery for that listener silently and
+    // permanently stops (the dispatch code just does `if (callback) callback(record)`).
+    // Alpine.js hits this constantly: it disconnects/reconnects its one global observer
+    // on every DOM write via mutateDom(), constructing a fresh listener — and thus a
+    // fresh at-risk closure — each time. Symptom: intermittent, permanent (not just
+    // delayed) failure to react to DOM mutations, worse the more GC pressure has
+    // accumulated in the isolate.
+    // Fix: force a real strong reference for the duration of observe() calls only, by
+    // swapping in a WeakRef-shaped shim that never lets go. Scoped narrowly (only while
+    // observe() runs) so unrelated WeakRef caching elsewhere in happy-dom keeps its real
+    // (weak) semantics.
+    // -----------------------------------------------------------------------------------
+    patchMethod(win.MutationObserver.prototype, "observe", function (orig, ...args) {
+        // The bundled happy-dom code resolves the bare `WeakRef` identifier against
+        // globalThis (not `win` — `win`'s own properties were only ever copied onto
+        // globalThis once, at bootstrap; win.WeakRef isn't what bundled code sees).
+        const RealWeakRef = globalThis.WeakRef;
+        globalThis.WeakRef = class {
+            #value;
+            constructor(value) {
+                this.#value = value;
+            }
+            deref() {
+                return this.#value;
+            }
+        };
+        try {
+            return orig.call(this, ...args);
+        } finally {
+            globalThis.WeakRef = RealWeakRef;
+        }
+    });
+
+    // -----------------------------------------------------------------------------------
     // history.pushState / replaceState — don't update location.href
     // -----------------------------------------------------------------------------------
     ["pushState", "replaceState"].forEach((method) => {
