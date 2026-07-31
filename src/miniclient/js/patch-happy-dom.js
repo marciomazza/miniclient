@@ -164,6 +164,34 @@ export default function patch(win) {
     }
 
     // -----------------------------------------------------------------------------------
+    // HTMLFormElement.reset — SELECT handling ignores `element.multiple` entirely: per
+    // spec, "if no option has a `selected` attribute, auto-select the first option" only
+    // applies to single-selects. A `<select multiple>` with no selected-attribute options
+    // must end up with nothing selected, but happy-dom force-selects options[0] regardless.
+    // Also fixes a latent bug in the same branch: it only honors the *first* selected-
+    // attribute option, so a multi-select with several pre-selected options lost all but
+    // one. Runs the original reset() first (TEXTAREA/INPUT/OUTPUT handling stays correct),
+    // then overwrites SELECT selectedness with the spec-correct logic.
+    // -----------------------------------------------------------------------------------
+    patchMethod(win.HTMLFormElement.prototype, "reset", function (_orig) {
+        _orig.call(this);
+        for (const element of this[PropertySymbol.getFormControlItems]()) {
+            if (element.tagName !== "SELECT") continue;
+            const options = [...element.options];
+            if (element.multiple) {
+                for (const option of options) option.selected = option.hasAttribute("selected");
+            } else {
+                const selectedOptions = options.filter((o) => o.hasAttribute("selected"));
+                const toSelect =
+                    selectedOptions.length > 0
+                        ? selectedOptions[selectedOptions.length - 1]
+                        : options[0];
+                for (const option of options) option.selected = option === toSelect;
+            }
+        }
+    });
+
+    // -----------------------------------------------------------------------------------
     // HTMLElement.attachInternals — missing polyfill for form-associated custom elements
     // -----------------------------------------------------------------------------------
     patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
