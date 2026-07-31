@@ -50,7 +50,7 @@ def _happydom_bundle_source() -> str:
 def get_snapshot_builder() -> SnapshotBuilder:
     """Build a SnapshotBuilder with all production scripts (shared by prod and test snapshots)."""
     builder = SnapshotBuilder()
-    builder.execute_script("text-encoding", (_NM / "fast-text-encoding/text.min.js").read_text())
+    builder.execute_script("text-encoding", (_NM / "text-encoding/lib/encoding.js").read_text())
     xpath_src = (_NM / "xpath/xpath.js").read_text()
     builder.execute_script(
         "xpath",
