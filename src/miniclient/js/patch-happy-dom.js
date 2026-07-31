@@ -371,6 +371,44 @@ export default function patch(win) {
         return _orig.call(this[PropertySymbol.proxy] || this);
     });
 
+    // -----------------------------------------------------------------------------------
+    // Event.timeStamp — happy-dom's Event class sets `this[timeStamp] = performance.now()`
+    // as a class field, i.e. it calls the live, user-overridable `performance.now` on every
+    // event construction. Real browsers compute timeStamp via an internal engine clock that
+    // application code can never observe or intercept by redefining window.performance.now.
+    // This matters because code that mocks performance.now for its own purposes (e.g. an
+    // htmx test measuring hx-live's recompute timing) can have its call-count bookkeeping
+    // silently perturbed by unrelated event dispatches (htmx.process() alone fires several
+    // lifecycle CustomEvents) that have nothing to do with what's being measured.
+    // Fix: wrap CustomEvent's constructor to swap in a real, captured-at-startup clock only
+    // for the synchronous duration of the (immutable) base Event field initializer, then
+    // restore whatever was installed before (a test's mock, or nothing) — so from the
+    // outside, this constructor never appears to have called performance.now() at all.
+    // -----------------------------------------------------------------------------------
+    {
+        const _RealCustomEvent = win.CustomEvent;
+        const _realNow = win.performance.now.bind(win.performance);
+        // Assign to globalThis, not win: bare identifiers like `new CustomEvent(...)` in
+        // vendored scripts (htmx.js) resolve against globalThis, which bootstrap.js only
+        // ever copies win's properties onto once, at startup (see the DOMParser patch below
+        // for the same lesson).
+        globalThis.CustomEvent = class CustomEvent extends _RealCustomEvent {
+            constructor(type, eventInitDict) {
+                const desc = Object.getOwnPropertyDescriptor(win.performance, "now");
+                Object.defineProperty(win.performance, "now", {
+                    value: _realNow,
+                    configurable: true,
+                    writable: true,
+                });
+                try {
+                    super(type, eventInitDict);
+                } finally {
+                    Object.defineProperty(win.performance, "now", desc);
+                }
+            }
+        };
+    }
+
     patchURL(win);
     patchDomParser(win);
     patchAttr(win);

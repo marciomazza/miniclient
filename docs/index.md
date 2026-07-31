@@ -23,7 +23,7 @@ No Node.js.
 ## htmx
 
 - **[htmx](https://htmx.org)** integration is thoroughly tested.
-  The complete core htmx test suite passes and most of the design was done to support it.
+  The complete htmx test suite passes, including extensions, and most of the design was done to support it.
 
   *We currently support only htmx version 4*
 

@@ -21,7 +21,7 @@ Correctness is checked at three layers:
 
 #### htmx compat
 
-htmx's own original test suite runs directly inside this runtime: one pytest case per Mocha JS file, with a small explicit skip-list for things that can't be true headlessly (e.g. scroll position). This anchors behavior to the upstream's own definition of correctness.
+htmx's own original test suite — including its extensions — runs directly inside this runtime: one pytest case per Mocha JS file, with a small explicit skip-list for things that can't be true headlessly (e.g. scroll position). This anchors behavior to the upstream's own definition of correctness.
 
 #### Hypothesis crosscheck against a real browser
 
