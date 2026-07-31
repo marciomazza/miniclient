@@ -11,6 +11,7 @@ const {
     FetchCORSUtility,
     WindowBrowserContext,
     DetachedWindowAPI,
+    BrowserFrameNavigator,
     patchHappyDom,
     __refreshStreamGlobals,
 } = globalThis.__happyDomBundle;
@@ -157,9 +158,14 @@ globalThis.__zzz_get_browser_frame = () => new WindowBrowserContext(window).getB
 globalThis.__zzz_set_url = (win, browserFrame, url) => {
     win.location[PropertySymbol.setURL](browserFrame, url);
 };
+// Exposes happy-dom's own navigation primitive: submit.js uses it to bypass
+// HTMLFormElement's native #submit(), which always sends POST bodies as
+// multipart/form-data regardless of the form's actual enctype.
+globalThis.__zzz_navigate = (options) => BrowserFrameNavigator.navigate(options);
 _preExistingGlobals.add("__zzz_register_window_globals");
 _preExistingGlobals.add("__zzz_get_browser_frame");
 _preExistingGlobals.add("__zzz_set_url");
+_preExistingGlobals.add("__zzz_navigate");
 
 registerWindowGlobals(win);
 

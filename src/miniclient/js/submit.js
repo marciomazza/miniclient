@@ -119,6 +119,27 @@ globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
     });
 };
 
+// happy-dom's native HTMLFormElement#submit() always sends POST bodies as
+// multipart/form-data, ignoring enctype — real browsers default to
+// application/x-www-form-urlencoded. Bypass it for that (common) case by
+// driving BrowserFrameNavigator ourselves with a urlencoded body.
+function __zzz_submit_urlencoded(el) {
+    const frame = __zzz_get_browser_frame();
+    __zzz_navigate({
+        windowClass: document.defaultView.constructor,
+        frame,
+        method: "post",
+        url: el.action,
+        formData: new URLSearchParams(new FormData(el)),
+        goToOptions: {
+            referrer: frame.page.mainFrame.window.location.origin,
+            // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8";
+            // real browsers send the bare mime type for form submissions.
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        },
+    });
+}
+
 // __zzz_submit is form-only. FormElement.requestSubmit() (browser.py) calls it;
 // the form's own requestSubmit() dispatches the submit event (and runs validation).
 globalThis.__zzz_submit = async function (handle) {
@@ -131,6 +152,22 @@ globalThis.__zzz_submit = async function (handle) {
                     "requestSubmit() only works on <form> elements (handle " + handle + ")",
                 );
             }
+            // Registered fresh per call, so it always runs after htmx's own submit
+            // listener (added once, at htmx.process() time) — evt.defaultPrevented
+            // tells us whether htmx already claimed the submission.
+            el.addEventListener(
+                "submit",
+                (evt) => {
+                    if (evt.defaultPrevented) return;
+                    const method = (el.getAttribute("method") || "get").toLowerCase();
+                    const enctype = (el.enctype || "").toLowerCase();
+                    if (method === "post" && enctype !== "multipart/form-data" && enctype !== "text/plain") {
+                        evt.preventDefault();
+                        __zzz_submit_urlencoded(el);
+                    }
+                },
+                { once: true },
+            );
             el.requestSubmit();
         },
         async () => {
