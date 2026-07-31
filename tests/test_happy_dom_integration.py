@@ -85,10 +85,7 @@ async def test_inline_event_handler_attribute_is_compiled(runtime):
     # Parsing an element with an inline event handler attribute (onclick, ...)
     # compiles it via window[PropertySymbol.evaluateScript]/[dispatchError]
     # (ElementEventAttributeUtility.getEventListener), where `window` is read off
-    # as `element[...][PropertySymbol.defaultView]` -- which bootstrap.js points at
-    # globalThis. Used to crash immediately on parsing, with "window[PropertySymbol.
-    # dispatchError] is not a function", because own-property copying missed these
-    # Symbol-keyed prototype methods.
+    # as `element[...][PropertySymbol.defaultView]` -- the real Window instance.
     result = runtime.eval("""
         document.body.innerHTML = '<button onclick="window.__ran = 1">hi</button>';
         "survived";

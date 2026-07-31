@@ -17,7 +17,7 @@ from miniclient.browser import AsyncBrowser, AsyncElement, AsyncFormElement
 async def browser(v8_snapshot: bytes) -> AsyncIterator[AsyncBrowser]:
     """A fresh htmx-loaded AsyncBrowser, closed automatically unless the test closes it first."""
     b = await AsyncBrowser(v8_snapshot=v8_snapshot)
-    b.runtime.eval("""__document_write(`
+    await b.runtime.eval_async("""__document_write(`
         <!DOCTYPE html>
         <html>
           <body>

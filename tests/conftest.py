@@ -21,11 +21,13 @@ _CHAI_JS = _ROOT / "node_modules/chai/chai.js"
 _RUNNER_JS = Path(__file__).parent / "runner.js"
 _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
-HTMX_BASE_HTML = """\
+HTMX_SCRIPT_TAG = '<script src="http://localhost/vendor/htmx.js"></script>'
+
+HTMX_BASE_HTML = f"""\
     <!DOCTYPE html>
     <html>
       <head>
-        <script src="http://localhost/vendor/htmx.js"></script>
+        {HTMX_SCRIPT_TAG}
       </head>
       <body>
         <div id="test-playground"></div>

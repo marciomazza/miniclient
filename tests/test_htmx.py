@@ -29,10 +29,6 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
         # scroll position is always 0 in a headless DOM
     },
 }
-_INFRA_JS = "\n".join([
-    f"__document_write(`{HTMX_BASE_HTML}`);",
-    _HELPERS_JS.read_text(),
-])
 
 
 # todo: Perhaps make this a module scoped feature again after the tests pass.
@@ -49,8 +45,11 @@ async def htmx_runtime(v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
             {"url": "http://localhost/test/", "directory": str(_HTMX_TEST)},
         ],
     ) as r:
+        await r.eval_async(f"__document_write(`{HTMX_BASE_HTML}`)")
+        # Bound after the navigation above (a real happy-dom navigation replaces
+        # globalThis's contents), not before: anything bound earlier is wiped by it.
         fetch_mock.install(r)
-        r.eval(_INFRA_JS)
+        r.eval(_HELPERS_JS.read_text())
         yield r
 
 

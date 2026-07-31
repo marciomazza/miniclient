@@ -51,16 +51,6 @@ export default function patch(win) {
     });
 
     // -----------------------------------------------------------------------------------
-    // history.pushState / replaceState — don't update location.href
-    // -----------------------------------------------------------------------------------
-    ["pushState", "replaceState"].forEach((method) => {
-        patchMethod(win.history, method, function (orig, state, title, url) {
-            orig.call(this, state, title, url);
-            if (url != null) win.location.href = String(url);
-        });
-    });
-
-    // -----------------------------------------------------------------------------------
     // Location.hash setter — happy-dom's own setter pushes a new history entry but carries
     // the *previous* entry's state forward instead of nulling it. Per spec, a script-driven
     // hash-only navigation always gets a fresh entry with state: null (only explicit

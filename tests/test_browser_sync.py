@@ -5,7 +5,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
+from conftest import HTMX_SCRIPT_TAG, HTMX_VIRTUAL_SERVER
 from pytest_httpx2 import HTTPXMock
 
 from miniclient.browser import Browser, Element, FormElement
@@ -27,12 +27,13 @@ def browser(v8_snapshot: bytes) -> Iterator[Browser]:
 
 @pytest.fixture
 def htmx_browser(v8_snapshot: bytes) -> Iterator[Browser]:
-    """A fresh htmx-loaded Browser, closed automatically unless the test closes it first."""
+    """A fresh Browser that can reach the vendored htmx.js, closed automatically unless
+    the test closes it first. Each load()/goto() is a real navigation, so htmx must be
+    (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real browser."""
     b = Browser(
         v8_snapshot=v8_snapshot,
         mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])},
     )
-    b.load(HTMX_BASE_HTML)
     try:
         yield b
     finally:
@@ -90,7 +91,9 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
 def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(url="http://localhost/click-target", text="<b>clicked</b>")
     httpx_mock.add_response(url="http://localhost/form-action", text="<p>submitted</p>")
-    htmx_browser.load("""\
+    htmx_browser.load(
+        HTMX_SCRIPT_TAG
+        + """\
         <div id="out">
         <button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>
         </div>
@@ -99,7 +102,8 @@ def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPX
         <button type="submit">send</button>
         </form>
         <div id="result"></div>
-    """)
+    """
+    )
     btn = htmx_browser.find("button")
     assert btn is not None
     btn.click()

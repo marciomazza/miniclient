@@ -1,15 +1,16 @@
-// Window, PropertySymbol, CookieStringUtility, FetchCORSUtility, WindowBrowserContext and
+// Browser, PropertySymbol, CookieStringUtility, FetchCORSUtility, WindowBrowserContext and
 // patchHappyDom all come from globalThis.__happyDomBundle instead of `import`, because that
 // bundle (built by build-happydom-bundle.mjs) is baked into the V8 snapshot: importing
 // happy-dom's ~500-file module graph fresh on every Runtime() startup cost ~100ms of a
 // ~110ms open_runtime() call, almost all of it V8 parsing/compiling that graph rather than
 // running it.
 const {
-    Window,
+    Browser,
     PropertySymbol,
     CookieStringUtility,
     FetchCORSUtility,
     WindowBrowserContext,
+    DetachedWindowAPI,
     patchHappyDom,
     __refreshStreamGlobals,
 } = globalThis.__happyDomBundle;
@@ -28,13 +29,26 @@ __refreshStreamGlobals();
 // below must not let its blanket copy overwrite something that was already there.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
-const win = new Window({
-    url: globalThis.__BASE_URL__,
+// Uses the full Browser/Page API rather than the bare `new Window()` convenience
+// class: happy-dom's BrowserFrameValidator.validateFrameNavigation() explicitly
+// refuses real navigation (goto()/form submission) for the main frame of a window
+// built the `new Window()` way — DetachedBrowser is the only browser class with a
+// `windowClass` property, and validateFrameNavigation treats that as "this is a bare
+// detached Window being driven directly, not via the Browser API" and blocks it,
+// falling back to a location-only, no-fetch pseudo-navigation. Browser has no
+// windowClass property, so that guard never trips here, and goto() does what it says.
+const browser = new Browser({
     settings: {
         enableJavaScriptEvaluation: true,
         fetch: { virtualServers: globalThis.__VIRTUAL_SERVERS__ ?? [] },
     },
 });
+const page = browser.newPage();
+// newPage() has no way to pass an initial URL; page.mainFrame starts at about:blank.
+// Set it directly (no fetch — same as what `new Window({url})` used to do) rather
+// than through goto(), which would perform a real (and here pointless) navigation.
+page.mainFrame.window.location[PropertySymbol.setURL](page.mainFrame, globalThis.__BASE_URL__);
+const win = page.mainFrame.window;
 
 // IntersectionObserver: happy-dom doesn't implement it, polyfill as a no-op.
 win.IntersectionObserver ??= class {
@@ -50,7 +64,32 @@ win.IntersectionObserver ??= class {
 // parent) to point at globalThis instead of the original instance. Afterwards
 // `window === globalThis`, so code like `window.foo = x; foo` works as in a real
 // browser, and there's no need to keep the two objects in sync after this point.
-{
+//
+// Real navigation (browserFrame.goto()/frame.content=) replaces `win` with a brand
+// new Window instance, so this registration must be re-run after every navigation —
+// exposed as a global (submit.js, a plain script, has no `import` access to the
+// bundle this module scope destructured above) and re-entrant:
+// - First deletes every current globalThis own-key that isn't in the pre-Window
+//   baseline. This wipes both the previous window's registered properties *and* any
+//   arbitrary global a loaded page's own <script> set directly on globalThis (e.g.
+//   `window.foo = 1`) — indirect eval means such scripts write straight to
+//   globalThis, never to the underlying Window instance object, so there is nothing
+//   to diff against; a full reset-to-baseline is the only way to know what's stale.
+// - Then copies the new win's own properties (+ prototype-chain symbols) on top.
+function registerWindowGlobals(win) {
+    for (const key of Reflect.ownKeys(globalThis)) {
+        if (_preExistingGlobals.has(key)) continue;
+        delete globalThis[key];
+    }
+
+    // BrowserFrameNavigator's internal window class (used for every navigation past
+    // the very first) doesn't auto-attach `.happyDOM` the way the top-level `Window`
+    // convenience class does — reattach explicitly, and before the own-property copy
+    // loop below so that loop actually picks it up onto globalThis too (setting it
+    // only on `win` after the loop had already run left `globalThis.happyDOM`
+    // undefined, since globalThis is a separate mirror object, not `win` itself).
+    win.happyDOM = new DetachedWindowAPI(new WindowBrowserContext(win).getBrowserFrame());
+
     const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis"]);
     const keys = [
         ...Object.keys(Object.getOwnPropertyDescriptors(win)),
@@ -68,31 +107,62 @@ win.IntersectionObserver ??= class {
         }
         Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
     }
-    win.document[PropertySymbol.defaultView] = globalThis;
-}
+    // document.defaultView is left at happy-dom's own default (win, set by BrowserWindow's
+    // constructor) rather than redirected to globalThis: HTMLFormElement's native submit
+    // handling derives the window class to construct for real navigation from
+    // `document.defaultView.constructor`, which only resolves correctly against the real
+    // win instance.
 
-// Copy prototype-chain Symbol-keyed methods: a couple of internal happy-dom code
-// paths (dispatchError, evaluateScript) call pseudo-private Symbol methods directly
-// on the bare `window` global, which is now globalThis, not the win instance they're
-// defined on (Window/BrowserWindow.prototype). Own-property copying above misses
-// them. Restricted to symbols only — those are invisible to normal enumeration, so
-// this can't leak public API surface (addEventListener, close, ...) onto globalThis.
-for (
-    let proto = Object.getPrototypeOf(win);
-    proto && proto !== Object.prototype;
-    proto = Object.getPrototypeOf(proto)
-) {
-    for (const key of Object.getOwnPropertySymbols(proto)) {
-        if (key in globalThis) continue;
-        const { value } = Object.getOwnPropertyDescriptor(proto, key);
-        if (typeof value === "function") globalThis[key] = value.bind(win);
+    // Copy prototype-chain Symbol-keyed methods: a couple of internal happy-dom code
+    // paths (dispatchError, evaluateScript) call pseudo-private Symbol methods directly
+    // on the bare `window` global, which is now globalThis, not the win instance they're
+    // defined on (Window/BrowserWindow.prototype). Own-property copying above misses
+    // them. Restricted to symbols only — those are invisible to normal enumeration, so
+    // this can't leak public API surface (addEventListener, close, ...) onto globalThis.
+    // Re-bound every call since these close over `win` and the deletion pass above
+    // just wiped the previous window's bindings.
+    for (
+        let proto = Object.getPrototypeOf(win);
+        proto && proto !== Object.prototype;
+        proto = Object.getPrototypeOf(proto)
+    ) {
+        for (const key of Object.getOwnPropertySymbols(proto)) {
+            if (key in globalThis) continue;
+            const { value } = Object.getOwnPropertyDescriptor(proto, key);
+            if (typeof value === "function") globalThis[key] = value.bind(win);
+        }
     }
-}
 
-// Runs last so its patches (e.g. patch-happy-dom-url.js's globalThis.URLSearchParams
-// override) are the final, authoritative values — not overwritten by the registration
-// copy above, which only knows about happy-dom's unpatched classes.
-patchHappyDom(win);
+    // Runs last, and on every navigation, not just the first: happy-dom hands each
+    // window its own fresh MutationObserver/HTMLFormElement/HTMLElement/.../Response
+    // classes (see WindowContextClassExtender.js — real per-window class identity,
+    // not shared across instances), so prototype-level patches like the MutationObserver
+    // WeakRef-GC fix only take effect on the win they're applied to. Also last so its
+    // patches (e.g. patch-happy-dom-url.js's globalThis.URLSearchParams override) are
+    // the final, authoritative values — not overwritten by the registration copy above,
+    // which only knows about happy-dom's unpatched classes.
+    patchHappyDom(win);
+}
+// Protected from registerWindowGlobals' own reset-to-baseline sweep below: these two
+// are bootstrap-level helpers, not per-window state, and must survive every
+// navigation (they're how submit.js — a plain script with no `import` of its own —
+// reaches this module's WindowBrowserContext/registerWindowGlobals at all).
+globalThis.__zzz_register_window_globals = registerWindowGlobals;
+globalThis.__zzz_get_browser_frame = () => new WindowBrowserContext(window).getBrowserFrame();
+// load()'s about:blank navigation (submit.js's __document_write) needs to restore the
+// pre-navigation URL before writing content, so relative URLs in the loaded fragment
+// (hx-get="/path", form action="/path", ...) still resolve against the real base URL
+// instead of about:blank. Content.set/frame.goto() have no non-navigating URL-set of
+// their own to call from outside this module, hence exposing the primitive here.
+globalThis.__zzz_set_url = (win, browserFrame, url) => {
+    win.location[PropertySymbol.setURL](browserFrame, url);
+};
+_preExistingGlobals.add("__zzz_register_window_globals");
+_preExistingGlobals.add("__zzz_get_browser_frame");
+_preExistingGlobals.add("__zzz_set_url");
+
+registerWindowGlobals(win);
+
 globalThis.fetch = async (input, init = {}) => {
     let url, method, headers, body;
     if (!(input instanceof Request) && init.body instanceof FormData) {
@@ -170,3 +240,10 @@ globalThis.fetch = async (input, init = {}) => {
     Object.defineProperty(response, "url", { value: res.url, configurable: true });
     return response;
 };
+// Protected from registerWindowGlobals' reset-to-baseline sweep, same reasoning as
+// the __zzz_* helpers above: this closure already re-resolves `window`/`location`
+// dynamically on every call rather than capturing a particular win, so it's valid
+// for the lifetime of the runtime — it must survive every navigation rather than
+// being overwritten by the plain `win.fetch` the registration copy loop would
+// otherwise install.
+_preExistingGlobals.add("fetch");

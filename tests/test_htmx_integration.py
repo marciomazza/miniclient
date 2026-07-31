@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
-from conftest import HTMX_BASE_HTML
+from conftest import HTMX_SCRIPT_TAG
 from jsrun import Runtime
 from pytest_httpx2 import HTTPXMock
 
@@ -16,8 +16,9 @@ from miniclient.browser import AsyncBrowser, AsyncFormElement
 
 @pytest_asyncio.fixture
 async def htmx_browser(runtime: Runtime) -> AsyncIterator[AsyncBrowser]:
-    """A fresh htmx-loaded AsyncBrowser, closed automatically unless the test closes it first."""
-    runtime.eval(f"__document_write(`{HTMX_BASE_HTML}`)")
+    """A fresh AsyncBrowser, closed automatically unless the test closes it first. Each
+    load()/goto() is a real navigation, so htmx must be (re-)loaded per page via
+    HTMX_SCRIPT_TAG, same as a real browser."""
     b = AsyncBrowser(runtime=runtime)
     try:
         yield b
@@ -33,8 +34,8 @@ async def htmx_browser(runtime: Runtime) -> AsyncIterator[AsyncBrowser]:
 async def test_goto_processes_htmx(htmx_browser: AsyncBrowser, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/page",
-        text="""\
-        <html><body>
+        text=f"""\
+        <html><head>{HTMX_SCRIPT_TAG}</head><body>
         <div id="out"><button hx-get="/frag" hx-target="#out" hx-swap="innerHTML">go</button></div>
         </body></html>""",
     )
@@ -59,7 +60,7 @@ async def test_element_click_hx_get(htmx_browser: AsyncBrowser, httpx_mock: HTTP
         text="<b>clicked</b>",
     )
     await htmx_browser.load(
-        '<div id="out">'
+        HTMX_SCRIPT_TAG + '<div id="out">'
         '<button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>'
         "</div>"
     )
@@ -77,7 +78,7 @@ async def test_element_trigger_custom(htmx_browser: AsyncBrowser, httpx_mock: HT
         text="<i>custom</i>",
     )
     await htmx_browser.load(
-        '<div id="out">'
+        HTMX_SCRIPT_TAG + '<div id="out">'
         '<button hx-get="/custom" hx-trigger="my-event" hx-target="#out" '
         'hx-swap="innerHTML">go</button>'
         "</div>"
@@ -103,7 +104,8 @@ async def test_element_request_submit_form(
         text="<p>submitted</p>",
     )
     await htmx_browser.load(
-        '<form id="f" hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
+        HTMX_SCRIPT_TAG
+        + '<form id="f" hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
         '<input name="x" value="1">'
         '<button type="submit" id="btn">send</button>'
         "</form>"
@@ -133,7 +135,8 @@ async def test_submit_via_submitter_click(
         text="<p>sent</p>",
     )
     await htmx_browser.load(
-        '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
+        HTMX_SCRIPT_TAG
+        + '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
         f"{submitter_html}"
         "</form>"
         '<div id="result"></div>'
@@ -154,7 +157,7 @@ async def test_submit_via_submitter_click(
 async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: AsyncBrowser) -> None:
     httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with htmx_browser as b:
-        await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
+        await b.load(HTMX_SCRIPT_TAG + '<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
         btn = b.find("button")
         assert btn is not None
         await btn.click()
@@ -169,7 +172,9 @@ async def test_browser_async_context_manager(
     httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with patch.object(htmx_browser, "close", wraps=htmx_browser.close) as close_mock:
         async with htmx_browser as b:
-            await b.load('<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
+            await b.load(
+                HTMX_SCRIPT_TAG + '<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>'
+            )
             btn = b.find("button")
             assert btn is not None
             await btn.click()
