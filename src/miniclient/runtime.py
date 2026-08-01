@@ -42,7 +42,7 @@ def _happydom_bundle_source() -> str:
         # use or whenever one of the files above changes. Doesn't track node_modules/happy-dom
         # itself -- after bumping that version, also `rm -rf src/miniclient/js/_generated`.
         subprocess.run(
-            ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True
+            ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True, capture_output=True
         )  # pragma: no cover
     return _HAPPYDOM_BUNDLE.read_text()
 
