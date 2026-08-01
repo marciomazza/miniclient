@@ -161,7 +161,11 @@ globalThis.__zzz_submit = async function (handle) {
                     if (evt.defaultPrevented) return;
                     const method = (el.getAttribute("method") || "get").toLowerCase();
                     const enctype = (el.enctype || "").toLowerCase();
-                    if (method === "post" && enctype !== "multipart/form-data" && enctype !== "text/plain") {
+                    if (
+                        method === "post" &&
+                        enctype !== "multipart/form-data" &&
+                        enctype !== "text/plain"
+                    ) {
                         evt.preventDefault();
                         __zzz_submit_urlencoded(el);
                     }

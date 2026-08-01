@@ -135,8 +135,7 @@ async def test_submit_via_submitter_click(
         text="<p>sent</p>",
     )
     await htmx_browser.load(
-        HTMX_SCRIPT_TAG
-        + '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
+        HTMX_SCRIPT_TAG + '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
         f"{submitter_html}"
         "</form>"
         '<div id="result"></div>'
@@ -157,7 +156,9 @@ async def test_submit_via_submitter_click(
 async def test_browser_context_manager(httpx_mock: HTTPXMock, htmx_browser: AsyncBrowser) -> None:
     httpx_mock.add_response(url="http://localhost/hi", text="<b>hi</b>")
     with htmx_browser as b:
-        await b.load(HTMX_SCRIPT_TAG + '<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>')
+        await b.load(
+            HTMX_SCRIPT_TAG + '<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>'
+        )
         btn = b.find("button")
         assert btn is not None
         await btn.click()
@@ -173,7 +174,8 @@ async def test_browser_async_context_manager(
     with patch.object(htmx_browser, "close", wraps=htmx_browser.close) as close_mock:
         async with htmx_browser as b:
             await b.load(
-                HTMX_SCRIPT_TAG + '<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>'
+                HTMX_SCRIPT_TAG
+                + '<div id="r"><button hx-get="/hi" hx-target="#r">go</button></div>'
             )
             btn = b.find("button")
             assert btn is not None
