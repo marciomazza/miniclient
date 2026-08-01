@@ -186,9 +186,7 @@ export default function patch(win) {
     // -----------------------------------------------------------------------------------
     patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
         if (_orig) {
-            try {
-                return _orig.call(this);
-            } catch {}
+            return _orig.call(this);
         }
         const host = this;
         return {
