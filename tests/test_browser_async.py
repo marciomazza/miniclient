@@ -93,6 +93,32 @@ async def test_goto_resolves_relative_urls(
     assert browser.runtime.eval("location.href") == expected_url
 
 
+async def test_goto_isolates_globals_across_navigations(
+    browser: AsyncBrowser, httpx_mock: HTTPXMock
+) -> None:
+    """A script's global writes and pending timers from one page must not survive
+    navigation to the next: bootstrap.js's registerWindowGlobals() resets globalThis
+    to a clean baseline on every goto()."""
+    httpx_mock.add_response(
+        url="http://localhost/a",
+        text="""<html><body><script>
+            window.__foo = 1;
+            setTimeout(() => { window.__leaked = true; }, 20);
+        </script></body></html>""",
+    )
+    httpx_mock.add_response(url="http://localhost/b", text="<html><body><p>b</p></body></html>")
+
+    await browser.goto("http://localhost/a")
+    assert browser.runtime.eval("window.__foo") == 1
+
+    await browser.goto("http://localhost/b")
+    assert browser.runtime.eval("typeof window.__foo") == "undefined"
+
+    # give page A's pending timer a chance to fire; goto() must have cleared it
+    await browser.runtime.eval_async("new Promise(resolve => setTimeout(resolve, 50))")
+    assert browser.runtime.eval("typeof window.__leaked") == "undefined"
+
+
 # ---------------------------------------------------------------------------
 # AsyncBrowser.load
 # ---------------------------------------------------------------------------
