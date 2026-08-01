@@ -2,7 +2,7 @@ from wsgiref.types import StartResponse, WSGIEnvironment
 
 import pytest
 
-from miniclient.browser import AsyncBrowser
+from miniclient.page import AsyncPage
 from miniclient.wsgi import WSGITransport
 
 
@@ -14,18 +14,18 @@ def _echo_cookie_app(environ: WSGIEnvironment, start_response: StartResponse):
 
 
 async def test_document_cookie_reaches_request_cookie_header(v8_snapshot: bytes) -> None:
-    browser = await AsyncBrowser(
+    page = await AsyncPage(
         v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_echo_cookie_app)
     )
     try:
-        await browser.goto("http://testserver/")
-        browser.runtime.eval("document.cookie = 'sessionid=abc123; path=/'")
+        await page.goto("http://testserver/")
+        page.runtime.eval("document.cookie = 'sessionid=abc123; path=/'")
 
-        await browser.goto("http://testserver/")
-        el = browser.find("#cookie")
+        await page.goto("http://testserver/")
+        el = page.find("#cookie")
         assert el and "sessionid=abc123" in el.text
     finally:
-        browser.close()
+        page.close()
 
 
 @pytest.mark.parametrize(
@@ -50,13 +50,13 @@ async def test_set_cookie_response_reaches_next_request(
         start_response("200 OK", headers)
         return [body]
 
-    browser = await AsyncBrowser(v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_app))
+    page = await AsyncPage(v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_app))
     try:
-        await browser.goto("http://testserver/login")
-        assert browser.runtime.eval("document.cookie") == expected_document_cookie
+        await page.goto("http://testserver/login")
+        assert page.runtime.eval("document.cookie") == expected_document_cookie
 
-        await browser.goto("http://testserver/")
-        el = browser.find("#cookie")
+        await page.goto("http://testserver/")
+        el = page.find("#cookie")
         assert el and cookie_pair in el.text
     finally:
-        browser.close()
+        page.close()

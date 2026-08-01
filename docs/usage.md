@@ -4,23 +4,23 @@ icon: lucide/book-open
 
 # Usage
 
-The `Browser` class simulates browser interaction for testing. It runs a real V8 engine (via jsrun) with
+The `Page` class simulates a browser page for testing. It runs a real V8 engine (via jsrun) with
 happy-dom providing the DOM, and lets you drive it from Python — load pages, query and interact
 with DOM elements, fill forms, click and trigger events.
 If the page includes htmx, it runs normally and htmx requests are awaited automatically.
 
-## Creating a browser
+## Creating a page
 
-Create a browser with a context manager:
+Create a page with a context manager:
 
 ```python
-from miniclient.browser import Browser
+from miniclient.page import Page
 
-with Browser() as browser:
+with Page() as page:
     ...
 ```
 
-`Browser(...)` accepts:
+`Page(...)` accepts:
 
 - `httpx_transport` — an `httpx2.AsyncBaseTransport`, useful to test an ASGI/WSGI app in-process
   with no real HTTP server (see below).
@@ -29,19 +29,19 @@ with Browser() as browser:
 
 ### Async
 
-An `AsyncBrowser` with the same constructor is available for async codebases:
+An `AsyncPage` with the same constructor is available for async codebases:
 
 ```python
-from miniclient.browser import AsyncBrowser
+from miniclient.page import AsyncPage
 
-async with AsyncBrowser() as browser:
+async with AsyncPage() as page:
     ...
 ```
 
 ## Testing a WSGI/ASGI app in-process
 
 You can test your WSGI/ASGI app directly (Django, Flask, FastAPI, etc)
-with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Browser(...)`.
+with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Page(...)`.
 
 An example with [nanodjango](https://nanodjango.dev/)
 _(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/to/htmx/dist"`)_:
@@ -49,7 +49,7 @@ _(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/
 ```python
 from pathlib import Path
 
-from miniclient.browser import Browser
+from miniclient.page import Page
 from miniclient.wsgi import WSGITransport
 from nanodjango import Django
 
@@ -73,13 +73,13 @@ def index(request):
 def hello(request):
     return "Hello from Django!"
 
-with Browser(
+with Page(
     httpx_transport=WSGITransport(app=app.wsgi),
     mounts={"http://localhost/static/": Path("path/to/htmx/dist")},
-) as browser:
-    browser.goto("/")
-    browser.find("button").click()
-    print(browser.find("#result").text)  # prints "Hello from Django!"
+) as page:
+    page.goto("/")
+    page.find("button").click()
+    print(page.find("#result").text)  # prints "Hello from Django!"
 ```
 
 For an ASGI app instead, pass an `httpx2.ASGITransport(app=app.asgi)` — see
@@ -90,8 +90,8 @@ For an ASGI app instead, pass an `httpx2.ASGITransport(app=app.asgi)` — see
 Serve local files through `mounts` so a `<script>` tag can load them without a real server:
 
 ```python
-browser = Browser(mounts={"http://localhost/ext/": tmp_path})
-browser.eval(
+page = Page(mounts={"http://localhost/ext/": tmp_path})
+page.eval(
     'document.head.innerHTML = \'<script src="http://localhost/ext/external-script.js"></script>\''
 )
 ```
@@ -102,10 +102,10 @@ Load content either via a real request, or directly as raw HTML:
 
 ```python
 # Fetch a URL, load the full document, and process htmx (real request via httpx_transport/network)
-browser.goto("http://localhost/page")
+page.goto("http://localhost/page")
 
 # Load raw HTML directly into the document body, no request involved
-browser.load("<p id='msg'>hello</p>")
+page.load("<p id='msg'>hello</p>")
 ```
 
 Each call to `load()` replaces the previous body entirely.
@@ -115,22 +115,22 @@ Each call to `load()` replaces the previous body entirely.
 Locate elements by CSS selector, returning `Element` wrappers:
 
 ```python
-el = browser.find("#msg")          # the first match, or None
-items = browser.find_all("li")     # a list of all matches, possibly empty
+el = page.find("#msg")          # the first match, or None
+items = page.find_all("li")     # a list of all matches, possibly empty
 ```
 
 Pass `text` to also filter by contained text (a substring match against `textContent`):
 
 ```python
-el = browser.find("li", text="Buy milk")        # first <li> containing this text, or None
-items = browser.find_all("li", text="urgent")   # all <li>s containing this text
+el = page.find("li", text="Buy milk")        # first <li> containing this text, or None
+items = page.find_all("li", text="urgent")   # all <li>s containing this text
 ```
 
 `Element` also exposes `find()`/`find_all()`, scoped to that element instead of the whole
 document:
 
 ```python
-row = browser.find("#results li")
+row = page.find("#results li")
 label = row.find(".label")                      # searches only within `row`
 badges = row.find_all(".badge", text="new")
 ```
@@ -152,7 +152,7 @@ el.parent        # the parent Element, or None if there is no parent
 Set an input's value directly:
 
 ```python
-input = browser.find("#input-id")
+input = page.find("#input-id")
 input.fill("new value")
 ```
 
@@ -165,19 +165,19 @@ just like in a real browser.
 Simulate a click, or dispatch any DOM event:
 
 ```python
-browser.find("button").click()
-browser.find("div").trigger("my-event")  # any DOM event, e.g. for hx-trigger="my-event"
+page.find("button").click()
+page.find("div").trigger("my-event")  # any DOM event, e.g. for hx-trigger="my-event"
 ```
 
 Both wait for htmx to settle if the event fires an htmx request.
 
 ## Submitting forms
 
-`browser.find(...)` returns a `FormElement` when the match is a `<form>`, which adds
+`page.find(...)` returns a `FormElement` when the match is a `<form>`, which adds
 `requestSubmit()`:
 
 ```python
-form = browser.find("form")
+form = page.find("form")
 form.requestSubmit()
 ```
 
@@ -186,20 +186,20 @@ performs a plain fetch and reloads the page. Clicking a `<button type="submit">`
 
 ## Executing JavaScript
 
-For anything not covered by `Browser` / `Element`, evaluate JavaScript directly.
+For anything not covered by `Page` / `Element`, evaluate JavaScript directly.
 
-With sync `Browser`, use `eval()` (`Browser` doesn't expose a `.runtime` property the way
-`AsyncBrowser` does — the raw `Runtime` isn't thread-safe, so use this method instead):
+With sync `Page`, use `eval()` (`Page` doesn't expose a `.runtime` property the way
+`AsyncPage` does — the raw `Runtime` isn't thread-safe, so use this method instead):
 
 ```python
-browser.eval("document.title")
+page.eval("document.title")
 ```
 
-With `AsyncBrowser`, use `.runtime`, which also supports async evaluation:
+With `AsyncPage`, use `.runtime`, which also supports async evaluation:
 
 ```python
-browser.runtime.eval("document.title")
-await browser.runtime.eval_async("fetch('/api/status').then(r => r.json())")
+page.runtime.eval("document.title")
+await page.runtime.eval_async("fetch('/api/status').then(r => r.json())")
 ```
 
 For other uses of the JavaScript runtime, check the [jsrun documentation](https://imfing.github.io/jsrun).

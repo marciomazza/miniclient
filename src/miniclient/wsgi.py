@@ -9,7 +9,7 @@ import httpx2 as httpx
 class WSGITransport(httpx.AsyncBaseTransport):
     """Runs a sync WSGI app as an async httpx transport via a thread executor.
 
-    Lets `Browser`/`AsyncBrowser`'s `httpx_transport` param test a WSGI app
+    Lets `Page`/`AsyncPage`'s `httpx_transport` param test a WSGI app
     (Flask, Django's `app.wsgi`, ...) in-process, the same way `ASGITransport`
     does for ASGI apps.
     """

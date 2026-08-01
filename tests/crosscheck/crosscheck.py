@@ -13,7 +13,7 @@ import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
-from miniclient.browser import AsyncBrowser, AsyncFormElement
+from miniclient.page import AsyncFormElement, AsyncPage
 from miniclient.wsgi import WSGITransport
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
@@ -113,7 +113,7 @@ class _CapturingTransport(httpx.AsyncBaseTransport):
 class CrossCheck:
     def __init__(
         self,
-        browser: AsyncBrowser,
+        client: AsyncPage,
         page: Page,
         server: HTTPServer,
         port: int,
@@ -123,7 +123,7 @@ class CrossCheck:
         self.client_talk = client_talk
         self.page_talk = Talk()
         self._page_raw_request: Request | None = None
-        self._browser = browser
+        self._client = client
         self._page = page
         self._server = server
         self._port = port
@@ -135,7 +135,7 @@ class CrossCheck:
     ) -> "CrossCheck":
         client_talk = Talk()
         capturing_transport = _CapturingTransport(WSGITransport(wsgi_app), client_talk)
-        browser = await AsyncBrowser(
+        client = await AsyncPage(
             httpx_transport=capturing_transport,
             mounts={"http://testserver/": _HTMX_DIST_DIR},
         )
@@ -150,7 +150,7 @@ class CrossCheck:
         port = server.server_address[1]
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
-        cc = cls(browser, page, server, port, client_talk, mode=mode)
+        cc = cls(client, page, server, port, client_talk, mode=mode)
         page.on("request", cc._hook_request_page)
         page.on("response", cc._hook_response_page)
         return cc
@@ -194,7 +194,7 @@ class CrossCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client_snapshot = self._browser.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
+        client_snapshot = self._client.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
         page_snapshot = await self._page.evaluate(_JS_SERIALIZE)
         assert client_snapshot == page_snapshot, (
             f"DOM mismatch:\n  client: {client_snapshot}\n  page: {page_snapshot}"
@@ -205,13 +205,13 @@ class CrossCheck:
         await self.assert_same_dom()
 
     def has_element(self, selector: str) -> bool:
-        return self._browser.find(selector) is not None
+        return self._client.find(selector) is not None
 
     # --- navigation / interaction ---
 
     async def goto(self, path: str) -> None:
         await asyncio.gather(
-            self._browser.goto(f"http://testserver{path}"),
+            self._client.goto(f"http://testserver{path}"),
             self._page.goto(self._server_url(path), wait_until="domcontentloaded"),
         )
         await self.assert_same_dom()
@@ -230,7 +230,7 @@ class CrossCheck:
     async def click(self, selector: str, is_submit: bool = False) -> None:
         if self._mode == "plain" and is_submit:
             # submit button lives in a single form; submit the form itself.
-            form = self._browser.find("form")
+            form = self._client.find("form")
             assert isinstance(form, AsyncFormElement), f"No form for submit control {selector!r}"
             await asyncio.gather(
                 form.requestSubmit(),
@@ -240,7 +240,7 @@ class CrossCheck:
             return
 
         self._reset_capture()
-        el = self._browser.find(selector)
+        el = self._client.find(selector)
         assert el is not None, f"Element not found: {selector!r}"
         await self._page.evaluate("window.__htmxSettled = false;")
         await asyncio.gather(
@@ -256,7 +256,7 @@ class CrossCheck:
         # happened but hxclient doesn't replicate it; skip DOM comparison.
 
     async def fill(self, selector: str, value: str) -> None:
-        el = self._browser.find(selector)
+        el = self._client.find(selector)
         if el is None:
             raise LookupError(f"No element matches {selector!r}")
         self._reset_capture()
@@ -274,7 +274,7 @@ class CrossCheck:
         await self._assert_after_interaction()
 
     async def dispatch_event(self, selector: str, event: str) -> None:
-        el = self._browser.find(selector)
+        el = self._client.find(selector)
         if el is None:
             raise LookupError(f"No element matches {selector!r}")
         self._reset_capture()
@@ -289,4 +289,4 @@ class CrossCheck:
         self._page.remove_listener("request", self._hook_request_page)
         self._page.remove_listener("response", self._hook_response_page)
         self._server.shutdown()
-        await self._browser.aclose()
+        await self._client.aclose()

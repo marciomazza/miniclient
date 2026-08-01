@@ -7,7 +7,7 @@ from playwright.async_api import Page
 
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
-from miniclient.browser import AsyncBrowser
+from miniclient.page import AsyncPage
 
 pytestmark = pytest.mark.cross
 
@@ -22,28 +22,28 @@ class DomCheck:
     No network, no WSGI server, no htmx — HTML is injected directly.
     """
 
-    def __init__(self, browser: AsyncBrowser, page: Page) -> None:
-        self._browser = browser
+    def __init__(self, client: AsyncPage, page: Page) -> None:
+        self._client = client
         self._page = page
 
     @classmethod
     async def create(cls, html: str, page: Page) -> "DomCheck":
-        browser = await AsyncBrowser()
+        client = await AsyncPage()
         # Set innerHTML directly without htmx.process so that neither side adds
         # htmx-specific attributes (e.g. data-htmx-powered) during setup.
-        browser.runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
+        client.runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
         await page.set_content(html, wait_until="domcontentloaded")
-        return cls(browser, page)
+        return cls(client, page)
 
     async def fill(self, selector: str, value: str) -> None:
-        el = self._browser.find(selector)
+        el = self._client.find(selector)
         if el is None:
             raise LookupError(f"No element matches {selector!r}")
         await el.fill(value)
         await self._page.locator(selector).fill(value)
 
     async def click(self, selector: str) -> None:
-        el = self._browser.find(selector)
+        el = self._client.find(selector)
         if el is None:
             raise LookupError(f"No element matches {selector!r}")
         await asyncio.gather(
@@ -52,12 +52,12 @@ class DomCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client = self._browser.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
-        browser = await self._page.evaluate(_JS_SERIALIZE)
-        assert client == browser
+        client = self._client.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
+        page = await self._page.evaluate(_JS_SERIALIZE)
+        assert client == page
 
     async def aclose(self) -> None:
-        await self._browser.aclose()
+        await self._client.aclose()
 
 
 @given(form=st_html_form(), data=st.data())

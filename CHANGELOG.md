@@ -4,6 +4,12 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+- Renamed `Browser`/`AsyncBrowser` to `Page`/`AsyncPage` (module `miniclient.browser` is now
+  `miniclient.page`), matching happy-dom's own vocabulary: this class wraps a single
+  window/document, same as what happy-dom's `Browser.newPage()` returns — not a multi-page browser.
+
 ## [0.0.10]
 
 - Added `Element`/`AsyncElement.parent` property.

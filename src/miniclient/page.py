@@ -67,7 +67,7 @@ class _FindMixin(Generic[_E]):
 
     if TYPE_CHECKING:
         # Real implementation always comes from a sibling in the MRO
-        # (AsyncElementBase for AsyncElement/Element, or AsyncBrowser's own
+        # (AsyncElementBase for AsyncElement/Element, or AsyncPage's own
         # method). Declared here only so find()/find_all() type-check; a real
         # `def` would shadow the sibling's implementation depending on base
         # order, since Python MRO doesn't know one side is "just a stub".
@@ -249,7 +249,7 @@ class AsyncFormElement(AsyncElement, AsyncFormElementBase):
     """A <form> element. Exposes requestSubmit(), which is form-only."""
 
 
-class AsyncBrowser(_FindMixin[_E], Generic[_E]):
+class AsyncPage(_FindMixin[_E], Generic[_E]):
     _root_js = "document"
     _element_cls: type[_E] = AsyncElement  # type: ignore[bad-assignment]
 
@@ -269,7 +269,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
 
     @property
     def runtime(self) -> Runtime:
-        assert self._runtime is not None, "AsyncBrowser not built yet — use `await` or `async with`"
+        assert self._runtime is not None, "AsyncPage not built yet — use `await` or `async with`"
         return self._runtime
 
     async def _build(self) -> Self:
@@ -322,9 +322,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
             self.close()
 
     def __enter__(self) -> Self:
-        assert self._runtime is not None, (
-            "AsyncBrowser not built yet — await it or use `async with`"
-        )
+        assert self._runtime is not None, "AsyncPage not built yet — await it or use `async with`"
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -340,7 +338,7 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
 # --- Synchronous facade ---
 #
 # jsrun's Runtime must be created, called, and garbage-collected on the same
-# thread. Browser satisfies this by creating its own persistent event loop
+# thread. Page satisfies this by creating its own persistent event loop
 # on the caller's own thread (never a separate thread) and driving every
 # async-facing call through `loop.run_until_complete()`; plain reads (find,
 # eval, attr, ...) call straight through with no loop involved at all, since
@@ -350,9 +348,9 @@ class AsyncBrowser(_FindMixin[_E], Generic[_E]):
 #
 # This only works if the caller's thread has no event loop of its own
 # already running (asyncio can't nest run_until_complete on one thread) --
-# Browser.__init__ checks for that and raises up front rather than let a
+# Page.__init__ checks for that and raises up front rather than let a
 # violation surface later as a cryptic RuntimeError. Async callers should use
-# AsyncBrowser instead.
+# AsyncPage instead.
 
 # Element construction needs to know which loop drives its Runtime; looked
 # up explicitly by Runtime identity since it's not otherwise passed through
@@ -365,7 +363,7 @@ _loop_by_runtime: weakref.WeakKeyDictionary[Runtime, asyncio.AbstractEventLoop] 
 class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     """Sync-facade element: `AsyncElementBase` + find()/find_all() that
     return `Element`. Async-facing methods (trigger/fill) run to completion
-    on the same event loop as the owning `Browser`; reads call straight
+    on the same event loop as the owning `Page`; reads call straight
     through to the inherited `AsyncElementBase`/`_FindMixin` implementation.
     """
 
@@ -407,13 +405,13 @@ AsyncElement._element_cls = AsyncElement
 Element._element_cls = Element
 
 
-class Browser:
-    """Synchronous facade over AsyncBrowser, running on a persistent event
+class Page:
+    """Synchronous facade over AsyncPage, running on a persistent event
     loop on the caller's own thread (see the "Synchronous facade" note
     above).
 
     Must not be constructed from a thread that already has a running event
-    loop (e.g. inside `async def` code) — use AsyncBrowser there instead.
+    loop (e.g. inside `async def` code) — use AsyncPage there instead.
     """
 
     def __init__(
@@ -428,13 +426,13 @@ class Browser:
             pass
         else:
             raise RuntimeError(
-                "Browser() can't be used on a thread with a running event loop "
-                "(e.g. inside `async def` code) — use AsyncBrowser instead."
+                "Page() can't be used on a thread with a running event loop "
+                "(e.g. inside `async def` code) — use AsyncPage instead."
             )
 
         self._closed = False
         self._loop = asyncio.new_event_loop()
-        self._async: AsyncBrowser[Element] = AsyncBrowser(
+        self._async: AsyncPage[Element] = AsyncPage(
             httpx_transport=httpx_transport,
             mounts=mounts,
             v8_snapshot=v8_snapshot,
@@ -484,7 +482,7 @@ class Browser:
         self.close()
 
     def __del__(self) -> None:
-        # Safety net for a Browser that was never explicitly closed — best
+        # Safety net for a Page that was never explicitly closed — best
         # effort, since __del__ ordering/timing at interpreter shutdown isn't
         # guaranteed. Never let cleanup itself raise from a finalizer.
         try:

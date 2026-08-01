@@ -30,7 +30,7 @@ Vendored upstream code, untracked. Treat as read-only:
 - **jsrun** (V8 via deno_core + PyO3 bindings) is the JavaScript runtime. It is NOT Node.js and NOT QuickJS.
 - **happy-dom** runs INSIDE jsrun, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, etc.).
 - **htmx** runs inside the same jsrun context, initialized after happy-dom's `Window` is set up. It uses the polyfilled `fetch` and timers. `fetch` is done via `httpx`
-- The Python `Browser` class in `src/miniclient/browser.py` wraps a jsrun `Runtime`. It has NO relation to happy-dom's `Browser` class.
+- The Python `Page` class in `src/miniclient/page.py` wraps a jsrun `Runtime`, mirroring happy-dom's own `Browser.newPage()` result — one window/document/frame, no tabs.
 
 More details about htmx:
 @vendor/htmx/src/skills/htmx-guidance.md

@@ -24,15 +24,15 @@ the results back. All against a real in-memory DOM running JavaScript (htmx, for
 No browser involved.
 
 ```python
-from miniclient.browser import Browser
+from miniclient.page import Page
 
-with Browser() as browser:
-    browser.goto("http://localhost:8000/")
-    browser.find("input[name=q]").fill("htmx")
-    browser.find("form").requestSubmit()
-    browser.find("#load-more").click()
-    print(len(browser.find_all("#results li")), "results")
-    print(browser.find("#results li:first-child").text)
+with Page() as page:
+    page.goto("http://localhost:8000/")
+    page.find("input[name=q]").fill("htmx")
+    page.find("form").requestSubmit()
+    page.find("#load-more").click()
+    print(len(page.find_all("#results li")), "results")
+    print(page.find("#results li:first-child").text)
 ```
 
 Check the full documentation: <https://marciomazza.github.io/miniclient/>

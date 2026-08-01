@@ -8,7 +8,7 @@ import pytest
 from conftest import HTMX_SCRIPT_TAG, HTMX_VIRTUAL_SERVER
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.browser import Browser, Element, FormElement
+from miniclient.page import Element, FormElement, Page
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -16,9 +16,9 @@ from miniclient.browser import Browser, Element, FormElement
 
 
 @pytest.fixture
-def browser(v8_snapshot: bytes) -> Iterator[Browser]:
-    """A fresh Browser, closed automatically unless the test closes it first."""
-    b = Browser(v8_snapshot=v8_snapshot)
+def page(v8_snapshot: bytes) -> Iterator[Page]:
+    """A fresh Page, closed automatically unless the test closes it first."""
+    b = Page(v8_snapshot=v8_snapshot)
     try:
         yield b
     finally:
@@ -26,11 +26,11 @@ def browser(v8_snapshot: bytes) -> Iterator[Browser]:
 
 
 @pytest.fixture
-def htmx_browser(v8_snapshot: bytes) -> Iterator[Browser]:
-    """A fresh Browser that can reach the vendored htmx.js, closed automatically unless
+def htmx_page(v8_snapshot: bytes) -> Iterator[Page]:
+    """A fresh Page that can reach the vendored htmx.js, closed automatically unless
     the test closes it first. Each load()/goto() is a real navigation, so htmx must be
-    (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real browser."""
-    b = Browser(
+    (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real page."""
+    b = Page(
         v8_snapshot=v8_snapshot,
         mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])},
     )
@@ -44,15 +44,15 @@ def htmx_browser(v8_snapshot: bytes) -> Iterator[Browser]:
 # Bridge relays calls/results correctly.
 #
 # JS-generation correctness (query selectors, attribute handling, htmx
-# settle logic, ...) is already covered exhaustively by test_browser.py /
-# test_htmx_integration.py against AsyncBrowser. These only check that going
+# settle logic, ...) is already covered exhaustively by test_page_async.py /
+# test_htmx_integration.py against AsyncPage. These only check that going
 # through the sync facade's background-thread bridge doesn't change the
 # result — so one broad test per bridge "shape" (plain queries/mutations,
 # htmx interactions) rather than one test per method.
 # ---------------------------------------------------------------------------
 
 
-def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
+def test_goto_and_queries(page: Page, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
         url="http://localhost/page",
         text="""\
@@ -63,10 +63,10 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
             </body></html>
         """,
     )
-    browser.goto("http://localhost/page")
-    assert browser.eval("document.title") == "T"
+    page.goto("http://localhost/page")
+    assert page.eval("document.title") == "T"
 
-    el = browser.find("#s")
+    el = page.find("#s")
     assert isinstance(el, Element)
     assert el.text == "ok"
     assert el.attr("data-x") == "1"
@@ -74,24 +74,24 @@ def test_goto_and_queries(browser: Browser, httpx_mock: HTTPXMock) -> None:
     # parent is <body>, containing the other elements
     assert el.parent and el.parent.find("#inp") is not None
 
-    inp = browser.find("#inp")
+    inp = page.find("#inp")
     assert inp is not None
     inp.fill("new")
-    assert browser.eval("document.querySelector('#inp').value") == "new"
+    assert page.eval("document.querySelector('#inp').value") == "new"
 
-    ul = browser.find("ul")
+    ul = page.find("ul")
     assert ul is not None
     assert [i.text for i in ul.find_all("li")] == ["a", "b"]
     assert ul.find("li") is not None
 
-    assert [i.text for i in browser.find_all("li")] == ["a", "b"]
-    assert browser.find("#does-not-exist") is None
+    assert [i.text for i in page.find_all("li")] == ["a", "b"]
+    assert page.find("#does-not-exist") is None
 
 
-def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPXMock) -> None:
+def test_click_and_form_submit_via_htmx(htmx_page: Page, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(url="http://localhost/click-target", text="<b>clicked</b>")
     httpx_mock.add_response(url="http://localhost/form-action", text="<p>submitted</p>")
-    htmx_browser.load(
+    htmx_page.load(
         f"""\
         {HTMX_SCRIPT_TAG}
         <div id="out">
@@ -104,34 +104,34 @@ def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPX
         <div id="result"></div>
     """
     )
-    btn = htmx_browser.find("button")
+    btn = htmx_page.find("button")
     assert btn is not None
     btn.click()
-    out = htmx_browser.find("#out")
+    out = htmx_page.find("#out")
     assert out and out.innerHTML == "<b>clicked</b>"
 
-    form = htmx_browser.find("form")
+    form = htmx_page.find("form")
     assert isinstance(form, FormElement)
     form.requestSubmit()
-    result = htmx_browser.find("#result")
+    result = htmx_page.find("#result")
     assert result and result.innerHTML == "<p>submitted</p>"
 
 
 # ---------------------------------------------------------------------------
-# Sync-specific behavior — no AsyncBrowser equivalent to mirror.
+# Sync-specific behavior — no AsyncPage equivalent to mirror.
 # ---------------------------------------------------------------------------
 
 
-def test_browser_context_manager_closes(v8_snapshot: bytes) -> None:
-    with Browser(v8_snapshot=v8_snapshot) as b:
+def test_page_context_manager_closes(v8_snapshot: bytes) -> None:
+    with Page(v8_snapshot=v8_snapshot) as b:
         b.load("<p>hi</p>")
         assert b.find("p") is not None
     assert b._closed
 
 
-def test_browser_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
+def test_page_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    with Browser(v8_snapshot=v8_snapshot, mounts={"http://localhost/ext/": tmp_path}) as b:
+    with Page(v8_snapshot=v8_snapshot, mounts={"http://localhost/ext/": tmp_path}) as b:
         b.eval(
             """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
         )
@@ -139,10 +139,10 @@ def test_browser_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Browser GC / cross-thread lifecycle (regression)
+# Page GC / cross-thread lifecycle (regression)
 #
 # jsrun's Runtime panics (Rust-level) if it is ever garbage-collected on a
-# thread other than the one that created it. Browser.close() defuses this,
+# thread other than the one that created it. Page.close() defuses this,
 # but the defusing only works if it actually runs and actually reaches every
 # live reference — these are process-level regression tests (the panic is a
 # GC/interpreter-shutdown phenomenon, not observable reliably as a plain
@@ -161,13 +161,13 @@ def _run_script(tmp_path: Path, name: str, body: str) -> subprocess.CompletedPro
     "name,body",
     [
         (
-            # Element/FormElement kept alive past Browser.close() must not
+            # Element/FormElement kept alive past Page.close() must not
             # crash when it's eventually garbage collected, even at
             # interpreter shutdown.
             "held_element.py",
             dedent("""\
-                from miniclient.browser import Browser
-                with Browser() as b:
+                from miniclient.page import Page
+                with Page() as b:
                     b.load("<button id='x'>hi</button>")
                     el = b.find('#x')
                     assert el is not None
@@ -175,12 +175,12 @@ def _run_script(tmp_path: Path, name: str, body: str) -> subprocess.CompletedPro
             """),
         ),
         (
-            # A Browser that is never explicitly closed must still clean up
+            # A Page that is never explicitly closed must still clean up
             # silently via __del__ when it's dropped or the process exits.
             "never_closed.py",
             dedent("""\
-                from miniclient.browser import Browser
-                b = Browser()
+                from miniclient.page import Page
+                b = Page()
                 b.load("<button id='x'>hi</button>")
                 el = b.find('#x')
                 el.click()
@@ -198,8 +198,8 @@ def test_gc_panic_regression(tmp_path: Path, name: str, body: str) -> None:
     assert result.stderr == ""
 
 
-async def test_browser_rejects_running_event_loop() -> None:
-    # Browser drives its own event loop on the caller's thread; it can't nest
+async def test_page_rejects_running_event_loop() -> None:
+    # Page drives its own event loop on the caller's thread; it can't nest
     # inside one that's already running (e.g. this test coroutine's own loop).
     with pytest.raises(RuntimeError, match="running event loop"):
-        Browser()
+        Page()
