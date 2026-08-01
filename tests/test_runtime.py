@@ -216,8 +216,9 @@ async def test_headers_basic(runtime):
 
 async def test_dom_parser(runtime):
     result = runtime.eval(
-        "new window.DOMParser().parseFromString('<p>hi</p>', 'text/html')"
-        ".querySelector('p').textContent"
+        """\
+        new window.DOMParser().parseFromString('<p>hi</p>', 'text/html')
+        .querySelector('p').textContent"""
     )
     assert result == "hi"
 

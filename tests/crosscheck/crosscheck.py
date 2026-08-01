@@ -266,9 +266,10 @@ class CrossCheck:
         # focus causing Chrome to fire a native trusted change event when htmx's swap removes
         # the focused element from the DOM, which would queue a second spurious htmx request.
         await self._page.evaluate(
-            f"() => {{ const el = document.querySelector({json.dumps(selector)});"
-            f" el.value = {json.dumps(value)};"
-            f" el.dispatchEvent(new Event('change', {{bubbles: true}})); }}"
+            f"""\
+            () => {{ const el = document.querySelector({json.dumps(selector)});
+            el.value = {json.dumps(value)};
+            el.dispatchEvent(new Event('change', {{bubbles: true}})); }}"""
         )
         await self._assert_after_interaction()
 

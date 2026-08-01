@@ -43,18 +43,20 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ('<form><textarea name="x"></textarea></form>', [("x", "")]),
         # select single — explicit selected
         (
-            '<form><select name="x">'
-            '<option value="a">A</option>'
-            '<option value="b" selected>B</option>'
-            "</select></form>",
+            """\
+            <form><select name="x">
+            <option value="a">A</option>
+            <option value="b" selected>B</option>
+            </select></form>""",
             [("x", "b")],
         ),
         # select single — no selected → first option auto-selected
         (
-            '<form><select name="x">'
-            '<option value="a">A</option>'
-            '<option value="b">B</option>'
-            "</select></form>",
+            """\
+            <form><select name="x">
+            <option value="a">A</option>
+            <option value="b">B</option>
+            </select></form>""",
             [("x", "a")],
         ),
         # select single — option without value attribute → text content
@@ -64,11 +66,12 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ),
         # select multiple
         (
-            '<form><select name="items" multiple>'
-            '<option value="a" selected>A</option>'
-            '<option value="b" selected>B</option>'
-            '<option value="c">C</option>'
-            "</select></form>",
+            """\
+            <form><select name="items" multiple>
+            <option value="a" selected>A</option>
+            <option value="b" selected>B</option>
+            <option value="c">C</option>
+            </select></form>""",
             [("items", "a"), ("items", "b")],
         ),
         # checkbox — checked, with value
@@ -82,10 +85,11 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ('<form><input type="checkbox" name="x" value="" checked></form>', [("x", "")]),
         # multiple checkboxes with same name
         (
-            "<form>"
-            '<input type="checkbox" name="hobby" value="read" checked>'
-            '<input type="checkbox" name="hobby" value="game" checked>'
-            "</form>",
+            """\
+            <form>
+            <input type="checkbox" name="hobby" value="read" checked>
+            <input type="checkbox" name="hobby" value="game" checked>
+            </form>""",
             [("hobby", "read"), ("hobby", "game")],
         ),
         # radio — checked, explicit empty value attribute → ""
@@ -94,11 +98,12 @@ def _pairs(r: Runtime, form_html: str) -> list[tuple[str, str]]:
         ('<form><input type="radio" name="color" value="red" checked></form>', [("color", "red")]),
         # multiple radios — only the checked one is collected
         (
-            "<form>"
-            '<input type="radio" name="size" value="s">'
-            '<input type="radio" name="size" value="m" checked>'
-            '<input type="radio" name="size" value="l">'
-            "</form>",
+            """\
+            <form>
+            <input type="radio" name="size" value="s">
+            <input type="radio" name="size" value="m" checked>
+            <input type="radio" name="size" value="l">
+            </form>""",
             [("size", "m")],
         ),
     ],
@@ -162,10 +167,11 @@ def _urlsearchparams_string(r: Runtime, form_html: str) -> str:
         ('<form><input name="q" value="hello world"></form>', "q=hello+world"),
         # multiple values for same name
         (
-            "<form>"
-            '<input type="checkbox" name="c" value="x" checked>'
-            '<input type="checkbox" name="c" value="y" checked>'
-            "</form>",
+            """\
+            <form>
+            <input type="checkbox" name="c" value="x" checked>
+            <input type="checkbox" name="c" value="y" checked>
+            </form>""",
             "c=x&c=y",
         ),
         # empty value

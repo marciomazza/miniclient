@@ -310,8 +310,9 @@ async def test_form_request_submit_plain(
 ) -> None:
     httpx_mock.add_response(url=expected_url, text="<body><p>done</p></body>")
     await browser.load(
-        f'<form method="{method}" action="/action"><input name="x" value="42">'
-        '<button type="submit" id="btn">go</button></form>'
+        f"""\
+        <form method="{method}" action="/action"><input name="x" value="42">
+        <button type="submit" id="btn">go</button></form>"""
     )
     form = browser.find("form")
     assert isinstance(form, AsyncFormElement)

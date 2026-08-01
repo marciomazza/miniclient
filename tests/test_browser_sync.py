@@ -92,8 +92,8 @@ def test_click_and_form_submit_via_htmx(htmx_browser: Browser, httpx_mock: HTTPX
     httpx_mock.add_response(url="http://localhost/click-target", text="<b>clicked</b>")
     httpx_mock.add_response(url="http://localhost/form-action", text="<p>submitted</p>")
     htmx_browser.load(
-        HTMX_SCRIPT_TAG
-        + """\
+        f"""\
+        {HTMX_SCRIPT_TAG}
         <div id="out">
         <button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>
         </div>

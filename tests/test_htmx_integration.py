@@ -60,9 +60,11 @@ async def test_element_click_hx_get(htmx_browser: AsyncBrowser, httpx_mock: HTTP
         text="<b>clicked</b>",
     )
     await htmx_browser.load(
-        HTMX_SCRIPT_TAG + '<div id="out">'
-        '<button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>'
-        "</div>"
+        f"""\
+        {HTMX_SCRIPT_TAG}
+        <div id="out">
+        <button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>
+        </div>"""
     )
     btn = htmx_browser.find("button")
     assert btn is not None
@@ -78,10 +80,12 @@ async def test_element_trigger_custom(htmx_browser: AsyncBrowser, httpx_mock: HT
         text="<i>custom</i>",
     )
     await htmx_browser.load(
-        HTMX_SCRIPT_TAG + '<div id="out">'
-        '<button hx-get="/custom" hx-trigger="my-event" hx-target="#out" '
-        'hx-swap="innerHTML">go</button>'
-        "</div>"
+        f"""\
+        {HTMX_SCRIPT_TAG}
+        <div id="out">
+        <button hx-get="/custom" hx-trigger="my-event" hx-target="#out"
+        hx-swap="innerHTML">go</button>
+        </div>"""
     )
     btn = htmx_browser.find("button")
     assert btn is not None
@@ -104,12 +108,13 @@ async def test_element_request_submit_form(
         text="<p>submitted</p>",
     )
     await htmx_browser.load(
-        HTMX_SCRIPT_TAG
-        + '<form id="f" hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
-        '<input name="x" value="1">'
-        '<button type="submit" id="btn">send</button>'
-        "</form>"
-        '<div id="result"></div>'
+        f"""\
+        {HTMX_SCRIPT_TAG}
+        <form id="f" hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">
+        <input name="x" value="1">
+        <button type="submit" id="btn">send</button>
+        </form>
+        <div id="result"></div>"""
     )
     form = htmx_browser.find("form")
     assert isinstance(form, AsyncFormElement)
@@ -135,10 +140,12 @@ async def test_submit_via_submitter_click(
         text="<p>sent</p>",
     )
     await htmx_browser.load(
-        HTMX_SCRIPT_TAG + '<form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">'
-        f"{submitter_html}"
-        "</form>"
-        '<div id="result"></div>'
+        f"""\
+        {HTMX_SCRIPT_TAG}
+        <form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">
+        {submitter_html}
+        </form>
+        <div id="result"></div>"""
     )
     sub = htmx_browser.find("#sub")
     assert sub is not None
