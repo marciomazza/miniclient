@@ -84,7 +84,13 @@
         for (const t of s.tests) {
             for (const b of be) await b.call(_ctx);
             try {
-                await t.fn.call(_ctx);
+                if (t.fn.length >= 1) {
+                    await new Promise((resolve, reject) => {
+                        t.fn.call(_ctx, (err) => (err ? reject(err) : resolve()));
+                    });
+                } else {
+                    await t.fn.call(_ctx);
+                }
                 results.push({ suite: s.name, name: t.name, passed: true });
             } catch (e) {
                 if (e === _SKIP) {
