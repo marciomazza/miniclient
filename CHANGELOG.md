@@ -6,9 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `Page`/`AsyncPage.url` property for `location.href`.
+
+### Changed
+
 - Renamed `Browser`/`AsyncBrowser` to `Page`/`AsyncPage` (module `miniclient.browser` is now
-  `miniclient.page`), matching happy-dom's own vocabulary: this class wraps a single
-  window/document, same as what happy-dom's `Browser.newPage()` returns — not a multi-page browser.
+  `miniclient.page`), matching happy-dom's and playwright vocabulary.
+- POST form submissions with no explicit `enctype` are now sent as
+  `application/x-www-form-urlencoded`, matching real browsers, instead of always as
+  `multipart/form-data`.
+- `goto()`/`load()` now drive real happy-dom navigation instead of simulating it via
+  `document.write()`. Consequence: htmx (and any other page script) is now page-scoped like a
+  real browser, not persistent across navigations — this fixes event listeners and
+  `hx-trigger="every ...s"` polling timers accumulating across repeated `goto()`/`load()` calls
+  within a test.
+- `Page` now runs on a same-thread event loop instead of a dedicated background thread:
+  `eval()` \~7x faster, `find()` \~4x faster, `click()` \~15-20% faster.
+- Upgraded happy-dom to 20.11.1.
+- Performance: happy-dom is now baked into the V8 snapshot instead of imported per `Runtime`,
+  dropping `open_runtime()` from \~110ms to \~16-18ms.
+
+### Fixed
+
+- `AsyncPage.load()` now waits for a synthesized `DOMContentLoaded` event (happy-dom never fires
+  one on its own), so app code gated behind that event now runs on initial load.
+- `AsyncPage.__enter__` now fails fast if used before the page is built.
+- Fixed `Element.find()`/`find_all()`/`.parent` being statically typed as returning `AsyncElement`
+  even for sync `Element` instances.
+- Fixed `attachInternals` errors being silently swallowed instead of propagating.
+- Fixed module scripts (`<script type="module" src>`) never executing.
+- Polyfilled `globalThis.crypto`, fixing app code that calls `crypto.getRandomValues()` during
+  module evaluation (e.g. TinyMCE).
+- Fixed several happy-dom bugs affecting DOM/htmx behavior: `Event.timeStamp` reading a
+  user-mocked `performance.now`, form `reset()` ignoring `<select multiple>`, `location.hash`
+  clobbering `history.state`, missing `Document.parseHTMLUnsafe`, a colon-attribute/plain-name
+  sibling corruption bug, missing `:required`/`:invalid`/`:valid` pseudo-classes and `:disabled`
+  fieldset propagation, form/select proxy identity loss when moved in the DOM, form-associated
+  custom elements missing from `HTMLFormElement.elements`, and a `MutationObserver` GC bug
+  affecting libraries like Alpine.js.
+- Fixed `ReadableStream` backpressure and streaming-decode bugs affecting SSE and multipart
+  streaming response bodies.
 
 ## [0.0.10]
 
