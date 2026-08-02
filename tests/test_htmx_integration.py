@@ -4,11 +4,11 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
-from conftest import HTMX_SCRIPT_TAG
-from jsrun import Runtime
+from conftest import HTMX_SCRIPT_TAG, HTMX_VIRTUAL_SERVER
 from pytest_httpx2 import HTTPXMock
 
 from miniclient.page import AsyncFormElement, AsyncPage
+from miniclient.runtime import open_runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -16,15 +16,16 @@ from miniclient.page import AsyncFormElement, AsyncPage
 
 
 @pytest_asyncio.fixture
-async def htmx_page(runtime: Runtime) -> AsyncIterator[AsyncPage]:
-    """A fresh AsyncPage, closed automatically unless the test closes it first. Each
-    load()/goto() is a real navigation, so htmx must be (re-)loaded per page via
-    HTMX_SCRIPT_TAG, same as a real page."""
-    b = AsyncPage(runtime=runtime)
-    try:
-        yield b
-    finally:
-        b.close()
+async def htmx_page() -> AsyncIterator[AsyncPage]:
+    """A fresh AsyncPage that can reach the vendored htmx.js, closed automatically
+    unless the test closes it first. Each load()/goto() is a real navigation, so
+    htmx must be (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real page."""
+    async with open_runtime(virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
+        b = AsyncPage(runtime=r)
+        try:
+            yield b
+        finally:
+            b.close()
 
 
 # ---------------------------------------------------------------------------

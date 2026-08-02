@@ -30,8 +30,7 @@ HTMX_VIRTUAL_SERVER: VirtualServer = {
 }
 
 
-# fixme: Perhaps remove this after untangling from HTMX
 @pytest_asyncio.fixture
 async def runtime() -> AsyncIterator[Runtime]:
-    async with open_runtime(virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
+    async with open_runtime() as r:
         yield r
