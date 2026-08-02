@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -19,6 +20,7 @@ _HELPERS_JS = _HTMX_TEST / "lib/helpers.js"
 _SKIP = {
     "package.js",  # asserts htmx has no dependencies — not relevant to this runtime
 }
+
 # Individual JS tests to skip, keyed by file stem → set of (suite, test-name).
 # Rewritten to it.skip(...) before the file runs — not just filtered from results —
 # since some failures (e.g. an orphaned promise rejection) are fatal to the whole
@@ -27,6 +29,23 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
     "hx-swap": {
         ("hx-swap modifiers", "swap with scroll:bottom modifier scrolls to bottom"),
         # scroll position is always 0 in a headless DOM
+    },
+}
+
+# Tests that assert on real elapsed wall-clock time — exempted from timer scaling
+# (run via runner.js's __unscaledTests check) rather than skipped outright, since
+# unlike _SKIP_TESTS these are meaningful, just incompatible with a scaled clock.
+_UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
+    "timeout": {
+        ("timeout() unit tests", "returns promise that resolves after milliseconds"),
+        ("timeout() unit tests", "accepts string time format"),
+        ("timeout() unit tests", "accepts seconds format"),
+    },
+    "hx-swap": {
+        ("hx-swap modifiers", "main swap with delay respects blocking behavior"),
+    },
+    "hx-ws": {
+        ("Deep Review Fixes", "cleans up expired pending requests on message receive"),
     },
 }
 
@@ -71,6 +90,8 @@ async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     js = js.replace("'../test/lib/", "'http://localhost/test/lib/")
     for _suite, name in _SKIP_TESTS.get(js_file.stem, set()):
         js = js.replace(f"it('{name}'", f"it.skip('{name}'")
+    unscaled = [f"{suite}::{name}" for suite, name in _UNSCALED_TESTS.get(js_file.stem, set())]
+    r.eval(f"globalThis.__unscaledTests = new Set({json.dumps(unscaled)});")
     r.eval(js)
     results = await r.eval_async("__runAllTests()")
     failures = [res for res in results if not res["passed"]]

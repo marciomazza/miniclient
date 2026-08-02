@@ -4,6 +4,36 @@
     let _cur = null;
     const _SKIP = Symbol("skip");
 
+    // Shrinks every real timer delay used by htmx tests (htmx.timeout(), setTimeout(),
+    // hx-trigger delay/throttle modifiers, hx-ws's reconnect/TTL config — they all end
+    // up calling setTimeout/setInterval internally), so slow vendored tests run fast.
+    // Keeps nonzero delays nonzero: flooring to 0 would turn a macrotask wait into a
+    // microtask one, breaking tests that depend on that ordering (e.g. MutationObserver
+    // flush timing).
+    const TIMEOUT_DIVISOR = 10;
+    const realSetTimeout = globalThis.setTimeout;
+    const realSetInterval = globalThis.setInterval;
+    const scale =
+        (real) =>
+        (fn, ms = 0, ...args) =>
+            real(fn, ms > 0 ? Math.max(1, ms / TIMEOUT_DIVISOR) : ms, ...args);
+    const scaledSetTimeout = scale(realSetTimeout);
+    const scaledSetInterval = scale(realSetInterval);
+
+    // Wraps a test to run with scaled timers; real-elapsed-time assertions
+    // (e.g. `assert.isAtLeast(Date.now() - start, 45)`) skip it. See the
+    // __unscaledTests check below.
+    globalThis.__withScaledTimers = async (fn) => {
+        globalThis.setTimeout = scaledSetTimeout;
+        globalThis.setInterval = scaledSetInterval;
+        try {
+            await fn();
+        } finally {
+            globalThis.setTimeout = realSetTimeout;
+            globalThis.setInterval = realSetInterval;
+        }
+    };
+
     globalThis.describe = (name, fn) => {
         const s = { name, tests: [], _be: [], _ae: [], _before: [], _after: [], children: [] };
         if (_cur) {
@@ -83,13 +113,17 @@
         const ae = [...s._ae, ...ancestorsAe];
         for (const t of s.tests) {
             for (const b of be) await b.call(_ctx);
+            const runTest = () =>
+                t.fn.length >= 1
+                    ? new Promise((resolve, reject) => {
+                          t.fn.call(_ctx, (err) => (err ? reject(err) : resolve()));
+                      })
+                    : t.fn.call(_ctx);
             try {
-                if (t.fn.length >= 1) {
-                    await new Promise((resolve, reject) => {
-                        t.fn.call(_ctx, (err) => (err ? reject(err) : resolve()));
-                    });
+                if (globalThis.__unscaledTests?.has(`${s.name}::${t.name}`)) {
+                    await runTest();
                 } else {
-                    await t.fn.call(_ctx);
+                    await globalThis.__withScaledTimers(runTest);
                 }
                 results.push({ suite: s.name, name: t.name, passed: true });
             } catch (e) {
