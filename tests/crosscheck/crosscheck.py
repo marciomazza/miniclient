@@ -149,7 +149,9 @@ class CrossCheck:
 
         def _wrapped_wsgi(environ, start_response):
             if environ["PATH_INFO"] == "/htmx.js":
-                start_response("200 OK", [("Content-Type", "application/javascript")])
+                start_response(
+                    "200 OK", [("Content-Type", "application/javascript; charset=utf-8")]
+                )
                 return [_HTMX_JS]
             return wsgi_app(environ, start_response)
 
