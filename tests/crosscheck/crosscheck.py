@@ -137,7 +137,7 @@ class CrossCheck:
         capturing_transport = _CapturingTransport(WSGITransport(wsgi_app), client_talk)
         client = await AsyncPage(
             httpx_transport=capturing_transport,
-            mounts={"http://testserver/": _HTMX_DIST_DIR},
+            mounts={"http://testserver/htmx.js": _HTMX_DIST_DIR / "htmx.js"},
         )
 
         def _wrapped_wsgi(environ, start_response):
