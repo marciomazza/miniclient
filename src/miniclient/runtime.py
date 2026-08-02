@@ -31,6 +31,7 @@ def _happydom_bundle_source_list() -> list[Path]:
         _JS / "happydom-entry.js",
         *_JS.glob("patch-*.js"),
         *_POLYFILLS.glob("*.js"),
+        _ROOT / "package-lock.json",
     ]
 
 
@@ -48,9 +49,8 @@ def _happydom_bundle_source() -> str:
             )
             if stale:
                 # Packaged wheels ship this pre-built; a local checkout (re)builds it here on first
-                # use or whenever one of the files above changes. Doesn't track
-                # node_modules/happy-dom itself -- after bumping that version, also
-                # `rm -rf src/miniclient/js/_generated`.
+                # use or whenever one of the files above changes, including package-lock.json --
+                # so bumping happy-dom (or any npm dep) triggers a rebuild too.
                 subprocess.run(
                     ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True, capture_output=True
                 )  # pragma: no cover
