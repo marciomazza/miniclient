@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import json
 import subprocess
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -34,17 +35,28 @@ def _happydom_bundle_source_list() -> list[Path]:
 
 
 def _happydom_bundle_source() -> str:
-    stale = not _HAPPYDOM_BUNDLE.exists() or any(
-        p.stat().st_mtime > _HAPPYDOM_BUNDLE.stat().st_mtime for p in _happydom_bundle_source_list()
-    )
-    if stale:
-        # Packaged wheels ship this pre-built; a local checkout (re)builds it here on first
-        # use or whenever one of the files above changes. Doesn't track node_modules/happy-dom
-        # itself -- after bumping that version, also `rm -rf src/miniclient/js/_generated`.
-        subprocess.run(
-            ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True, capture_output=True
-        )  # pragma: no cover
-    return _HAPPYDOM_BUNDLE.read_text()
+    # flock is not a cross-platform lock lib -- fine since jsrun/deno_core is Linux/mac-only anyway.
+    # Guards against parallel test workers racing esbuild onto the same outfile
+    # (truncated/partial reads).
+    _HAPPYDOM_BUNDLE.parent.mkdir(parents=True, exist_ok=True)
+    with open(_HAPPYDOM_BUNDLE.parent / ".happy-dom-bundle.lock", "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            stale = not _HAPPYDOM_BUNDLE.exists() or any(
+                p.stat().st_mtime > _HAPPYDOM_BUNDLE.stat().st_mtime
+                for p in _happydom_bundle_source_list()
+            )
+            if stale:
+                # Packaged wheels ship this pre-built; a local checkout (re)builds it here on first
+                # use or whenever one of the files above changes. Doesn't track
+                # node_modules/happy-dom itself -- after bumping that version, also
+                # `rm -rf src/miniclient/js/_generated`.
+                subprocess.run(
+                    ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True, capture_output=True
+                )  # pragma: no cover
+            return _HAPPYDOM_BUNDLE.read_text()
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def get_snapshot_builder() -> SnapshotBuilder:
