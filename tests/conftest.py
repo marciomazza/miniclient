@@ -1,25 +1,13 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-import pytest
 import pytest_asyncio
-from hypothesis import Phase, settings
 from jsrun import Runtime
 
-from miniclient.runtime import VirtualServer, get_snapshot_builder, open_runtime
-
-settings.register_profile(
-    "noshrink",
-    phases=[Phase.explicit, Phase.reuse, Phase.generate, Phase.target],
-)
-
+from miniclient.runtime import VirtualServer, open_runtime
 
 _ROOT = Path(__file__).parent.parent
-_VENDOR_HTMX_TEST = _ROOT / "vendor/htmx/test"
 _VENDOR_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
-_CHAI_JS = _ROOT / "node_modules/chai/chai.js"
-_RUNNER_JS = Path(__file__).parent / "runner.js"
-_FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
 HTMX_SCRIPT_TAG = '<script src="http://localhost/vendor/htmx.js"></script>'
 
@@ -42,21 +30,8 @@ HTMX_VIRTUAL_SERVER: VirtualServer = {
 }
 
 
-@pytest.fixture(scope="session")
-def v8_snapshot() -> bytes:
-    builder = get_snapshot_builder()
-    builder.execute_script(
-        "chai",
-        f"""{_CHAI_JS.read_text()}
-            globalThis.assert = globalThis.chai.assert;
-            globalThis.should = globalThis.chai.should();""",
-    )
-    builder.execute_script("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text())
-    builder.execute_script("runner", _RUNNER_JS.read_text())
-    return builder.build()
-
-
+# fixme: Perhaps remove this after untangling from HTMX
 @pytest_asyncio.fixture
-async def runtime(v8_snapshot: bytes) -> AsyncIterator[Runtime]:
-    async with open_runtime(v8_snapshot=v8_snapshot, virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
+async def runtime() -> AsyncIterator[Runtime]:
+    async with open_runtime(virtual_servers=[HTMX_VIRTUAL_SERVER]) as r:
         yield r

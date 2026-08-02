@@ -14,9 +14,9 @@ from miniclient.page import AsyncElement, AsyncFormElement, AsyncPage
 
 
 @pytest_asyncio.fixture
-async def page(v8_snapshot: bytes) -> AsyncIterator[AsyncPage]:
+async def page() -> AsyncIterator[AsyncPage]:
     """A fresh htmx-loaded AsyncPage, closed automatically unless the test closes it first."""
-    b = await AsyncPage(v8_snapshot=v8_snapshot)
+    b = await AsyncPage()
     await b.runtime.eval_async("""__document_write(`
         <!DOCTYPE html>
         <html>
@@ -350,12 +350,9 @@ async def test_form_request_submit_plain(
 # ---------------------------------------------------------------------------
 
 
-async def test_page_create_with_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
+async def test_page_create_with_virtual_servers(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    b = await AsyncPage(
-        v8_snapshot=v8_snapshot,
-        mounts={"http://localhost/ext/": tmp_path},
-    )
+    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     b.runtime.eval(
         """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
     )
@@ -381,39 +378,29 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
     ["script.async = true;", "script.defer = true;", "script.type = 'module';"],
     ids=["async", "defer", "module"],
 )
-async def test_page_script_src_virtual_server(
-    v8_snapshot: bytes, tmp_path: Path, attr_setup_js: str
-) -> None:
+async def test_page_script_src_virtual_server(tmp_path: Path, attr_setup_js: str) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    b = await AsyncPage(
-        v8_snapshot=v8_snapshot,
-        mounts={"http://localhost/ext/": tmp_path},
-    )
+    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.runtime.eval_async(
         _load_script_js(attr_setup_js, "http://localhost/ext/external-script.js")
     )
     assert b.runtime.eval("window.__ran") == 1
 
 
-async def test_page_module_script_relative_import(v8_snapshot: bytes, tmp_path: Path) -> None:
+async def test_page_module_script_relative_import(tmp_path: Path) -> None:
     (tmp_path / "helper.js").write_text("export const value = 1;")
     (tmp_path / "entry.js").write_text("import { value } from './helper.js'; window.__ran = value;")
-    b = await AsyncPage(
-        v8_snapshot=v8_snapshot,
-        mounts={"http://localhost/ext/": tmp_path},
-    )
+    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.runtime.eval_async(
         _load_script_js("script.type = 'module';", "http://localhost/ext/entry.js")
     )
     assert b.runtime.eval("window.__ran") == 1
 
 
-async def test_page_load_fires_dom_content_loaded_after_module_script(
-    v8_snapshot: bytes, tmp_path: Path
-) -> None:
+async def test_page_load_fires_dom_content_loaded_after_module_script(tmp_path: Path) -> None:
     (tmp_path / "entry.js").write_text(
         "document.addEventListener('DOMContentLoaded', () => { window.__dclFired = true; });"
     )
-    b = await AsyncPage(v8_snapshot=v8_snapshot, mounts={"http://localhost/ext/": tmp_path})
+    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
     assert b.runtime.eval("window.__dclFired") is True

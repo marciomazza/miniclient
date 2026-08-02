@@ -10,8 +10,8 @@ from miniclient.runtime import open_runtime
 
 
 @pytest.fixture(scope="module")
-async def formdata_runtime(v8_snapshot) -> AsyncGenerator[Runtime, None]:
-    async with open_runtime("http://localhost/", v8_snapshot=v8_snapshot) as r:
+async def formdata_runtime() -> AsyncGenerator[Runtime, None]:
+    async with open_runtime("http://localhost/") as r:
         yield r
 
 

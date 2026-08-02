@@ -7,11 +7,14 @@ from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
 from jsrun import Runtime
 
-from miniclient.runtime import open_runtime
+from miniclient.runtime import get_snapshot_builder, open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
 _HELPERS_JS = _HTMX_TEST / "lib/helpers.js"
+_CHAI_JS = _ROOT / "node_modules/chai/chai.js"
+_RUNNER_JS = Path(__file__).parent / "runner.js"
+_FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
 # ---------------------------------------------------------------------------
 # htmx vendor unit tests — one pytest case per JS file in tests/unit/
@@ -50,13 +53,27 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
 }
 
 
+@pytest.fixture(scope="session")
+def htmx_v8_snapshot() -> bytes:
+    builder = get_snapshot_builder()
+    builder.execute_script(
+        "chai",
+        f"""{_CHAI_JS.read_text()}
+            globalThis.assert = globalThis.chai.assert;
+            globalThis.should = globalThis.chai.should();""",
+    )
+    builder.execute_script("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text())
+    builder.execute_script("runner", _RUNNER_JS.read_text())
+    return builder.build()
+
+
 # todo: Perhaps make this a module scoped feature again after the tests pass.
 @pytest.fixture
-async def htmx_runtime(v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
+async def htmx_runtime(htmx_v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
     async with open_runtime(
         "http://localhost/",
-        v8_snapshot=v8_snapshot,
+        v8_snapshot=htmx_v8_snapshot,
         before_fetch=fetch_mock.before_fetch,
         httpx_transport=fetch_mock.transport,
         virtual_servers=[

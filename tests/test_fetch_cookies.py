@@ -13,10 +13,8 @@ def _echo_cookie_app(environ: WSGIEnvironment, start_response: StartResponse):
     return [body]
 
 
-async def test_document_cookie_reaches_request_cookie_header(v8_snapshot: bytes) -> None:
-    page = await AsyncPage(
-        v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_echo_cookie_app)
-    )
+async def test_document_cookie_reaches_request_cookie_header() -> None:
+    page = await AsyncPage(httpx_transport=WSGITransport(app=_echo_cookie_app))
     try:
         await page.goto("http://testserver/")
         page.runtime.eval("document.cookie = 'sessionid=abc123; path=/'")
@@ -37,7 +35,7 @@ async def test_document_cookie_reaches_request_cookie_header(v8_snapshot: bytes)
     ],
 )
 async def test_set_cookie_response_reaches_next_request(
-    v8_snapshot: bytes, set_cookie_header: str, expected_document_cookie: str
+    set_cookie_header: str, expected_document_cookie: str
 ) -> None:
     cookie_pair = set_cookie_header.split(";")[0].strip()
 
@@ -50,7 +48,7 @@ async def test_set_cookie_response_reaches_next_request(
         start_response("200 OK", headers)
         return [body]
 
-    page = await AsyncPage(v8_snapshot=v8_snapshot, httpx_transport=WSGITransport(app=_app))
+    page = await AsyncPage(httpx_transport=WSGITransport(app=_app))
     try:
         await page.goto("http://testserver/login")
         assert page.runtime.eval("document.cookie") == expected_document_cookie

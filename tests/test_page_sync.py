@@ -16,9 +16,9 @@ from miniclient.page import Element, FormElement, Page
 
 
 @pytest.fixture
-def page(v8_snapshot: bytes) -> Iterator[Page]:
+def page() -> Iterator[Page]:
     """A fresh Page, closed automatically unless the test closes it first."""
-    b = Page(v8_snapshot=v8_snapshot)
+    b = Page()
     try:
         yield b
     finally:
@@ -26,14 +26,11 @@ def page(v8_snapshot: bytes) -> Iterator[Page]:
 
 
 @pytest.fixture
-def htmx_page(v8_snapshot: bytes) -> Iterator[Page]:
+def htmx_page() -> Iterator[Page]:
     """A fresh Page that can reach the vendored htmx.js, closed automatically unless
     the test closes it first. Each load()/goto() is a real navigation, so htmx must be
     (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real page."""
-    b = Page(
-        v8_snapshot=v8_snapshot,
-        mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])},
-    )
+    b = Page(mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])})
     try:
         yield b
     finally:
@@ -122,16 +119,16 @@ def test_click_and_form_submit_via_htmx(htmx_page: Page, httpx_mock: HTTPXMock) 
 # ---------------------------------------------------------------------------
 
 
-def test_page_context_manager_closes(v8_snapshot: bytes) -> None:
-    with Page(v8_snapshot=v8_snapshot) as b:
+def test_page_context_manager_closes() -> None:
+    with Page() as b:
         b.load("<p>hi</p>")
         assert b.find("p") is not None
     assert b._closed
 
 
-def test_page_virtual_servers(v8_snapshot: bytes, tmp_path: Path) -> None:
+def test_page_virtual_servers(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    with Page(v8_snapshot=v8_snapshot, mounts={"http://localhost/ext/": tmp_path}) as b:
+    with Page(mounts={"http://localhost/ext/": tmp_path}) as b:
         b.eval(
             """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
         )
