@@ -51,6 +51,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   affecting libraries like Alpine.js.
 - Fixed `ReadableStream` backpressure and streaming-decode bugs affecting SSE and multipart
   streaming response bodies.
+- Fixed `AsyncPage.aclose()` skipping `close()` for pages built without an injected `runtime=`
+  (e.g. via `mounts=`), which silently bypassed any `close()` override/instrumentation and left
+  `close()` alone unable to tear down the pooled httpx client for such pages.
 
 ## [0.0.10]
 

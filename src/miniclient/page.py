@@ -316,10 +316,9 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 
     async def aclose(self) -> None:
         """Like close(), but also awaits the shared httpx client's teardown."""
+        self.close()
         if self._stack is not None:
             await self._stack.aclose()
-        else:
-            self.close()
 
     def __enter__(self) -> Self:
         assert self._runtime is not None, "AsyncPage not built yet — await it or use `async with`"
