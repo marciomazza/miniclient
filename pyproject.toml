@@ -68,8 +68,6 @@ packages = ["src/miniclient"]
 "node_modules/text-encoding/LICENSE.md" = "miniclient/_vendor/text-encoding/LICENSE.md"
 "node_modules/entities/dist/esm" = "miniclient/_vendor/entities/dist/esm"
 "node_modules/entities/LICENSE" = "miniclient/_vendor/entities/LICENSE"
-"node_modules/htmx.org/dist/htmx.js" = "miniclient/_vendor/htmx.org/dist/htmx.js"
-"node_modules/htmx.org/LICENSE" = "miniclient/_vendor/htmx.org/LICENSE"
 
 [tool.hatch.build.targets.sdist.force-include]
 "node_modules/happy-dom/lib" = "node_modules/happy-dom/lib"
@@ -80,8 +78,6 @@ packages = ["src/miniclient"]
 "node_modules/text-encoding/LICENSE.md" = "node_modules/text-encoding/LICENSE.md"
 "node_modules/entities/dist/esm" = "node_modules/entities/dist/esm"
 "node_modules/entities/LICENSE" = "node_modules/entities/LICENSE"
-"node_modules/htmx.org/dist/htmx.js" = "node_modules/htmx.org/dist/htmx.js"
-"node_modules/htmx.org/LICENSE" = "node_modules/htmx.org/LICENSE"
 
 [tool.pyrefly]
 search_path = ["src", "tests"]

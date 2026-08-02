@@ -7,7 +7,7 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         node_modules = Path(self.root) / "node_modules"
-        if not (node_modules / "htmx.org").exists():
+        if not (node_modules / "happy-dom").exists():
             subprocess.run(["npm", "ci"], cwd=self.root, check=True)
         subprocess.run(
             ["node", "src/miniclient/js/build-happydom-bundle.mjs"], cwd=self.root, check=True

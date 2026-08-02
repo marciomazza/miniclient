@@ -23,10 +23,8 @@ _HX_PREFIX = "hx-"
 _JS_SERIALIZE = (Path(__file__).parent / "serialize_dom.js").read_text()
 
 _ROOT = Path(__file__).parent.parent.parent
-_BUNDLED = _ROOT / "src/miniclient/_vendor"
-_NM = _BUNDLED if _BUNDLED.exists() else _ROOT / "node_modules"
-_HTMX_DIST_DIR = _NM / "htmx.org/dist"
-_HTMX_JS = (_HTMX_DIST_DIR / "htmx.js").read_bytes()
+_VENDOR_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
+_HTMX_JS = _VENDOR_HTMX_SRC.read_bytes()
 
 
 def _url_path_and_query(url: str) -> str:
@@ -144,7 +142,7 @@ class CrossCheck:
         capturing_transport = _CapturingTransport(WSGITransport(wsgi_app), client_talk)
         client = await AsyncPage(
             httpx_transport=capturing_transport,
-            mounts={"http://testserver/htmx.js": _HTMX_DIST_DIR / "htmx.js"},
+            mounts={"http://testserver/htmx.js": _VENDOR_HTMX_SRC},
         )
 
         def _wrapped_wsgi(environ, start_response):
