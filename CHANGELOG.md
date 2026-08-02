@@ -24,6 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   within a test.
 - `Page` now runs on a same-thread event loop instead of a dedicated background thread:
   `eval()` \~7x faster, `find()` \~4x faster, `click()` \~15-20% faster.
+- `click()`/`trigger()`/`fill()`/`requestSubmit()` now wait for the page to settle (any pending
+  timers/fetches) instead of specifically waiting for htmx to settle, so they behave the same on
+  htmx pages, other-framework pages, and plain pages.
 - Upgraded happy-dom to 20.11.1.
 - Performance: happy-dom is now baked into the V8 snapshot instead of imported per `Runtime`,
   dropping `open_runtime()` from \~110ms to \~16-18ms.

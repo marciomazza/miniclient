@@ -169,7 +169,8 @@ page.find("button").click()
 page.find("div").trigger("my-event")  # any DOM event, e.g. for hx-trigger="my-event"
 ```
 
-Both wait for htmx to settle if the event fires an htmx request.
+Both wait for the page to settle (any pending timers/fetches, e.g. from an htmx request, a
+plain `fetch()`, or another framework's async work).
 
 ## Submitting forms
 
@@ -181,8 +182,10 @@ form = page.find("form")
 form.requestSubmit()
 ```
 
-If the form is htmx-wired (`hx-post`, `hx-get`, ...), this waits for htmx to settle. If not, it
-performs a plain fetch and reloads the page. Clicking a `<button type="submit">` or `<input type="submit">` inside the form works the same way, through `.click()`.
+If a script (e.g. htmx via `hx-post`, `hx-get`, ...) intercepts the submit, this waits for the
+page to settle. If not, it performs the form's native GET/POST navigation and reloads the page.
+Clicking a `<button type="submit">` or `<input type="submit">` inside the form works the same
+way, through `.click()`.
 
 ## Executing JavaScript
 

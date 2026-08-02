@@ -43,14 +43,14 @@ def _event_class(event_type: str) -> str:
 
 
 def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
-    """Dispatch a DOM event, wrapped in a Promise that resolves after htmx
-    settles (or immediately if no request fires). Delegates the wait/settle
-    logic to the shared JS helper also used by __zzz_submit (see submit.js).
+    """Dispatch a DOM event, wrapped in a Promise that resolves once the page
+    settles. Delegates the wait/settle logic to the shared JS helper also used
+    by __zzz_submit (see submit.js).
     """
     event_cls = _event_class(event)
     init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
     return f"""
-        __zzz_await_htmx({handle}, el => {{
+        __zzz_await_settle({handle}, el => {{
           el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));
         }});"""
 
@@ -185,9 +185,9 @@ class AsyncElementBase(Generic[_E]):
     # --- Form / Input ---
 
     async def fill(self, value: str) -> None:
-        """Set the element's value, dispatch `change`, and wait for htmx to settle."""
+        """Set the element's value, dispatch `change`, and wait for the page to settle."""
         js = f"""
-        __zzz_await_htmx({self.handle}, el => {{
+        __zzz_await_settle({self.handle}, el => {{
           el.value = {json.dumps(value)};
           // TODO: change only, not input — real typing fires input per keystroke too, so
           // hx-trigger="input" (e.g. live search) won't react to fill(). Add input dispatch
@@ -199,11 +199,11 @@ class AsyncElementBase(Generic[_E]):
     # --- Interactions ---
 
     async def click(self) -> None:
-        """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
+        """Dispatch a click MouseEvent and wait for the page to settle."""
         await self.trigger("click")
 
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
-        """Dispatch a DOM event and wait for htmx to settle."""
+        """Dispatch a DOM event and wait for the page to settle."""
         js = _dispatch_js(self.handle, event, event_init)
         await self._runtime.eval_async(js)
 
@@ -239,8 +239,8 @@ class AsyncFormElementBase:
     async def requestSubmit(self) -> None:
         """Submit this form and wait for it to settle.
 
-        If htmx handles the submission, waits for htmx to settle.
-        If the form is not htmx-wired, performs a plain fetch and reloads the page.
+        If a script (e.g. htmx) intercepts the submit, waits for the page to settle.
+        Otherwise, performs the form's native GET/POST navigation and reloads the page.
         """
         await self._runtime.eval_async(f"__zzz_submit({self.handle})")
 
@@ -376,15 +376,15 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
         self._loop = _loop_by_runtime[runtime]
 
     def click(self) -> None:  # type: ignore[override]
-        """Dispatch a click MouseEvent and wait for htmx to settle if needed."""
+        """Dispatch a click MouseEvent and wait for the page to settle."""
         self.trigger("click")
 
     def trigger(self, event: str, event_init: dict | None = None) -> None:  # type: ignore[override]
-        """Dispatch a DOM event and wait for htmx to settle."""
+        """Dispatch a DOM event and wait for the page to settle."""
         self._loop.run_until_complete(AsyncElementBase.trigger(self, event, event_init))
 
     def fill(self, value: str) -> None:  # type: ignore[override]
-        """Set the element's value, dispatch `change`, and wait for htmx to settle."""
+        """Set the element's value, dispatch `change`, and wait for the page to settle."""
         self._loop.run_until_complete(AsyncElementBase.fill(self, value))
 
 
@@ -394,8 +394,8 @@ class FormElement(Element, AsyncFormElementBase):
     def requestSubmit(self) -> None:  # type: ignore[override]
         """Submit this form and wait for it to settle.
 
-        If htmx handles the submission, waits for htmx to settle.
-        If the form is not htmx-wired, performs a plain fetch and reloads the page.
+        If a script (e.g. htmx) intercepts the submit, waits for the page to settle.
+        Otherwise, performs the form's native GET/POST navigation and reloads the page.
         """
         self._loop.run_until_complete(AsyncFormElementBase.requestSubmit(self))
 

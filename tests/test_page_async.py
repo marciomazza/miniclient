@@ -297,6 +297,33 @@ async def test_element_find_returns_form_element(page: AsyncPage) -> None:
 
 
 # ---------------------------------------------------------------------------
+# AsyncElement.click/trigger/fill — settle on plain (non-htmx) pages
+# ---------------------------------------------------------------------------
+
+
+async def test_click_awaits_plain_fetch_settle(page: AsyncPage, httpx_mock: HTTPXMock) -> None:
+    """click()/trigger()/fill() wait for the page to settle by tracking pending timers and
+    in-flight fetches via happy-dom's AsyncTaskManager, so this works even when the page has
+    no htmx loaded at all."""
+    httpx_mock.add_response(url="http://localhost/data", text="done")
+    await page.load("""
+        <button id="btn">go</button>
+        <div id="out"></div>
+        <script>
+            document.getElementById("btn").addEventListener("click", async () => {
+                const res = await fetch("/data");
+                document.getElementById("out").textContent = await res.text();
+            });
+        </script>
+    """)
+    btn = page.find("#btn")
+    assert btn is not None
+    await btn.click()
+    out = page.find("#out")
+    assert out and out.text == "done"
+
+
+# ---------------------------------------------------------------------------
 # AsyncFormElement.requestSubmit
 # ---------------------------------------------------------------------------
 

@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from unittest.mock import patch
 
@@ -187,3 +188,40 @@ async def test_page_async_context_manager(httpx_mock: HTTPXMock, htmx_page: Asyn
             assert result is not None
             assert result.innerHTML == "<b>hi</b>"
     close_mock.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Live polling must not block unrelated click()/trigger() calls
+# ---------------------------------------------------------------------------
+
+
+async def test_click_not_blocked_by_unrelated_poller(
+    htmx_page: AsyncPage, httpx_mock: HTTPXMock
+) -> None:
+    """A live hx-trigger="every ..." poller elsewhere on the page must not make
+    click()/trigger() on an unrelated element hang: bootstrap.js deliberately does not
+    track setInterval in the AsyncTaskManager reconnection (happy-dom's native
+    Window.setInterval starts a timer with no matching endTimer() until clearInterval()),
+    so a live poller would otherwise keep waitUntilComplete() permanently pending."""
+    httpx_mock.add_response(
+        url="http://localhost/poll", text="<span id='poller'>tick</span>", is_reusable=True
+    )
+    httpx_mock.add_response(url="http://localhost/click-target", text="<b>clicked</b>")
+    await htmx_page.load(f"""
+        {HTMX_SCRIPT_TAG}
+        <span id="poller" hx-get="/poll" hx-trigger="every 50ms" hx-swap="outerHTML"></span>
+        <div id="out">
+        <button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>
+        </div>
+    """)
+    btn = htmx_page.find("button")
+    assert btn is not None
+    await asyncio.wait_for(btn.click(), timeout=2)
+    out = htmx_page.find("#out")
+    assert out is not None
+    assert out.innerHTML == "<b>clicked</b>"
+    # Let the poller fire at least once (it would have deadlocked click() above if
+    # tracked) so httpx_mock's teardown sees its mocked response as actually used.
+    # asyncio.sleep() alone wouldn't drive the JS engine's own timers -- await a JS-side
+    # timer instead, same as runtime.eval_async is used elsewhere to pump real time.
+    await htmx_page.runtime.eval_async("new Promise(resolve => setTimeout(resolve, 100))")

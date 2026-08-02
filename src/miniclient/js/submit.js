@@ -70,53 +70,15 @@ globalThis.__zzz_fetch_and_load = async function (url) {
     return __zzz_finish_load();
 };
 
-// Runs `doAction(el)`, then resolves once htmx settles the request it triggered.
-// If no request was triggered, calls `onNoRequest(el)` and resolves with its result
-// (default: resolve with null). Shared by Element.trigger()/click() (browser.py)
-// and __zzz_submit below.
-globalThis.__zzz_await_htmx = function (handle, doAction, onNoRequest) {
-    return new Promise((resolve, reject) => {
-        let willRequest = false;
-        document.addEventListener(
-            "htmx:before:request",
-            () => {
-                willRequest = true;
-            },
-            { once: true },
-        );
-        document.addEventListener(
-            "htmx:finally:request",
-            () => {
-                window.happyDOM.waitUntilComplete().then(resolve).catch(reject);
-            },
-            { once: true },
-        );
-        document.addEventListener(
-            "htmx:error",
-            (e) => {
-                reject(new Error("htmx:error — " + (e.detail?.error ?? e.detail?.ctx?.status)));
-            },
-            { once: true },
-        );
-
-        const el = __zzz_deref(handle);
-        if (!el) {
-            reject(new Error("Element not found (handle " + handle + ")"));
-            return;
-        }
-
-        try {
-            Promise.resolve(doAction(el)).catch(reject);
-        } catch (err) {
-            reject(err);
-        }
-
-        setTimeout(() => {
-            if (!willRequest) {
-                Promise.resolve(onNoRequest?.(el)).then(resolve).catch(reject);
-            }
-        }, 0);
-    });
+// Runs `doAction(el)`, then resolves once the page settles: happy-dom's real
+// AsyncTaskManager (via window.happyDOM.waitUntilComplete(), reconnected to
+// setTimeout/fetch in bootstrap.js) tracks every pending timer and in-flight fetch.
+// Shared by Element.trigger()/click() (browser.py) and __zzz_submit below.
+globalThis.__zzz_await_settle = async function (handle, doAction) {
+    const el = __zzz_deref(handle);
+    if (!el) throw new Error("Element not found (handle " + handle + ")");
+    await doAction(el);
+    await window.happyDOM.waitUntilComplete();
 };
 
 // happy-dom's native HTMLFormElement#submit() always sends POST bodies as
@@ -144,51 +106,47 @@ function __zzz_submit_urlencoded(el) {
 // the form's own requestSubmit() dispatches the submit event (and runs validation).
 globalThis.__zzz_submit = async function (handle) {
     const browserFrame = __zzz_get_browser_frame();
-    return __zzz_await_htmx(
-        handle,
-        async (el) => {
-            if (el.tagName !== "FORM") {
-                throw new Error(
-                    "requestSubmit() only works on <form> elements (handle " + handle + ")",
-                );
-            }
-            // Registered fresh per call, so it always runs after htmx's own submit
-            // listener (added once, at htmx.process() time) — evt.defaultPrevented
-            // tells us whether htmx already claimed the submission.
-            el.addEventListener(
-                "submit",
-                (evt) => {
-                    if (evt.defaultPrevented) return;
-                    const method = (el.getAttribute("method") || "get").toLowerCase();
-                    const enctype = (el.enctype || "").toLowerCase();
-                    if (
-                        method === "post" &&
-                        enctype !== "multipart/form-data" &&
-                        enctype !== "text/plain"
-                    ) {
-                        evt.preventDefault();
-                        __zzz_submit_urlencoded(el);
-                    }
-                },
-                { once: true },
+    const winBefore = browserFrame.window;
+    await __zzz_await_settle(handle, async (el) => {
+        if (el.tagName !== "FORM") {
+            throw new Error(
+                "requestSubmit() only works on <form> elements (handle " + handle + ")",
             );
-            el.requestSubmit();
-        },
-        async () => {
-            // htmx didn't intercept => requestSubmit()'s default (unprevented) action
-            // already ran happy-dom's own native HTMLFormElement submit handling, which
-            // does a real GET/POST navigation through the same BrowserFrameNavigator
-            // goto() uses (see HTMLFormElement.js's #submit()). Just wait for it, then
-            // re-sync our globals/htmx state onto the resulting document.
-            //
-            // __clearAllTimers() must wait until after waitUntilComplete(): the
-            // navigation itself is mid-flight at this point and relies on our custom
-            // setTimeout polyfill for its own internal request-timeout guard — clearing
-            // timers here wipes that out too and the navigation's promise never settles.
-            await browserFrame.waitUntilComplete();
-            __clearAllTimers();
-            __zzz_register_window_globals(browserFrame.window);
-            return __zzz_finish_load();
-        },
-    );
+        }
+        // Registered fresh per call, so it always runs after htmx's own submit
+        // listener (added once, at htmx.process() time) — evt.defaultPrevented
+        // tells us whether htmx already claimed the submission.
+        el.addEventListener(
+            "submit",
+            (evt) => {
+                if (evt.defaultPrevented) return;
+                const method = (el.getAttribute("method") || "get").toLowerCase();
+                const enctype = (el.enctype || "").toLowerCase();
+                if (
+                    method === "post" &&
+                    enctype !== "multipart/form-data" &&
+                    enctype !== "text/plain"
+                ) {
+                    evt.preventDefault();
+                    __zzz_submit_urlencoded(el);
+                }
+            },
+            { once: true },
+        );
+        el.requestSubmit();
+    });
+    // If nothing prevented the submit's default action, requestSubmit() already ran
+    // happy-dom's own native HTMLFormElement submit handling, which does a real GET/POST
+    // navigation through the same BrowserFrameNavigator goto() uses (see
+    // HTMLFormElement.js's #submit()) — that replaces browserFrame.window with a brand
+    // new Window instance, which the identity check above detects.
+    if (browserFrame.window !== winBefore) {
+        // __clearAllTimers() must run after __zzz_await_settle's waitUntilComplete():
+        // the navigation itself relies on our custom setTimeout polyfill for its own
+        // internal request-timeout guard — clearing timers earlier wipes that out too
+        // and the navigation's promise never settles.
+        __clearAllTimers();
+        __zzz_register_window_globals(browserFrame.window);
+        return __zzz_finish_load();
+    }
 };

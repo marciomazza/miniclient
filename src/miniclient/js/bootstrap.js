@@ -169,6 +169,45 @@ _preExistingGlobals.add("__zzz_navigate");
 
 registerWindowGlobals(win);
 
+// Reconnects the real happy-dom AsyncTaskManager to setTimeout and fetch, so
+// window.happyDOM.waitUntilComplete() (used by submit.js's __zzz_await_settle) tracks
+// every pending timer and in-flight fetch. Resolved fresh on every call, same pattern as
+// the fetch override's cookie-jar lookup below, so it stays correct across navigations.
+//
+// setInterval/clearInterval are deliberately NOT wrapped: happy-dom's own native
+// Window.setInterval calls startTimer() once at creation with no matching endTimer() until
+// clearInterval() is called, so tracking polling intervals the same way (e.g. a
+// hx-trigger="every 2s" element) would make waitUntilComplete() hang for the interval's
+// lifetime.
+//
+// Returns null (rather than throwing) when there's no browserFrame yet -- same case the
+// fetch override's cookie-jar lookup below already treats as expected: e.g. this fires
+// mid-navigation, for goto()'s own internal request-timeout guard, before the new
+// window/browserFrame pairing is fully wired up.
+function __zzz_atm() {
+    return new WindowBrowserContext(window).getBrowserFrame()?.[PropertySymbol.asyncTaskManager];
+}
+const _zzzRawSetTimeout = globalThis.setTimeout;
+const _zzzRawClearTimeout = globalThis.clearTimeout;
+globalThis.setTimeout = (fn, ms = 0, ...args) => {
+    const id = _zzzRawSetTimeout(
+        (...cbArgs) => {
+            // endTimer() before the callback, not after: mirrors happy-dom's own
+            // BrowserWindow.setTimeout ordering (the callback might throw).
+            __zzz_atm()?.endTimer(id);
+            fn(...cbArgs);
+        },
+        ms,
+        ...args,
+    );
+    __zzz_atm()?.startTimer(id);
+    return id;
+};
+globalThis.clearTimeout = (id) => {
+    if (id != null) __zzz_atm()?.endTimer(id);
+    _zzzRawClearTimeout(id);
+};
+
 globalThis.fetch = async (input, init = {}) => {
     let url, method, headers, body;
     if (!(input instanceof Request) && init.body instanceof FormData) {
@@ -224,7 +263,14 @@ globalThis.fetch = async (input, init = {}) => {
         }
     }
 
-    const res = await __host_fetch({ url, method, headers, body });
+    const atm = browserFrame?.[PropertySymbol.asyncTaskManager];
+    const _taskID = atm?.startTask();
+    let res;
+    try {
+        res = await __host_fetch({ url, method, headers, body });
+    } finally {
+        atm?.endTask(_taskID);
+    }
 
     // Set-Cookie is a forbidden response header per spec: store it in the cookie jar,
     // don't let it reach Response.headers.
