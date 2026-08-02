@@ -100,13 +100,20 @@ class _CapturingTransport(httpx.AsyncBaseTransport):
         self._talk = talk
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        self._talk.request = CapturedRequest(
-            method=request.method, path=str(request.url), headers=dict(request.headers)
-        )
+        # Only capture genuine htmx requests (hx-request header), matching
+        # _hook_request_page's filter — native browser navigations (e.g. an
+        # unintercepted form submit) also flow through this transport but
+        # aren't htmx activity.
+        is_htmx = bool(request.headers.get("hx-request"))
+        if is_htmx:
+            self._talk.request = CapturedRequest(
+                method=request.method, path=str(request.url), headers=dict(request.headers)
+            )
         response = await self._wrapped.handle_async_request(request)
-        self._talk.response = CapturedResponse(
-            status=response.status_code, headers=dict(response.headers)
-        )
+        if is_htmx:
+            self._talk.response = CapturedResponse(
+                status=response.status_code, headers=dict(response.headers)
+            )
         return response
 
 
