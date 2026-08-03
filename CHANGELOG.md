@@ -4,15 +4,14 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.1]
 
 ### Fixed
 
-- The bundle staleness check (for dev) no longer breaks the wheel.
-- Fixed an intermittent segfault under heavy `Runtime()` construction/close churn (e.g. the
-  htmx test suite), caused by a race in jsrun's isolate teardown. Mitigated with a lock and
-  short delay serializing `Runtime()` construction against any in-flight close in
-  `open_runtime()`; the real fix belongs upstream in jsrun.
+- Fixed bundle staleness check (for dev) breaking the wheel.
+- Fixed an intermittent segfault under heavy `Runtime()` construction/close churn
+  (e.g. the htmx test suite), caused by a race in jsrun's isolate teardown.
+  Our solution is a workaround and the real fix belongs upstream in jsrun.
 
 ## [0.1.0]
 
