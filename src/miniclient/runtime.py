@@ -35,7 +35,7 @@ def _happydom_bundle_source_list() -> list[Path]:
     ]
 
 
-def _happydom_bundle_source() -> str:
+def _happydom_bundle_update() -> None:
     # flock is not a cross-platform lock lib -- fine since jsrun/deno_core is Linux/mac-only anyway.
     # Guards against parallel test workers racing esbuild onto the same outfile
     # (truncated/partial reads).
@@ -48,15 +48,21 @@ def _happydom_bundle_source() -> str:
                 for p in _happydom_bundle_source_list()
             )
             if stale:
-                # Packaged wheels ship this pre-built; a local checkout (re)builds it here on first
-                # use or whenever one of the files above changes, including package-lock.json --
-                # so bumping happy-dom (or any npm dep) triggers a rebuild too.
+                # A local checkout (re)builds it here on first use or whenever one of the
+                # files above changes, including package-lock.json -- so bumping happy-dom
+                # (or any npm dep) triggers a rebuild too.
                 subprocess.run(
                     ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True, capture_output=True
                 )  # pragma: no cover
-            return _HAPPYDOM_BUNDLE.read_text()
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _happydom_bundle_source() -> str:
+    if not _BUNDLED.exists():
+        _happydom_bundle_update()
+    # else: packaged wheel (_vendor/) ships a pre-built bundle -- trust it.
+    return _HAPPYDOM_BUNDLE.read_text()
 
 
 def get_snapshot_builder() -> SnapshotBuilder:
