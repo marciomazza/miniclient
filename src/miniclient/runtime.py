@@ -4,6 +4,7 @@ import asyncio
 import fcntl
 import json
 import subprocess
+import threading
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import cache
@@ -194,6 +195,18 @@ class VirtualServer(TypedDict):
     directory: str
 
 
+# jsrun's close() acks before the isolate is actually dropped on its own
+# un-joined OS thread, so a Runtime() constructed right after can race that teardown
+# on V8's process-wide WasmCodePointerTable (segfault; upstream denoland/deno_core#952).
+# This lock+delay keeps construction and close+teardown mutually exclusive across the
+# whole process -- it doesn't stop concurrent Runtimes from running, just from
+# constructing/closing at the same instant. Ceiling: heuristic delay, not a real fix.
+# Remove once jsrun's RuntimeHandle::close() joins the teardown thread before returning
+# (see /home/mazza/extra/hc/tmp/handoff-miniclient-jsrun-segfault-20260803-3.md).
+_RUNTIME_LIFECYCLE_LOCK = threading.Lock()
+_RUNTIME_TEARDOWN_BUFFER_S = 0.1
+
+
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
@@ -205,7 +218,8 @@ async def open_runtime(
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(RuntimeConfig(snapshot=v8_snapshot or _build_v8_snapshot()))
+        with _RUNTIME_LIFECYCLE_LOCK:
+            r = Runtime(RuntimeConfig(snapshot=v8_snapshot or _build_v8_snapshot()))
 
         r.set_module_resolver(_resolver)
         r.set_module_loader(_loader)
@@ -222,5 +236,9 @@ async def open_runtime(
         _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
         await r.eval_module_async(_bootstrap_uri)
 
-        with r:
+        try:
             yield r
+        finally:
+            with _RUNTIME_LIFECYCLE_LOCK:
+                r.close()
+                await asyncio.sleep(_RUNTIME_TEARDOWN_BUFFER_S)
