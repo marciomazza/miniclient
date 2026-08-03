@@ -35,9 +35,11 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
     },
 }
 
-# Tests that assert on real elapsed wall-clock time — exempted from timer scaling
-# (run via runner.js's __unscaledTests check) rather than skipped outright, since
-# unlike _SKIP_TESTS these are meaningful, just incompatible with a scaled clock.
+# Tests that assert on real elapsed wall-clock time, or that use a waitForEvent()
+# guard racing unscaled async work (e.g. a mocked fetch round trip) — exempted from
+# timer scaling (run via runner.js's __unscaledTests check) rather than skipped
+# outright, since unlike _SKIP_TESTS these are meaningful, just incompatible with a
+# scaled clock.
 _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
     "timeout": {
         ("timeout() unit tests", "returns promise that resolves after milliseconds"),
@@ -49,6 +51,10 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
     },
     "hx-ws": {
         ("Deep Review Fixes", "cleans up expired pending requests on message receive"),
+    },
+    "morph": {
+        ("htmx processing during morph", "processes new htmx attributes added during innerMorph"),
+        ("htmx processing during morph", "processes new htmx attributes added during outerMorph"),
     },
 }
 
