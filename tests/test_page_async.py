@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
@@ -192,12 +193,20 @@ async def test_element_parent_is_none_for_root_html_element(page: AsyncPage) -> 
     assert el.parent is None
 
 
-async def test_element_fill(page: AsyncPage) -> None:
+@pytest.mark.parametrize(("method", "event"), [("fill", "change"), ("type", "input")])
+async def test_element_fill_and_type_dispatch_correct_event(
+    page: AsyncPage, method: str, event: str
+) -> None:
     await page.load("<input id='inp' value='old'>")
     el = page.find("#inp")
     assert el is not None
-    await el.fill("new")
+    await page.runtime.eval_async(
+        f"document.getElementById('inp').addEventListener({json.dumps(event)}, "
+        "() => { window.__fired = true; })"
+    )
+    await getattr(el, method)("new")
     assert page.runtime.eval("document.querySelector('#inp').value") == "new"
+    assert page.runtime.eval("window.__fired") is True
 
 
 async def test_element_fill_textarea(page: AsyncPage) -> None:

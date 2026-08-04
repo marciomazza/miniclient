@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `Element`/`AsyncElement.type(value)`: sets an input/textarea's value and dispatches a real
+  `input` event, unlike `fill()` which only dispatches `change` — needed to drive
+  `hx-trigger="input"`-based UI.
+
 ### Fixed
 
 - `click()`/`trigger()` events weren't `cancelable`, so a page's own `preventDefault()` (e.g.

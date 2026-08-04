@@ -42,18 +42,17 @@ def _event_class(event_type: str) -> str:
     return mapping.get(event_type, "Event")
 
 
-def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
+def _dispatch_js(handle: int, event: str, event_init: dict | None, js: str = "") -> str:
     """Dispatch a DOM event, wrapped in a Promise that resolves once the page
     settles. Delegates the wait/settle logic to the shared JS helper also used
-    by __zzz_submit (see submit.js).
+    by __zzz_submit (see submit.js). If `js` is given, runs it against `el`
+    first (used by fill()/type() to set the value).
     """
     event_cls = _event_class(event)
-    # cancelable: true is required, not cosmetic — without it, preventDefault() (e.g. htmx
-    # intercepting a click) is a no-op, so happy-dom's own native default action (anchor
-    # navigation, form submission) fires *too*, silently destroying/replacing the window.
     init_json = json.dumps(event_init) if event_init else "{bubbles: true, cancelable: true}"
     return f"""
         __zzz_await_settle({handle}, el => {{
+          {js};
           el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));
         }});"""
 
@@ -189,14 +188,14 @@ class AsyncElementBase(Generic[_E]):
 
     async def fill(self, value: str) -> None:
         """Set the element's value, dispatch `change`, and wait for the page to settle."""
-        js = f"""
-        __zzz_await_settle({self.handle}, el => {{
-          el.value = {json.dumps(value)};
-          // TODO: change only, not input — real typing fires input per keystroke too, so
-          // hx-trigger="input" (e.g. live search) won't react to fill(). Add input dispatch
-          // if that coverage is needed.
-          el.dispatchEvent(new Event('change', {{bubbles: true}}));
-        }});"""
+        js = _dispatch_js(
+            self.handle, "change", {"bubbles": True}, js=f"el.value = {json.dumps(value)}"
+        )
+        await self._runtime.eval_async(js)
+
+    async def type(self, value: str) -> None:
+        """Set the element's value, dispatch `input`, and wait for the page to settle."""
+        js = _dispatch_js(self.handle, "input", None, js=f"el.value = {json.dumps(value)}")
         await self._runtime.eval_async(js)
 
     # --- Interactions ---
@@ -388,6 +387,10 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     def fill(self, value: str) -> None:  # type: ignore[override]
         """Set the element's value, dispatch `change`, and wait for the page to settle."""
         self._loop.run_until_complete(AsyncElementBase.fill(self, value))
+
+    def type(self, value: str) -> None:  # type: ignore[override]
+        """Set the element's value, dispatch `input`, and wait for the page to settle."""
+        self._loop.run_until_complete(AsyncElementBase.type(self, value))
 
 
 class FormElement(Element, AsyncFormElementBase):
