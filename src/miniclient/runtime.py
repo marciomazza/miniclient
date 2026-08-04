@@ -204,7 +204,7 @@ class VirtualServer(TypedDict):
 # Remove once jsrun's RuntimeHandle::close() joins the teardown thread before returning
 # (see /home/mazza/extra/hc/tmp/handoff-miniclient-jsrun-segfault-20260803-3.md).
 _RUNTIME_LIFECYCLE_LOCK = threading.Lock()
-_RUNTIME_TEARDOWN_BUFFER_S = 0.1
+_RUNTIME_TEARDOWN_BUFFER_S = 0.01
 
 
 @asynccontextmanager
