@@ -48,7 +48,10 @@ def _dispatch_js(handle: int, event: str, event_init: dict | None) -> str:
     by __zzz_submit (see submit.js).
     """
     event_cls = _event_class(event)
-    init_json = json.dumps(event_init) if event_init else "{bubbles: true}"
+    # cancelable: true is required, not cosmetic — without it, preventDefault() (e.g. htmx
+    # intercepting a click) is a no-op, so happy-dom's own native default action (anchor
+    # navigation, form submission) fires *too*, silently destroying/replacing the window.
+    init_json = json.dumps(event_init) if event_init else "{bubbles: true, cancelable: true}"
     return f"""
         __zzz_await_settle({handle}, el => {{
           el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));
