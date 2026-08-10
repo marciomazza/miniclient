@@ -4,6 +4,16 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Cookies were dropped on the auto-followed leg of a redirect (e.g. POST -> 302 -> GET):
+  httpx rebuilds the Cookie header for a redirect hop from its own (always-empty) cookie
+  jar, discarding whatever Cookie header the request carried. `fetch`/`fetch_sync` now
+  reseed httpx's jar from happy-dom's cookie jar before every request, so redirect hops
+  carry the right cookies too.
+
 ## [0.1.2]
 
 ### Added

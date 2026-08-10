@@ -137,6 +137,21 @@ def _clean_response_headers(r: httpx.Response) -> list[list[str]]:
     return headers
 
 
+def _sync_client_cookies(httpx_client: httpx.AsyncClient, headers: dict) -> None:
+    # httpx follows redirects internally and, on each hop, rebuilds the Cookie header
+    # from `httpx_client.cookies` -- it discards whatever Cookie header the request was
+    # sent with (httpx2/_client.py:_redirect_headers). happy-dom's own cookie jar
+    # (bootstrap.js) is the real source of truth and only attaches a Cookie header to
+    # the outgoing request itself, not to any redirect hop -- reseed httpx's jar from
+    # that header before every request so a redirect chain still carries it.
+    httpx_client.cookies.jar.clear()
+    if cookie_header := next((v for k, v in headers.items() if k.lower() == "cookie"), None):
+        for pair in cookie_header.split(";"):
+            name, _, value = pair.strip().partition("=")
+            if name:
+                httpx_client.cookies.set(name, value)
+
+
 def _make_fetch_op(
     before_fetch: Callable[[dict], Awaitable[None]] | None,
     httpx_client: httpx.AsyncClient,
@@ -146,10 +161,12 @@ def _make_fetch_op(
             await before_fetch(req)
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
+        headers = req.get("headers", {})
+        _sync_client_cookies(httpx_client, headers)
         r = await httpx_client.request(
             req["method"],
             req["url"],
-            headers=req.get("headers", {}),
+            headers=headers,
             content=content,
         )
         return {
@@ -169,11 +186,13 @@ def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractE
     def _fetch_sync_op_impl(req: dict) -> dict:
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
+        headers = req.get("headers", {})
+        _sync_client_cookies(httpx_client, headers)
         future = asyncio.run_coroutine_threadsafe(
             httpx_client.request(
                 req["method"],
                 req["url"],
-                headers=req.get("headers", {}),
+                headers=headers,
                 content=content,
             ),
             loop,
