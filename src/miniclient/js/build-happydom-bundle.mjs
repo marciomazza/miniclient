@@ -60,6 +60,7 @@ await build({
   globalName: "__happyDomBundle",
   platform: "browser",
   target: "es2022",
+  minify: true,
   outfile: _JS + "_generated/happy-dom-bundle.js",
   plugins: [polyfillResolverPlugin()],
   logLevel: "info",

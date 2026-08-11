@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The happy-dom bundle baked into the V8 snapshot is now minified (2.2MB -> 0.9MB),
+  shrinking both snapshot build time and the resulting snapshot size.
+
 ### Fixed
 
 - Cookies were dropped on the auto-followed leg of a redirect (e.g. POST -> 302 -> GET):
