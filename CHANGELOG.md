@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `Element._eval()` dropped every statement after the first in a `;`-separated
+  expression (its `return` wrapper exited early). Now runs via indirect `eval()`,
+  returning the last statement's value like a normal script.
 - Cookies were dropped on the auto-followed leg of a redirect (e.g. POST -> 302 -> GET):
   httpx rebuilds the Cookie header for a redirect hop from its own (always-empty) cookie
   jar, discarding whatever Cookie header the request carried. `fetch`/`fetch_sync` now

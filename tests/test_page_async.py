@@ -180,6 +180,13 @@ async def test_element_attr(page: AsyncPage) -> None:
     assert el.attr("missing") is None
 
 
+async def test_element_eval_returns_completion_value_of_last_statement(page: AsyncPage) -> None:
+    await page.load("<div id='d'></div>")
+    el = page.find("#d")
+    assert el is not None
+    assert el._eval("1; 2; 3") == 3
+
+
 async def test_element_parent(page: AsyncPage) -> None:
     await page.load("<div id='d'><span id='s'>hi</span></div>")
     el = page.find("#s")

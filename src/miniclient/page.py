@@ -212,15 +212,20 @@ class AsyncElementBase(Generic[_E]):
     # --- Internal ---
 
     def _eval(self, expr: str) -> object:
-        """Evaluate an expression with `el` bound to the selected element."""
-        js = f"""
-        (() => {{
-          const el = __zzz_deref({self.handle});
-          if (!el) throw new Error('Element not found (handle {self.handle})');
-          return {expr.strip()};
-        }})();
+        """Evaluate `expr` with `el` bound to the selected element.
+
+        `expr` may be one statement or several (`;`-separated);
+        the result is the completion value of the last one, same as a normal script.
         """
-        return self._runtime.eval(js)
+        js = f"""\
+            const el = __zzz_deref({self.handle});
+            if (!el) throw new Error('Element not found (handle {self.handle})');
+            {expr.strip()};
+        """
+        # Runs via indirect `eval()` so each call's `const el`
+        # gets its own scope, instead of colliding with earlier calls' `el` in
+        # a shared top-level scope.
+        return self._runtime.eval(f"(0, eval)({json.dumps(js)})")
 
 
 class AsyncElement(_FindMixin["AsyncElement"], AsyncElementBase["AsyncElement"]):
