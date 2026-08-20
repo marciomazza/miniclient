@@ -161,6 +161,10 @@ def _make_fetch_op(
     # (including a pending before_fetch() gate) instead of just discarding
     # the eventual result.
     pending: dict[str, asyncio.Task] = {}
+    # __host_fetch_abort is a sync-bound op, invoked from jsrun's own runtime
+    # thread rather than this event loop's thread -- Task.cancel() isn't
+    # thread-safe, so it must be scheduled back onto the loop that owns it.
+    loop = asyncio.get_running_loop()
 
     async def _do_fetch(req: dict) -> dict:
         if before_fetch is not None:
@@ -200,7 +204,7 @@ def _make_fetch_op(
 
     def _fetch_abort_op(request_id: str) -> None:
         if task := pending.get(request_id):
-            task.cancel()
+            loop.call_soon_threadsafe(task.cancel)
 
     return _fetch_op_impl, _fetch_abort_op
 

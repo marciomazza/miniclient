@@ -1,5 +1,7 @@
+import asyncio
 import json
 
+import httpx2
 import pytest
 from fetch_helpers import js_fetch_json, js_fetch_status, js_fetch_text
 
@@ -138,3 +140,45 @@ async def test_fetch_empty_body(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/empty", status_code=204, text="")
     result = await runtime.eval_async("fetch('http://api.example.com/empty').then(r => r.status)")
     assert result == 204
+
+
+# ---------------------------------------------------------------------------
+# AbortSignal
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_abort_cancels_in_flight_request(runtime, httpx_mock):
+    # Regression: fetch() used to ignore init.signal entirely, so aborting a
+    # request already sent to the backend had no effect -- the response would
+    # still arrive and get processed as if nothing happened.
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_response(request: httpx2.Request) -> httpx2.Response:
+        entered.set()
+        await release.wait()
+        return httpx2.Response(200, text="should not appear")
+
+    httpx_mock.add_callback(slow_response, url="http://api.example.com/slow")
+    runtime.bind_function("__wait_until_requested", entered.wait)
+
+    result = await runtime.eval_async(
+        """\
+        (async () => {
+            const controller = new AbortController();
+            const p = fetch('http://api.example.com/slow', { signal: controller.signal });
+            await __wait_until_requested();
+            controller.abort();
+            try {
+                await p;
+                return 'resolved';
+            } catch (e) {
+                return e.name;
+            }
+        })()
+        """
+    )
+    # The awaited fetch settled without release.set() ever being called -- the
+    # request was truly cancelled, not just its (still pending) result ignored.
+    assert result == "AbortError"
+    release.set()
