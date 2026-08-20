@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   jar, discarding whatever Cookie header the request carried. `fetch`/`fetch_sync` now
   reseed httpx's jar from happy-dom's cookie jar before every request, so redirect hops
   carry the right cookies too.
+- `fetch()` ignored `AbortSignal`/`init.signal` entirely, so aborting a request (e.g.
+  htmx's `htmx:abort`) never touched the underlying call: the response still arrived and
+  got processed as if nothing happened. `fetch()` and the `node:http` `ClientRequest`
+  polyfill now track each request by id and actually cancel the in-flight httpx call on
+  abort/`destroy()`.
 
 ## [0.1.2]
 

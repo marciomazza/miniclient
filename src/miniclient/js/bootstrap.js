@@ -209,6 +209,9 @@ globalThis.clearTimeout = (id) => {
 };
 
 globalThis.fetch = async (input, init = {}) => {
+    const signal = input instanceof Request ? input.signal : init.signal;
+    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+
     let url, method, headers, body;
     if (!(input instanceof Request) && init.body instanceof FormData) {
         // happy-dom's Request constructor doesn't recognise our custom FormData and
@@ -265,11 +268,20 @@ globalThis.fetch = async (input, init = {}) => {
 
     const atm = browserFrame?.[PropertySymbol.asyncTaskManager];
     const _taskID = atm?.startTask();
+    const requestId = crypto.randomUUID();
+    const onAbort = () => __host_fetch_abort(requestId);
+    signal?.addEventListener("abort", onAbort);
     let res;
     try {
-        res = await __host_fetch({ url, method, headers, body });
+        res = await __host_fetch({ url, method, headers, body, id: requestId });
+    } catch (err) {
+        // Cancelling the Python-side task surfaces as a generic failure here --
+        // reinterpret it as the spec-mandated AbortError when it was our abort.
+        if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+        throw err;
     } finally {
         atm?.endTask(_taskID);
+        signal?.removeEventListener("abort", onAbort);
     }
 
     // Set-Cookie is a forbidden response header per spec: store it in the cookie jar,

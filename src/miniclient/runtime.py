@@ -156,7 +156,13 @@ def _make_fetch_op(
     before_fetch: Callable[[dict], Awaitable[None]] | None,
     httpx_client: httpx.AsyncClient,
 ):
-    async def _fetch_op_impl(req: dict) -> dict:
+    # Tracks in-flight requests by the id JS generates per fetch, so an
+    # AbortSignal/ClientRequest.destroy() can cancel the actual network I/O
+    # (including a pending before_fetch() gate) instead of just discarding
+    # the eventual result.
+    pending: dict[str, asyncio.Task] = {}
+
+    async def _do_fetch(req: dict) -> dict:
         if before_fetch is not None:
             await before_fetch(req)
         body = req.get("body")
@@ -177,7 +183,26 @@ def _make_fetch_op(
             "url": str(r.url),
         }
 
-    return _fetch_op_impl
+    async def _fetch_op_impl(req: dict) -> dict:
+        request_id = req["id"]
+        task = asyncio.ensure_future(_do_fetch(req))
+        pending[request_id] = task
+        try:
+            return await task
+        except asyncio.CancelledError:
+            # Convert rather than re-raise: a bare CancelledError escaping this
+            # coroutine would mark the *outer* task (the one jsrun/pyo3 is
+            # awaiting to resolve the JS promise) as cancelled too, since we
+            # only meant to cancel our own child task above.
+            raise RuntimeError("fetch aborted") from None
+        finally:
+            pending.pop(request_id, None)
+
+    def _fetch_abort_op(request_id: str) -> None:
+        if task := pending.get(request_id):
+            task.cancel()
+
+    return _fetch_op_impl, _fetch_abort_op
 
 
 def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractEventLoop):
@@ -243,7 +268,9 @@ async def open_runtime(
         r.set_module_resolver(_resolver)
         r.set_module_loader(_loader)
 
-        r.bind_function("__host_fetch", _make_fetch_op(before_fetch, client))
+        _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
+        r.bind_function("__host_fetch", _fetch_op)
+        r.bind_function("__host_fetch_abort", _fetch_abort_op)
         r.bind_function(
             "__host_fetch_sync", _make_fetch_sync_op(client, asyncio.get_running_loop())
         )

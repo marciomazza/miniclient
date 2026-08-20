@@ -19,6 +19,7 @@ class ClientRequest extends Emitter {
         this._url = url;
         this._options = options ?? {};
         this._chunks = [];
+        this._id = crypto.randomUUID();
         this.destroyed = false;
     }
 
@@ -29,12 +30,10 @@ class ClientRequest extends Emitter {
 
     setTimeout() {}
 
-    // ponytail: doesn't actually cancel the in-flight host fetch, only marks
-    // this request as destroyed. Add real cancellation if abort() needs to stop
-    // real network I/O rather than just ignoring its result.
     destroy(err) {
         if (this.destroyed) return;
         this.destroyed = true;
+        __host_fetch_abort(this._id);
         if (err) this.emit("error", err);
     }
 
@@ -45,9 +44,16 @@ class ClientRequest extends Emitter {
             method: this._options.method ?? "GET",
             headers: this._options.headers ?? {},
             body,
+            id: this._id,
         }).then(
-            (res) => this._respond(res),
-            (err) => this.emit("error", err),
+            // A destroyed request already emitted its own 'error' from destroy();
+            // don't act on whatever the now-irrelevant promise settles with.
+            (res) => {
+                if (!this.destroyed) this._respond(res);
+            },
+            (err) => {
+                if (!this.destroyed) this.emit("error", err);
+            },
         );
     }
 
