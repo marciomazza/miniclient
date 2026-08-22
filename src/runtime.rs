@@ -2,7 +2,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
 
 use deno_core::{Extension, JsRuntime, RuntimeOptions};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 /// Safety net only: the platform init below is the actual fix for deno_core#952. Held
 /// across isolate construction and destruction, never while a live runtime is in use.
@@ -40,10 +40,10 @@ fn extension() -> Extension {
     }
 }
 
-/// Everything Python asks of the isolate thread crosses as one of these, each carrying the
-/// channel its answer goes back on. The ops of §4 land here as further variants.
+/// Everything Python asks of the isolate thread crosses as one of these. The ops of §4 land
+/// here as further variants, each carrying the channel its answer goes back on.
 enum Command {
-    Close(oneshot::Sender<()>),
+    Close,
 }
 
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
@@ -72,23 +72,13 @@ impl Runtime {
                 };
                 ready_tx.send(()).ok();
 
-                let mut ack = None;
                 while let Some(command) = rx.recv().await {
                     match command {
-                        Command::Close(responder) => {
-                            ack = Some(responder);
-                            break;
-                        }
+                        Command::Close => break,
                     }
                 }
-                {
-                    let _lock = lifecycle_lock();
-                    drop(js);
-                }
-                // Acked after the drop, so a caller awaiting it never sees a live isolate.
-                if let Some(responder) = ack {
-                    responder.send(()).ok();
-                }
+                let _lock = lifecycle_lock();
+                drop(js);
             });
         });
         ready_rx
@@ -105,10 +95,7 @@ impl Runtime {
         let Some(thread) = self.thread.take() else {
             return;
         };
-        let (responder, done) = oneshot::channel();
-        if self.commands.send(Command::Close(responder)).is_ok() {
-            done.blocking_recv().ok();
-        }
+        self.commands.send(Command::Close).ok();
         thread.join().expect("isolate thread panicked");
     }
 }
