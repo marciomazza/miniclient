@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // maturin's `include` cannot remap paths, so the copy into the package happens here and
-// maturin picks the package dir up as-is.
+// maturin picks the package dir up as-is. Narrower than the sdist list in pyproject.toml:
+// the wheel ships a prebuilt bundle, so it needs happy-dom's licence but not its sources.
 const VENDORED: &[&str] = &[
     "happy-dom/LICENSE",
     "xpath/xpath.js",

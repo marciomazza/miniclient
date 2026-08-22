@@ -59,7 +59,8 @@ include = [
   { path = "python/miniclient/js/_generated/happy-dom-bundle.js", format = ["sdist", "wheel"] },
   { path = "python/miniclient/_vendor/**/*", format = ["sdist", "wheel"] },
   # The npm sources the bundle embeds, plus their licences, so the sdist carries what it
-  # redistributes. It is not an offline build: build.rs still runs `npm ci`.
+  # redistributes. Wider than build.rs's VENDORED list, which omits happy-dom's sources.
+  # It is not an offline build: build.rs still runs `npm ci`.
   { path = "node_modules/happy-dom/lib/**/*", format = "sdist" },
   { path = "node_modules/happy-dom/LICENSE", format = "sdist" },
   { path = "node_modules/xpath/xpath.js", format = "sdist" },
