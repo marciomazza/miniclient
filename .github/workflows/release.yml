@@ -47,7 +47,7 @@ jobs:
         run: |
           ls -l dist/
           for w in dist/*.whl; do
-            size=$(python -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$w")
+            size=$(wc -c < "$w")
             echo "$w: $size bytes"
             # A wheel without V8 statically linked is a few hundred KB, not tens of MB.
             test "$size" -gt 5000000 || { echo "wheel too small -- V8 not linked?"; exit 1; }
