@@ -21,4 +21,25 @@ export default function patch(win) {
         }
         return _origSetAttribute.call(this, name, value);
     };
+
+    // happy-dom types .hidden as a plain boolean, but the attribute is enumerated: its
+    // "until-found" state has to read back as that string, not as true.
+    Object.defineProperty(win.HTMLElement.prototype, "hidden", {
+        configurable: true,
+        enumerable: true,
+        get() {
+            const value = this.getAttribute("hidden");
+            if (value === null) return false;
+            return value.toLowerCase() === "until-found" ? "until-found" : true;
+        },
+        set(value) {
+            if (typeof value === "string" && value.toLowerCase() === "until-found") {
+                this.setAttribute("hidden", "until-found");
+            } else if (value) {
+                this.setAttribute("hidden", "");
+            } else {
+                this.removeAttribute("hidden");
+            }
+        },
+    });
 }
