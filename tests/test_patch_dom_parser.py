@@ -166,3 +166,73 @@ async def test_empty_template(runtime):
             .querySelector('template').innerHTML
     """)
     assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# insertAdjacentHTML — parsing context and node order
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "container_html, selector, markup, expected_selector",
+    [
+        # each of these is dropped by stock happy-dom, which parses without a context element
+        ("<table><tbody></tbody></table>", "tbody", "<tr><td>x</td></tr>", "tbody > tr"),
+        ("<table><tbody><tr></tr></tbody></table>", "tr", "<td>x</td>", "tr > td"),
+        ("<table></table>", "table", "<tbody><tr><td>x</td></tr></tbody>", "table > tbody"),
+    ],
+)
+async def test_insert_adjacent_html_table_context(
+    runtime, container_html, selector, markup, expected_selector
+):
+    runtime.eval(f"""\
+        document.body.innerHTML = "{container_html}";
+        document.querySelector("{selector}").insertAdjacentHTML("beforeend", "{markup}");
+    """)
+    assert runtime.eval(f"""document.querySelectorAll("{expected_selector}").length""") == 1
+
+
+@pytest.mark.parametrize(
+    "position, expected",
+    [
+        # afterbegin/afterend regress: node-by-node insertion reuses one anchor, reversing them
+        ("afterbegin", "<b>1</b><b>2</b><i>z</i>"),
+        ("beforeend", "<i>z</i><b>1</b><b>2</b>"),
+        ("beforebegin", "<b>1</b><b>2</b><div id='t'><i>z</i></div>"),
+        ("afterend", "<div id='t'><i>z</i></div><b>1</b><b>2</b>"),
+    ],
+)
+async def test_insert_adjacent_html_order(runtime, position, expected):
+    runtime.eval(f"""\
+        document.body.innerHTML = "<div id='t'><i>z</i></div>";
+        document.getElementById("t").insertAdjacentHTML("{position}", "<b>1</b><b>2</b>");
+    """)
+    target = "t" if position in ("afterbegin", "beforeend") else "body"
+    got = runtime.eval(f"""\
+        ({{t: () => document.getElementById("t"), body: () => document.body}})["{target}"]()
+            .innerHTML
+    """)
+    assert got.replace('"', "'") == expected
+
+
+@pytest.mark.parametrize(
+    "position, expected_error",
+    [
+        # detached element: no parent to insert next to (stock happy-dom loops forever here)
+        ("beforebegin", "NoModificationAllowedError"),
+        ("nonsense", "SyntaxError"),  # not one of the four legal keywords
+    ],
+)
+async def test_insert_adjacent_html_throws_dom_exception(runtime, position, expected_error):
+    # the DOM must be untouched: the spec throws before inserting anything
+    assert runtime.eval(f"""\
+        (() => {{
+            const div = document.createElement("div");
+            try {{
+                div.insertAdjacentHTML("{position}", "<b>x</b>");
+            }} catch (e) {{
+                return [e.name, e instanceof DOMException, div.childNodes.length];
+            }}
+            return ["no error", false, div.childNodes.length];
+        }})()
+    """) == [expected_error, True, 0]

@@ -116,6 +116,42 @@ export default function patch(win) {
         }
     }
 
+    // happy-dom parses insertAdjacentHTML() without a context element (unlike the innerHTML
+    // setter, which passes one), so a table fragment such as a bare <tr> loses its implicit
+    // <tbody> context and is dropped. Reparse through the insertion parent's innerHTML, then
+    // move the result over as a single fragment — inserting node by node would reverse the
+    // order for the *begin positions.
+    win.Element.prototype.insertAdjacentHTML = function (position, text) {
+        const pos = String(position).toLowerCase();
+        const parent = pos === "beforebegin" || pos === "afterend" ? this.parentNode : this;
+        if (!parent)
+            throw new win.DOMException("The element has no parent.", "NoModificationAllowedError");
+
+        const doc = this.ownerDocument;
+        const helper = doc.createElement(parent.nodeType === 1 ? parent.tagName : "div");
+        helper.innerHTML = text;
+
+        const fragment = doc.createDocumentFragment();
+        while (helper.firstChild) fragment.appendChild(helper.firstChild);
+
+        switch (pos) {
+            case "beforebegin":
+                parent.insertBefore(fragment, this);
+                break;
+            case "afterbegin":
+                this.insertBefore(fragment, this.firstChild);
+                break;
+            case "beforeend":
+                this.appendChild(fragment);
+                break;
+            case "afterend":
+                parent.insertBefore(fragment, this.nextSibling);
+                break;
+            default:
+                throw new win.DOMException(`Invalid position: ${position}`, "SyntaxError");
+        }
+    };
+
     globalThis.DOMParser = class {
         parseFromString(str, type) {
             if (type === "text/html") {
