@@ -83,6 +83,15 @@ const MARSHAL_JS: &str = r#"(value) =>
     if (typeof val === "bigint") fail("a BigInt");
     if (val === undefined) fail("undefined");
     if (typeof val === "number" && !Number.isFinite(val)) fail(String(val));
+    // A Map, a typed array, a boxed primitive or any class instance serializes to something
+    // that is not it -- `{}`, an index-keyed object, a bare number. `toJSON` ran already, so
+    // a Date is a string by now and a class that defines one is a plain object.
+    if (val !== null && typeof val === "object") {
+      const proto = Object.getPrototypeOf(val);
+      if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
+        fail(`${val.constructor ? val.constructor.name : "an object"} (not a plain object or array)`);
+      }
+    }
     return val;
   })"#;
 

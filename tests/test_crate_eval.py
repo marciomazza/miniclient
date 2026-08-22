@@ -36,6 +36,21 @@ def test_eval_marshals_json_values(bare_runtime, js, expected):
     assert bare_runtime.eval(js) == expected
 
 
+@pytest.mark.parametrize(
+    "js, expected",
+    [
+        # toJSON runs before the replacer, so both of these are plain values by the time the
+        # non-plain-object check sees them.
+        ("new Date(0)", "1970-01-01T00:00:00.000Z"),
+        ("({d: new Date(0)})", {"d": "1970-01-01T00:00:00.000Z"}),
+        ("new (class Money { toJSON() { return {cents: 1} } })()", {"cents": 1}),
+        ("Object.create(null)", {}),
+    ],
+)
+def test_a_value_that_json_carries_faithfully_still_marshals(bare_runtime, js, expected):
+    assert bare_runtime.eval(js) == expected
+
+
 def test_eval_sees_earlier_state(bare_runtime):
     bare_runtime.eval("globalThis.x = 41")
     assert bare_runtime.eval("x + 1") == 42
@@ -91,6 +106,19 @@ def test_a_syntax_error_becomes_a_javascript_error(bare_runtime):
         ("[1, () => 1]", "a function to Python at key '1'"),
         ("[undefined]", "undefined to Python at key '0'"),
         ("({deep: {deeper: [Symbol('s')]}})", "a Symbol"),
+        # Serializing these loses what they are: {} for a Map, an index-keyed object for a
+        # typed array, a bare number for a boxed one.
+        ("new Map([[1, 2]])", "Map (not a plain object or array)"),
+        ("new Uint8Array([1, 2])", "Uint8Array (not a plain object or array)"),
+        ("Object(1)", "Number (not a plain object or array)"),
+        ("/re/", "RegExp (not a plain object or array)"),
+        (
+            "({buf: new ArrayBuffer(2)})",
+            "ArrayBuffer (not a plain object or array) to Python at key 'buf'",
+        ),
+        ("new (class Point { constructor() { this.x = 1 } })()", "Point (not a plain object"),
+        # A sync eval of async code, which used to come back as an empty dict.
+        ("Promise.resolve(1)", "Promise (not a plain object or array)"),
     ],
 )
 def test_a_value_json_cannot_carry_raises_and_says_why(bare_runtime, js, expected):
