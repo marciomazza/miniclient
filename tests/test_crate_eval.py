@@ -45,6 +45,8 @@ def test_eval_marshals_json_values(bare_runtime, js, expected):
         ("({d: new Date(0)})", {"d": "1970-01-01T00:00:00.000Z"}),
         ("new (class Money { toJSON() { return {cents: 1} } })()", {"cents": 1}),
         ("Object.create(null)", {}),
+        # Non-enumerable, so JSON would drop it whatever its key type -- not data.
+        ("Object.defineProperty({a: 1}, Symbol('h'), {value: 2})", {"a": 1}),
     ],
 )
 def test_a_value_that_json_carries_faithfully_still_marshals(bare_runtime, js, expected):
@@ -119,6 +121,8 @@ def test_a_syntax_error_becomes_a_javascript_error(bare_runtime):
         ("new (class Point { constructor() { this.x = 1 } })()", "Point (not a plain object"),
         # A sync eval of async code, which used to come back as an empty dict.
         ("Promise.resolve(1)", "Promise (not a plain object or array)"),
+        ("({[Symbol('k')]: 1})", "a Symbol key (k)"),
+        ("({a: 1, [Symbol('k')]: 2})", "a Symbol key (k)"),
     ],
 )
 def test_a_value_json_cannot_carry_raises_and_says_why(bare_runtime, js, expected):

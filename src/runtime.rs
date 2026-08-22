@@ -91,6 +91,12 @@ const MARSHAL_JS: &str = r#"(value) =>
       if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
         fail(`${val.constructor ? val.constructor.name : "an object"} (not a plain object or array)`);
       }
+      // The replacer is never handed a symbol-keyed value, only the object holding it.
+      // Non-enumerable keys are left alone: JSON drops those whatever their type.
+      const symbols = Object.getOwnPropertySymbols(val).filter((s) =>
+        Object.prototype.propertyIsEnumerable.call(val, s),
+      );
+      if (symbols.length) fail(`a Symbol key (${String(symbols[0].description)})`);
     }
     return val;
   })"#;
