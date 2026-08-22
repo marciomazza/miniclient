@@ -48,8 +48,11 @@ async def test_fetch_follows_redirect(runtime, httpx_mock):
     httpx_mock.add_response(url="http://api.example.com/new", text="moved")
     result = await runtime.eval_async(
         """\
-        fetch('http://api.example.com/old')
-        .then(async r => ({url: r.url, status: r.status, body: await r.text()}))"""
+        fetch('http://api.example.com/old').then(async r => ({
+          url: r.url,
+          status: r.status,
+          body: await r.text(),
+        }))"""
     )
     assert result == {"url": "http://api.example.com/new", "status": 200, "body": "moved"}
 
@@ -119,9 +122,9 @@ async def test_fetch_post_json_body(runtime, httpx_mock):
     result = await runtime.eval_async(
         """
         fetch('http://api.example.com/echo', {
-            method: 'POST',
-            headers: {'content-type': 'application/json'},
-            body: JSON.stringify({key: 'value'}),
+          method: 'POST',
+          headers: {'content-type': 'application/json'},
+          body: JSON.stringify({key: 'value'}),
         }).then(r => r.text())
         """
     )
