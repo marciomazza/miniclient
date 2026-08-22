@@ -1,8 +1,9 @@
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
 
-use deno_core::{Extension, JsRuntime, RuntimeOptions};
-use tokio::sync::mpsc;
+use deno_core::error::{CoreErrorKind, JsError};
+use deno_core::{Extension, JsRuntime, PollEventLoopOptions, RuntimeOptions, v8};
+use tokio::sync::{mpsc, oneshot};
 
 /// Safety net only: the platform init below is the actual fix for deno_core#952. Held
 /// across isolate construction and destruction, never while a live runtime is in use.
@@ -40,16 +41,85 @@ pub(crate) fn extension() -> Extension {
     }
 }
 
+/// What a script produced, once it is out of V8's hands: JSON text, or nothing at all for
+/// `undefined`/`null`.
+pub type EvalOutcome = Result<Option<String>, EvalError>;
+
+/// A JS `Error` keeps its own three field names all the way to Python; anything else that
+/// can go wrong in an eval is just a message.
+pub enum EvalError {
+    Js(Box<JsError>),
+    Other(String),
+}
+
 /// Everything Python asks of the isolate thread crosses as one of these. The ops of §4 land
 /// here as further variants, each carrying the channel its answer goes back on.
 enum Command {
     Close,
+    Eval {
+        source: String,
+        /// Resolve the result and pump the event loop before answering.
+        is_async: bool,
+        reply: oneshot::Sender<EvalOutcome>,
+    },
+}
+
+/// JSON is the whole value contract, so the marshaling happens here, on the isolate thread,
+/// and only text crosses back.
+fn to_json(js: &mut JsRuntime, value: v8::Global<v8::Value>) -> EvalOutcome {
+    deno_core::scope!(scope, js);
+    let value = v8::Local::new(scope, value);
+    if value.is_null_or_undefined() {
+        return Ok(None);
+    }
+    // JSON.stringify answers `undefined` for these instead of throwing, which would come out
+    // as a silent `None` -- the one case where JSON's own failure mode is not loud enough.
+    if value.is_function() || value.is_symbol() {
+        let kind = if value.is_function() {
+            "function"
+        } else {
+            "Symbol"
+        };
+        return Err(EvalError::Other(format!(
+            "cannot marshal a {kind} to Python: eval must return a JSON value"
+        )));
+    }
+    // Throws on a BigInt or a circular reference, with a message worth forwarding verbatim.
+    v8::tc_scope!(scope, scope);
+    match v8::json::stringify(scope, value) {
+        Some(json) => Ok(Some(json.to_rust_string_lossy(scope))),
+        None => Err(EvalError::Other(format!(
+            "cannot marshal to Python: {}",
+            scope
+                .exception()
+                .map(|e| e.to_rust_string_lossy(scope))
+                .unwrap_or_else(|| "JSON.stringify failed".into())
+        ))),
+    }
+}
+
+async fn eval(js: &mut JsRuntime, source: String, is_async: bool) -> EvalOutcome {
+    let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
+    let value = if is_async {
+        let resolve = Box::pin(js.resolve(value));
+        js.with_event_loop_promise(resolve, PollEventLoopOptions::default())
+            .await
+            .map_err(|e| match e.into_kind() {
+                CoreErrorKind::Js(js_error) => EvalError::Js(js_error),
+                other => EvalError::Other(other.to_string()),
+            })?
+    } else {
+        value
+    };
+    to_json(js, value)
 }
 
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
 pub struct Runtime {
     commands: mpsc::UnboundedSender<Command>,
-    thread: Option<JoinHandle<()>>,
+    // Behind a Mutex only so `close()` can take `&self`: pyo3's async methods borrow the
+    // pyclass immutably for the whole future, which rules out a `&mut self` sibling.
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Runtime {
@@ -63,7 +133,7 @@ impl Runtime {
                 .build()
                 .expect("failed to build the isolate thread's tokio runtime");
             tokio.block_on(async move {
-                let js = {
+                let mut js = {
                     let _lock = lifecycle_lock();
                     JsRuntime::new(RuntimeOptions {
                         extensions: vec![extension()],
@@ -72,12 +142,17 @@ impl Runtime {
                 };
                 ready_tx.send(()).ok();
 
-                // One variant today, so the loop always breaks on its first pass; §4's ops
-                // add variants that handle a command and keep going.
-                #[allow(clippy::never_loop)]
                 while let Some(command) = rx.recv().await {
                     match command {
                         Command::Close => break,
+                        Command::Eval {
+                            source,
+                            is_async,
+                            reply,
+                        } => {
+                            // A dropped receiver just means Python stopped caring.
+                            reply.send(eval(&mut js, source, is_async).await).ok();
+                        }
                     }
                 }
                 let _lock = lifecycle_lock();
@@ -89,13 +164,27 @@ impl Runtime {
             .expect("isolate thread died while constructing the runtime");
         Self {
             commands,
-            thread: Some(thread),
+            thread: Mutex::new(Some(thread)),
         }
     }
 
+    /// Queues a script and hands back the channel its result will arrive on, so the caller
+    /// decides whether to block on it or await it.
+    pub fn send_eval(&self, source: String, is_async: bool) -> oneshot::Receiver<EvalOutcome> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::Eval {
+                source,
+                is_async,
+                reply,
+            })
+            .ok();
+        rx
+    }
+
     /// Cannot return before the isolate is gone: the thread join is the happens-before.
-    pub fn close(&mut self) {
-        let Some(thread) = self.thread.take() else {
+    pub fn close(&self) {
+        let Some(thread) = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take() else {
             return;
         };
         self.commands.send(Command::Close).ok();
@@ -125,8 +214,7 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..3 {
-                        let mut runtime = Runtime::new();
-                        runtime.close();
+                        Runtime::new().close();
                     }
                     // The last one closes via Drop instead.
                     Runtime::new();
