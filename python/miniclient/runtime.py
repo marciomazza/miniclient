@@ -15,8 +15,10 @@ import httpx2 as httpx
 from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
 _ROOT = Path(__file__).parent.parent.parent
-_BUNDLED = Path(__file__).parent / "_vendor"
-_NM = _BUNDLED if _BUNDLED.exists() else _ROOT / "node_modules"
+# build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart;
+# package.json only exists in a checkout.
+_IN_CHECKOUT = (_ROOT / "package.json").exists()
+_NM = _ROOT / "node_modules" if _IN_CHECKOUT else Path(__file__).parent / "_vendor"
 _JS = Path(__file__).parent / "js"
 _POLYFILLS = _JS / "polyfills"
 _HAPPYDOM_BUNDLE = _JS / "_generated" / "happy-dom-bundle.js"
@@ -60,9 +62,9 @@ def _happydom_bundle_update() -> None:
 
 
 def _happydom_bundle_source() -> str:
-    if not _BUNDLED.exists():
+    if _IN_CHECKOUT:
         _happydom_bundle_update()
-    # else: packaged wheel (_vendor/) ships a pre-built bundle -- trust it.
+    # else: the packaged wheel ships a pre-built bundle -- trust it.
     return _HAPPYDOM_BUNDLE.read_text()
 
 

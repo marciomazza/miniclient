@@ -14,6 +14,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: uv sync
       - run: uv run prek run --all-files
 
@@ -28,6 +30,8 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           bash scripts/setup-vendor-htmx.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: uv sync
       - run: uv run pytest tests/ -n auto --cov-report=term-missing
       - uses: codecov/codecov-action@v5

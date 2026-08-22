@@ -10,16 +10,75 @@ jobs:
     uses: ./.github/workflows/ci.yml
     secrets: inherit
 
+  wheels:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64
+          - runner: macos-15
+            target: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # build.rs shells out to npm/node, which runs on the host even for container builds.
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --interpreter 3.14
+          manylinux: auto
+          sccache: true
+      - name: Wheel must carry V8 and fit PyPI's 100MB limit
+        shell: bash
+        run: |
+          ls -l dist/
+          for w in dist/*.whl; do
+            size=$(python -c "import os,sys; print(os.path.getsize(sys.argv[1]))" "$w")
+            echo "$w: $size bytes"
+            # A wheel without V8 statically linked is a few hundred KB, not tens of MB.
+            test "$size" -gt 5000000 || { echo "wheel too small -- V8 not linked?"; exit 1; }
+            test "$size" -lt 100000000 || { echo "wheel over PyPI per-file limit"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.runner }}-${{ matrix.target }}
+          path: dist
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
   release:
-    needs: ci
+    needs: [ci, wheels, sdist]
     runs-on: ubuntu-latest
     environment: pypi
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v6
+      - name: Tag must match Cargo.toml
+        run: test "${GITHUB_REF_NAME#v}" = "$(cargo metadata --format-version 1 --no-deps | jq -r .packages[0].version)"
+      - uses: actions/download-artifact@v4
         with:
-          enable-cache: true
-      - run: uv build
+          path: dist
+          merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
       - name: Extract release notes from CHANGELOG.md
         run: |

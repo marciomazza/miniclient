@@ -1,0 +1,14 @@
+[package]
+name = "miniclient"
+version = "0.1.4-dev"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "_miniclient"
+crate-type = ["cdylib"]
+
+[dependencies]
+deno_core = "0.410.0"
+pyo3 = { version = "0.27", features = ["extension-module"] }

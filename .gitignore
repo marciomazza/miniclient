@@ -12,10 +12,15 @@ coverage.xml
 htmlcov
 .hypothesis
 node_modules
-src/miniclient/js/_generated
+python/miniclient/js/_generated
+python/miniclient/_vendor
 .pi
 zz
 .jj
 vendor
 graphify-out*
 site
+
+# Rust
+/target
+/dist
