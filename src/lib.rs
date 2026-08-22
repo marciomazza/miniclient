@@ -53,10 +53,7 @@ impl Runtime {
     fn eval(&self, py: Python<'_>, source: String) -> PyResult<Py<PyAny>> {
         let rx = self.0.send_eval(source, false);
         let outcome = py.detach(|| rx.blocking_recv());
-        to_python(
-            py,
-            outcome.map_err(|_| PyRuntimeError::new_err("the runtime is closed"))?,
-        )
+        to_python(py, outcome.map_err(closed)?)
     }
 
     /// Awaits the script's result -- a promise is resolved and the event loop pumped -- while

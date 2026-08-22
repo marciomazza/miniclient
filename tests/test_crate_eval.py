@@ -79,8 +79,7 @@ def test_a_syntax_error_becomes_a_javascript_error(bare_runtime):
     [
         ("() => 1", "a function"),
         ("Symbol('s')", "a Symbol"),
-        ("10n", "BigInt"),
-        ("(() => { const o = {}; o.self = o; return o; })()", "circular"),
+        ("10n", "a BigInt"),
         ("NaN", "NaN"),
         ("Infinity", "Infinity"),
         ("-Infinity", "-Infinity"),
@@ -97,6 +96,30 @@ def test_a_syntax_error_becomes_a_javascript_error(bare_runtime):
 def test_a_value_json_cannot_carry_raises_and_says_why(bare_runtime, js, expected):
     with pytest.raises(RuntimeError, match=re.escape(expected)):
         bare_runtime.eval(js)
+
+
+@pytest.mark.parametrize(
+    "js",
+    [
+        # V8 refuses this one itself, so it arrives as the page's own TypeError.
+        "(() => { const o = {}; o.self = o; return o; })()",
+        "({get a() { throw new TypeError('from a getter') }})",
+        "({toJSON() { throw new TypeError('from toJSON') }})",
+    ],
+)
+def test_a_throw_while_marshaling_stays_a_javascript_error(bare_runtime, js):
+    with pytest.raises(JavaScriptError) as excinfo:
+        bare_runtime.eval(js)
+    assert excinfo.value.name == "TypeError"
+
+
+def test_a_marshaling_throw_keeps_its_name_and_stack(bare_runtime):
+    js = "({get a() { throw new RangeError('from a getter') }})"
+    with pytest.raises(JavaScriptError) as excinfo:
+        bare_runtime.eval(js)
+    assert excinfo.value.name == "RangeError"
+    assert excinfo.value.message == "from a getter"
+    assert "<eval>" in (excinfo.value.stack or "")
 
 
 async def test_eval_async_leaves_the_python_loop_free(bare_runtime):

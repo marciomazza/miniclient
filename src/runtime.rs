@@ -64,22 +64,30 @@ enum Command {
     },
 }
 
-/// The whole value contract, as JS: `JSON.stringify` answers `undefined` for a function, a
-/// Symbol or an `undefined` member instead of throwing, and turns `NaN`/`Infinity` into
-/// `null` -- all of which would reach Python as a plausible-looking value that is not what
-/// JS had. A replacer turns each of those into a throw, at any depth.
+/// `JSON.stringify` answers `undefined` for a function, a Symbol or an `undefined` member and
+/// `null` for `NaN`/`Infinity`, each of which would reach Python as a plausible value that is
+/// not what JS had. The replacer throws instead, tagged so a refusal is not read as a throw
+/// from the page's own getters or `toJSON`.
 const MARSHAL_JS: &str = r#"(value) =>
   JSON.stringify(value, function (key, val) {
-    const at = key === "" ? "the top level" : `key '${key}'`;
     const fail = (what) => {
-      throw new TypeError(`cannot marshal ${what} to Python at ${at}: eval returns JSON values`);
+      const at = key === "" ? "the top level" : `key '${key}'`;
+      const error = new TypeError(
+        `cannot marshal ${what} to Python at ${at}: eval returns JSON values`,
+      );
+      error.__miniRefusal = true;
+      throw error;
     };
     if (typeof val === "function") fail("a function");
     if (typeof val === "symbol") fail("a Symbol");
+    if (typeof val === "bigint") fail("a BigInt");
     if (val === undefined) fail("undefined");
     if (typeof val === "number" && !Number.isFinite(val)) fail(String(val));
     return val;
   })"#;
+
+/// The tag MARSHAL_JS puts on its own refusals.
+const REFUSAL_TAG: &str = "__miniRefusal";
 
 /// Marshaling happens here, on the isolate thread, so only JSON text ever crosses back.
 fn to_json(
@@ -96,17 +104,36 @@ fn to_json(
     let marshal = v8::Local::<v8::Function>::try_from(marshal).expect("the helper is a function");
     v8::tc_scope!(scope, scope);
     let recv = v8::undefined(scope).into();
-    // Throws for whatever MARSHAL_JS rejects, and for a BigInt or a circular reference on
-    // JSON.stringify's own account -- messages worth forwarding verbatim either way.
     match marshal.call(scope, recv, &[value]) {
         Some(json) => Ok(Some(json.to_rust_string_lossy(scope))),
-        None => Err(EvalError::Other(
-            scope
-                .exception()
-                .map(|e| e.to_rust_string_lossy(scope))
-                .unwrap_or_else(|| "marshaling the result to JSON failed".into()),
-        )),
+        None => Err(match scope.exception() {
+            Some(exception) => match refusal_message(scope, exception) {
+                Some(message) => EvalError::Other(message),
+                // A getter, a `toJSON` or a Proxy trap threw: that is the page's own
+                // exception, and a circular structure is JSON.stringify's own refusal.
+                None => EvalError::Js(JsError::from_v8_exception(scope, exception)),
+            },
+            None => EvalError::Other("marshaling the result to JSON failed".into()),
+        }),
     }
+}
+
+/// What MARSHAL_JS refused, or `None` when the exception came from the page's own code.
+fn refusal_message(
+    scope: &mut v8::PinScope<'_, '_>,
+    exception: v8::Local<'_, v8::Value>,
+) -> Option<String> {
+    let exception = v8::Local::<v8::Object>::try_from(exception).ok()?;
+    let tag = v8::String::new(scope, REFUSAL_TAG)?;
+    if !exception.get(scope, tag.into())?.is_true() {
+        return None;
+    }
+    let message = v8::String::new(scope, "message")?;
+    Some(
+        exception
+            .get(scope, message.into())?
+            .to_rust_string_lossy(scope),
+    )
 }
 
 async fn eval(
