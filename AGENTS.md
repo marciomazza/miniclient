@@ -51,3 +51,8 @@ use triple quotes around instead. E.g.:
 ```
 
 When you make a variable that contains a string with javascript code, name it either `js` or with the suffix `_js`.
+
+# Build and release
+
+See [docs/release.md](docs/release.md) — read it before building, bumping the version,
+tagging, or releasing.
