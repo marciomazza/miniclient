@@ -1,5 +1,12 @@
 import pytest
 
+from miniclient import _miniclient
+from miniclient.runtime import (
+    _SNAPSHOT_WARMUP,
+    _snapshot_cache_path,
+    get_snapshot_scripts,
+)
+
 # ---------------------------------------------------------------------------
 # Window / document basics
 # ---------------------------------------------------------------------------
@@ -217,8 +224,8 @@ async def test_headers_basic(runtime):
 async def test_dom_parser(runtime):
     result = runtime.eval(
         """\
-        new window.DOMParser().parseFromString('<p>hi</p>', 'text/html')
-        .querySelector('p').textContent"""
+        new window.DOMParser().parseFromString('<p>hi</p>', 'text/html').querySelector('p')
+          .textContent"""
     )
     assert result == "hi"
 
@@ -345,3 +352,15 @@ async def test_clearinterval_stops_firing(runtime):
         });
     """)
     assert result is True
+
+
+# ---------------------------------------------------------------------------
+# snapshot
+# ---------------------------------------------------------------------------
+
+
+def test_a_new_v8_build_misses_the_cache_instead_of_reusing_it(monkeypatch):
+    args = (get_snapshot_scripts(), _SNAPSHOT_WARMUP.read_text())
+    path = _snapshot_cache_path(*args)
+    monkeypatch.setattr(_miniclient, "v8_version", lambda: "99.0.0.0-rusty")
+    assert _snapshot_cache_path(*args) != path

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import hashlib
 import json
 import subprocess
 import threading
@@ -14,6 +15,8 @@ from typing import TypedDict
 import httpx2 as httpx
 from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
+from miniclient import _miniclient
+
 _ROOT = Path(__file__).parent.parent.parent
 # build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart.
 # Cargo.toml sits beside the package only in a checkout; package.json would also match any
@@ -22,7 +25,9 @@ _IN_CHECKOUT = (_ROOT / "Cargo.toml").exists()
 _NM = _ROOT / "node_modules" if _IN_CHECKOUT else Path(__file__).parent / "_vendor"
 _JS = Path(__file__).parent / "js"
 _POLYFILLS = _JS / "polyfills"
-_HAPPYDOM_BUNDLE = _JS / "_generated" / "happy-dom-bundle.js"
+_GENERATED = _JS / "_generated"
+_HAPPYDOM_BUNDLE = _GENERATED / "happy-dom-bundle.js"
+_SNAPSHOT_WARMUP = _JS / "snapshot_warmup.js"
 
 
 def _happydom_bundle_source_list() -> list[Path]:
@@ -69,28 +74,71 @@ def _happydom_bundle_source() -> str:
     return _HAPPYDOM_BUNDLE.read_text()
 
 
-def get_snapshot_builder() -> SnapshotBuilder:
-    """Build a SnapshotBuilder with all production scripts (shared by prod and test snapshots)."""
-    builder = SnapshotBuilder()
-    builder.execute_script("text-encoding", (_NM / "text-encoding/lib/encoding.js").read_text())
+def get_snapshot_scripts() -> list[tuple[str, str]]:
+    """The production scripts, in execution order (shared by prod and test snapshots)."""
     xpath_src = (_NM / "xpath/xpath.js").read_text()
-    builder.execute_script(
-        "xpath",
-        f"""const __xpathLib = {{}};
+    return [
+        ("text-encoding", (_NM / "text-encoding/lib/encoding.js").read_text()),
+        (
+            "xpath",
+            f"""const __xpathLib = {{}};
         (function(exports){{{xpath_src}}})(__xpathLib);
         globalThis.__xpathLib = __xpathLib;""",
-    )
-    builder.execute_script("pre_globals", (_JS / "pre_globals.js").read_text())
-    builder.execute_script("formdata", (_JS / "formdata.js").read_text())
-    builder.execute_script("element-registry", (_JS / "element_registry.js").read_text())
-    builder.execute_script("submit", (_JS / "submit.js").read_text())
-    builder.execute_script("happy-dom-bundle", _happydom_bundle_source())
-    return builder
+        ),
+        ("pre_globals", (_JS / "pre_globals.js").read_text()),
+        ("formdata", (_JS / "formdata.js").read_text()),
+        ("element-registry", (_JS / "element_registry.js").read_text()),
+        ("submit", (_JS / "submit.js").read_text()),
+        ("happy-dom-bundle", _happydom_bundle_source()),
+    ]
+
+
+def create_snapshot(scripts: list[tuple[str, str]]) -> bytes:
+    """Run `scripts` into a V8 isolate and serialize it, warmed by snapshot_warmup.js."""
+    return _miniclient.create_snapshot(scripts, _SNAPSHOT_WARMUP.read_text())
+
+
+def _snapshot_cache_path(scripts: list[tuple[str, str]], warmup: str) -> Path:
+    # The V8 build identity belongs in the key as much as the sources do: bumping deno_core
+    # leaves every script byte-identical, and V8 refuses a blob stamped by another build --
+    # an error pointing nowhere near a cache file nobody knew existed. The key rides in the
+    # file name, so a miss is a missing file and a stale blob can never be read back.
+    key = hashlib.sha256(_miniclient.v8_version().encode())
+    for name, source in [*scripts, ("warmup", warmup)]:
+        key.update(f"{name}\0{source}\0".encode())
+    return _GENERATED / f"snapshot-{key.hexdigest()[:16]}.bin"
+
+
+@cache
+def production_snapshot() -> bytes:
+    """The snapshot of `get_snapshot_scripts()`, cached on disk in a local checkout."""
+    scripts = get_snapshot_scripts()
+    if not _IN_CHECKOUT:
+        return create_snapshot(scripts)
+    path = _snapshot_cache_path(scripts, _SNAPSHOT_WARMUP.read_text())
+    _GENERATED.mkdir(parents=True, exist_ok=True)
+    # Same flock as the happy-dom bundle above, for the same reason: parallel test workers
+    # would otherwise race each other onto the same output file.
+    with open(_GENERATED / ".snapshot.lock", "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            if not path.exists():
+                for stale in _GENERATED.glob("snapshot-*.bin"):
+                    stale.unlink()
+                path.write_bytes(create_snapshot(scripts))
+            return path.read_bytes()
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 @cache
 def _build_v8_snapshot() -> bytes:
-    return get_snapshot_builder().build()  # pragma: no cover
+    # jsrun still consumes the snapshot until the crate's Runtime replaces it, and it cannot
+    # read a blob built by the crate's own V8 -- so the live path keeps its own builder.
+    builder = SnapshotBuilder()
+    for name, source in get_snapshot_scripts():
+        builder.execute_script(name, source)
+    return builder.build()  # pragma: no cover
 
 
 @cache

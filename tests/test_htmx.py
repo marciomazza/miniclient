@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
-from jsrun import Runtime
+from jsrun import Runtime, SnapshotBuilder
 
-from miniclient.runtime import get_snapshot_builder, open_runtime
+from miniclient.runtime import get_snapshot_scripts, open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -64,15 +64,20 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
 
 @pytest.fixture(scope="session")
 def htmx_v8_snapshot() -> bytes:
-    builder = get_snapshot_builder()
-    builder.execute_script(
-        "chai",
-        f"""{_CHAI_JS.read_text()}
+    scripts = [
+        *get_snapshot_scripts(),
+        (
+            "chai",
+            f"""{_CHAI_JS.read_text()}
             globalThis.assert = globalThis.chai.assert;
             globalThis.should = globalThis.chai.should();""",
-    )
-    builder.execute_script("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text())
-    builder.execute_script("runner", _RUNNER_JS.read_text())
+        ),
+        ("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text()),
+        ("runner", _RUNNER_JS.read_text()),
+    ]
+    builder = SnapshotBuilder()
+    for name, source in scripts:
+        builder.execute_script(name, source)
     return builder.build()
 
 

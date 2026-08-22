@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 /// across isolate construction and destruction, never while a live runtime is in use.
 static ISOLATE_LIFECYCLE: Mutex<()> = Mutex::new(());
 
-fn lifecycle_lock() -> MutexGuard<'static, ()> {
+pub(crate) fn lifecycle_lock() -> MutexGuard<'static, ()> {
     ISOLATE_LIFECYCLE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -33,7 +33,7 @@ pub fn init_platform() {
 
 /// Hand-built rather than via `extension!`: the macro buys nothing for a single fixed
 /// extension and hides what is actually registered.
-fn extension() -> Extension {
+pub(crate) fn extension() -> Extension {
     Extension {
         name: "miniclient",
         ..Default::default()
