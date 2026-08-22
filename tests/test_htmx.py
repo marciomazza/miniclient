@@ -49,6 +49,9 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
     "hx-swap": {
         ("hx-swap modifiers", "main swap with delay respects blocking behavior"),
     },
+    "hx-live": {
+        ("hx-live extension", "debounce(ms) supersedes prior calls"),
+    },
     "hx-ws": {
         ("Deep Review Fixes", "cleans up expired pending requests on message receive"),
     },
@@ -114,7 +117,7 @@ async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     for _suite, name in _SKIP_TESTS.get(js_file.stem, set()):
         js = js.replace(f"it('{name}'", f"it.skip('{name}'")
     unscaled = [f"{suite}::{name}" for suite, name in _UNSCALED_TESTS.get(js_file.stem, set())]
-    r.eval(f"globalThis.__unscaledTests = new Set({json.dumps(unscaled)});")
+    r.eval(f"globalThis.__unscaledTests = new Set({json.dumps(unscaled)})")
     r.eval(js)
     results = await r.eval_async("__runAllTests()")
     failures = [res for res in results if not res["passed"]]
