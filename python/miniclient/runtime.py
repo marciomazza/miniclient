@@ -93,11 +93,6 @@ def get_snapshot_scripts() -> list[tuple[str, str]]:
     ]
 
 
-def create_snapshot(scripts: list[tuple[str, str]]) -> bytes:
-    """Run `scripts` into a V8 isolate and serialize it, warmed by snapshot_warmup.js."""
-    return _miniclient.create_snapshot(scripts, _SNAPSHOT_WARMUP.read_text())
-
-
 def _snapshot_cache_path(scripts: list[tuple[str, str]], warmup: str) -> Path:
     # The V8 build identity belongs in the key as much as the sources do: bumping deno_core
     # leaves every script byte-identical, and V8 refuses a blob stamped by another build --
@@ -113,9 +108,10 @@ def _snapshot_cache_path(scripts: list[tuple[str, str]], warmup: str) -> Path:
 def production_snapshot() -> bytes:
     """The snapshot of `get_snapshot_scripts()`, cached on disk in a local checkout."""
     scripts = get_snapshot_scripts()
+    warmup = _SNAPSHOT_WARMUP.read_text()
     if not _IN_CHECKOUT:
-        return create_snapshot(scripts)
-    path = _snapshot_cache_path(scripts, _SNAPSHOT_WARMUP.read_text())
+        return _miniclient.create_snapshot(scripts, warmup)
+    path = _snapshot_cache_path(scripts, warmup)
     _GENERATED.mkdir(parents=True, exist_ok=True)
     # Same flock as the happy-dom bundle above, for the same reason: parallel test workers
     # would otherwise race each other onto the same output file.
@@ -125,7 +121,7 @@ def production_snapshot() -> bytes:
             if not path.exists():
                 for stale in _GENERATED.glob("snapshot-*.bin"):
                     stale.unlink()
-                path.write_bytes(create_snapshot(scripts))
+                path.write_bytes(_miniclient.create_snapshot(scripts, warmup))
             return path.read_bytes()
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
