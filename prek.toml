@@ -19,9 +19,13 @@ hooks = [
 repo = "https://github.com/astral-sh/ruff-pre-commit"
 rev = "v0.15.20"
 hooks = [
-  { id = "ruff", args = [
-    "--fix",
-  ], language = "system" },
+  {
+    id = "ruff",
+    args = [
+      "--fix",
+    ],
+    language = "system"
+  },
   { id = "ruff-format", language = "system" },
 ]
 
@@ -39,3 +43,26 @@ hooks = [{ id = "oxfmt" }]
 repo = "https://github.com/oxc-project/mirrors-oxlint"
 rev = "v1.71.0"
 hooks = [{ id = "oxlint" }]
+
+# Rust had neither formatting nor linting enforced, unlike Python and JS. Both run on the
+# whole crate, not per file, so Cargo.toml changes trigger them too.
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "cargo-fmt",
+    name = "cargo fmt",
+    entry = "cargo fmt",
+    language = "system",
+    files = '\.rs$|^Cargo\.(toml|lock)$',
+    pass_filenames = false
+  },
+  {
+    id = "cargo-clippy",
+    name = "cargo clippy",
+    entry = "cargo clippy --all-targets -- -D warnings",
+    language = "system",
+    files = '\.rs$|^Cargo\.(toml|lock)$',
+    pass_filenames = false
+  },
+]
