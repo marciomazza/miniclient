@@ -15,9 +15,10 @@ import httpx2 as httpx
 from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
 _ROOT = Path(__file__).parent.parent.parent
-# build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart;
-# package.json only exists in a checkout.
-_IN_CHECKOUT = (_ROOT / "package.json").exists()
+# build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart.
+# Cargo.toml sits beside the package only in a checkout; package.json would also match any
+# Node project a wheel happens to be installed under.
+_IN_CHECKOUT = (_ROOT / "Cargo.toml").exists()
 _NM = _ROOT / "node_modules" if _IN_CHECKOUT else Path(__file__).parent / "_vendor"
 _JS = Path(__file__).parent / "js"
 _POLYFILLS = _JS / "polyfills"
