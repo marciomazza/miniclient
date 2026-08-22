@@ -64,41 +64,57 @@ enum Command {
     },
 }
 
-/// JSON is the whole value contract, so the marshaling happens here, on the isolate thread,
-/// and only text crosses back.
-fn to_json(js: &mut JsRuntime, value: v8::Global<v8::Value>) -> EvalOutcome {
+/// The whole value contract, as JS: `JSON.stringify` answers `undefined` for a function, a
+/// Symbol or an `undefined` member instead of throwing, and turns `NaN`/`Infinity` into
+/// `null` -- all of which would reach Python as a plausible-looking value that is not what
+/// JS had. A replacer turns each of those into a throw, at any depth.
+const MARSHAL_JS: &str = r#"(value) =>
+  JSON.stringify(value, function (key, val) {
+    const at = key === "" ? "the top level" : `key '${key}'`;
+    const fail = (what) => {
+      throw new TypeError(`cannot marshal ${what} to Python at ${at}: eval returns JSON values`);
+    };
+    if (typeof val === "function") fail("a function");
+    if (typeof val === "symbol") fail("a Symbol");
+    if (val === undefined) fail("undefined");
+    if (typeof val === "number" && !Number.isFinite(val)) fail(String(val));
+    return val;
+  })"#;
+
+/// Marshaling happens here, on the isolate thread, so only JSON text ever crosses back.
+fn to_json(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    value: v8::Global<v8::Value>,
+) -> EvalOutcome {
     deno_core::scope!(scope, js);
     let value = v8::Local::new(scope, value);
     if value.is_null_or_undefined() {
         return Ok(None);
     }
-    // JSON.stringify answers `undefined` for these instead of throwing, which would come out
-    // as a silent `None` -- the one case where JSON's own failure mode is not loud enough.
-    if value.is_function() || value.is_symbol() {
-        let kind = if value.is_function() {
-            "function"
-        } else {
-            "Symbol"
-        };
-        return Err(EvalError::Other(format!(
-            "cannot marshal a {kind} to Python: eval must return a JSON value"
-        )));
-    }
-    // Throws on a BigInt or a circular reference, with a message worth forwarding verbatim.
+    let marshal = v8::Local::new(scope, marshal);
+    let marshal = v8::Local::<v8::Function>::try_from(marshal).expect("the helper is a function");
     v8::tc_scope!(scope, scope);
-    match v8::json::stringify(scope, value) {
+    let recv = v8::undefined(scope).into();
+    // Throws for whatever MARSHAL_JS rejects, and for a BigInt or a circular reference on
+    // JSON.stringify's own account -- messages worth forwarding verbatim either way.
+    match marshal.call(scope, recv, &[value]) {
         Some(json) => Ok(Some(json.to_rust_string_lossy(scope))),
-        None => Err(EvalError::Other(format!(
-            "cannot marshal to Python: {}",
+        None => Err(EvalError::Other(
             scope
                 .exception()
                 .map(|e| e.to_rust_string_lossy(scope))
-                .unwrap_or_else(|| "JSON.stringify failed".into())
-        ))),
+                .unwrap_or_else(|| "marshaling the result to JSON failed".into()),
+        )),
     }
 }
 
-async fn eval(js: &mut JsRuntime, source: String, is_async: bool) -> EvalOutcome {
+async fn eval(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    source: String,
+    is_async: bool,
+) -> EvalOutcome {
     let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
     let value = if is_async {
         let resolve = Box::pin(js.resolve(value));
@@ -111,7 +127,7 @@ async fn eval(js: &mut JsRuntime, source: String, is_async: bool) -> EvalOutcome
     } else {
         value
     };
-    to_json(js, value)
+    to_json(js, marshal, value)
 }
 
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
@@ -140,6 +156,9 @@ impl Runtime {
                         ..Default::default()
                     })
                 };
+                let marshal = js
+                    .execute_script("<marshal>", MARSHAL_JS)
+                    .expect("the marshaling helper must compile");
                 ready_tx.send(()).ok();
 
                 while let Some(command) = rx.recv().await {
@@ -151,7 +170,9 @@ impl Runtime {
                             reply,
                         } => {
                             // A dropped receiver just means Python stopped caring.
-                            reply.send(eval(&mut js, source, is_async).await).ok();
+                            reply
+                                .send(eval(&mut js, &marshal, source, is_async).await)
+                                .ok();
                         }
                     }
                 }

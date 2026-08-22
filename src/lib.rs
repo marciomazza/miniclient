@@ -33,6 +33,10 @@ fn to_python(py: Python<'_>, outcome: EvalOutcome) -> PyResult<Py<PyAny>> {
     }
 }
 
+fn closed<E>(_: E) -> PyErr {
+    PyRuntimeError::new_err("the runtime is closed")
+}
+
 /// A V8 isolate with its own thread. JS values cross as JSON in both directions (spec §4):
 /// `undefined` and `null` both arrive as `None`, and anything JSON cannot carry raises.
 #[pyclass(module = "miniclient._miniclient")]
@@ -58,11 +62,7 @@ impl Runtime {
     /// Awaits the script's result -- a promise is resolved and the event loop pumped -- while
     /// leaving Python's own loop free to serve whatever that script is waiting on.
     async fn eval_async(&self, source: String) -> PyResult<Py<PyAny>> {
-        let outcome = self
-            .0
-            .send_eval(source, true)
-            .await
-            .map_err(|_| PyRuntimeError::new_err("the runtime is closed"))?;
+        let outcome = self.0.send_eval(source, true).await.map_err(closed)?;
         Python::attach(|py| to_python(py, outcome))
     }
 
