@@ -154,34 +154,42 @@ async def test_fetch_abort_cancels_in_flight_request(runtime, httpx_mock):
     # Regression: fetch() used to ignore init.signal entirely, so aborting a
     # request already sent to the backend had no effect -- the response would
     # still arrive and get processed as if nothing happened.
-    entered = asyncio.Event()
-    release = asyncio.Event()
+    cancelled = asyncio.Event()
 
     async def slow_response(request: httpx2.Request) -> httpx2.Response:
-        entered.set()
-        await release.wait()
-        return httpx2.Response(200, text="should not appear")
+        runtime.eval("globalThis.__slow_response_requested = true")
+        try:
+            await asyncio.Event().wait()  # never responds on its own
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+        raise AssertionError("unreachable")
 
     httpx_mock.add_callback(slow_response, url="http://api.example.com/slow")
-    runtime.bind_function("__wait_until_requested", entered.wait)
 
     result = await runtime.eval_async(
         """\
         (async () => {
-            const controller = new AbortController();
-            const p = fetch('http://api.example.com/slow', { signal: controller.signal });
-            await __wait_until_requested();
-            controller.abort();
-            try {
-                await p;
-                return 'resolved';
-            } catch (e) {
-                return e.name;
-            }
-        })()
+          globalThis.__slow_response_requested = false;
+          const controller = new AbortController();
+          const p = fetch('http://api.example.com/slow', {signal: controller.signal});
+          // Wait until the backend actually received the request, so this
+          // exercises aborting in flight rather than before sending.
+          while (!globalThis.__slow_response_requested) await new Promise(r => setTimeout(r, 1));
+          controller.abort();
+          // Race a timer so a broken abort fails the assert below instead of
+          // hanging forever on a promise that never settles.
+          return await Promise.race([
+            p.then(
+              () => 'resolved',
+              e => e.name,
+            ),
+            new Promise(r => setTimeout(() => r('hung'), 2000)),
+          ]);
+        })();
         """
     )
-    # The awaited fetch settled without release.set() ever being called -- the
-    # request was truly cancelled, not just its (still pending) result ignored.
     assert result == "AbortError"
-    release.set()
+    # The backend request was in flight and got cancelled,
+    # not just left running with its result discarded.
+    assert cancelled.is_set()
