@@ -269,11 +269,11 @@ globalThis.fetch = async (input, init = {}) => {
     const atm = browserFrame?.[PropertySymbol.asyncTaskManager];
     const _taskID = atm?.startTask();
     const requestId = crypto.randomUUID();
-    const onAbort = () => __host_fetch_abort(requestId);
+    const onAbort = () => Deno.core.ops.op_fetch_abort(requestId);
     signal?.addEventListener("abort", onAbort);
     let res;
     try {
-        res = await __host_fetch({ url, method, headers, body, id: requestId });
+        res = await Deno.core.ops.op_fetch({ url, method, headers, body, id: requestId });
     } catch (err) {
         // Cancelling the Python-side task surfaces as a generic failure here --
         // reinterpret it as the spec-mandated AbortError when it was our abort.

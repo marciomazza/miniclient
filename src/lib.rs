@@ -4,6 +4,7 @@ use pyo3::types::PyBytes;
 
 use crate::runtime::{EvalError, EvalOutcome};
 
+pub mod ops;
 pub mod runtime;
 pub mod snapshot;
 
@@ -44,9 +45,10 @@ struct Runtime(runtime::Runtime);
 
 #[pymethods]
 impl Runtime {
+    /// The isolate holding the leaked snapshot dies with the process anyway (see snapshot::leak).
     #[new]
-    fn new() -> Self {
-        Self(runtime::Runtime::new())
+    fn new(snapshot: &[u8], url: &str) -> Self {
+        Self(runtime::Runtime::new(Box::leak(Box::from(snapshot)), url))
     }
 
     /// Detaches from the interpreter while waiting: the script may call back into Python.

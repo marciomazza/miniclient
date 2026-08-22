@@ -10,7 +10,7 @@ function execFileSync(_file, args, _options) {
     }
     try {
         const body = envelope.body ?? undefined;
-        const res = __host_fetch_sync({
+        const res = Deno.core.ops.op_fetch_sync({
             url: envelope.url,
             method: envelope.method,
             headers: envelope.headers ?? {},

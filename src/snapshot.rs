@@ -50,25 +50,31 @@ pub fn create_snapshot(
     Ok(output.output)
 }
 
+/// Test-only helpers shared with `runtime.rs`'s tests: both need a real, bootable snapshot
+/// (mini's actual production scripts), not just `snapshot.rs`'s own round-trip checks.
 #[cfg(test)]
-mod tests {
+pub(crate) mod support {
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
 
-    use deno_core::{JsRuntime, RuntimeOptions};
+    /// `cargo test`'s default parallelism segfaults V8 when `create_snapshot` overlaps with
+    /// concurrent isolate construction elsewhere -- test-only, since production never builds a
+    /// snapshot concurrently with itself the way this binary's parallel test threads do.
+    pub(crate) fn v8_test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
-    use super::create_snapshot;
-    use crate::runtime::extension;
-
-    fn root() -> PathBuf {
+    pub(crate) fn root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     }
 
-    fn read(rel: &str) -> String {
+    pub(crate) fn read(rel: &str) -> String {
         std::fs::read_to_string(root().join(rel)).unwrap()
     }
 
     /// Mirrors `get_snapshot_scripts()` in runtime.py, which owns the canonical list.
-    fn production_scripts() -> Vec<(String, String)> {
+    pub(crate) fn production_scripts() -> Vec<(String, String)> {
         let xpath = read("node_modules/xpath/xpath.js");
         vec![
             (
@@ -98,6 +104,19 @@ mod tests {
         ]
     }
 
+    pub(crate) fn warmup_script() -> String {
+        read("python/miniclient/js/snapshot_warmup.js")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use deno_core::{JsRuntime, RuntimeOptions};
+
+    use super::create_snapshot;
+    use super::support::{production_scripts, v8_test_lock, warmup_script};
+    use crate::runtime::extension;
+
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
     /// restorable, not merely non-empty.
     fn eval_in_snapshot(blob: Box<[u8]>, expr: &'static str) -> String {
@@ -113,7 +132,8 @@ mod tests {
 
     #[test]
     fn production_scripts_and_warmup_produce_a_bootable_snapshot() {
-        let warmup = read("python/miniclient/js/snapshot_warmup.js");
+        let _guard = v8_test_lock();
+        let warmup = warmup_script();
         let blob = create_snapshot(production_scripts(), Some(warmup)).unwrap();
         assert_eq!(
             eval_in_snapshot(blob, "[typeof FormData, typeof __happyDomBundle].join()"),
@@ -124,10 +144,10 @@ mod tests {
     /// tests/test_htmx.py's shape: the same list with extra scripts appended.
     #[test]
     fn appended_scripts_produce_a_distinct_bootable_snapshot() {
+        let _guard = v8_test_lock();
         let mut scripts = production_scripts();
         scripts.push(("marker".into(), "globalThis.__marker = 'chai';".into()));
-        let warmup = read("python/miniclient/js/snapshot_warmup.js");
-        let blob = create_snapshot(scripts, Some(warmup)).unwrap();
+        let blob = create_snapshot(scripts, Some(warmup_script())).unwrap();
         assert_eq!(eval_in_snapshot(blob, "__marker"), "chai");
     }
 }

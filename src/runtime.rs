@@ -5,6 +5,15 @@ use deno_core::error::{CoreErrorKind, JsError};
 use deno_core::{Extension, JsRuntime, PollEventLoopOptions, RuntimeOptions, v8};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::ops;
+
+/// The only `file://` module mini ever loads. No resolver or loader op: the crate reads and
+/// evals this fixed path at construction instead of Python driving `eval_module_async` (spec §4).
+const BOOTSTRAP_JS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/python/miniclient/js/bootstrap.js"
+);
+
 /// Safety net only: the platform init below is the actual fix for deno_core#952. Held
 /// across isolate construction and destruction, never while a live runtime is in use.
 static ISOLATE_LIFECYCLE: Mutex<()> = Mutex::new(());
@@ -37,6 +46,13 @@ pub fn init_platform() {
 pub(crate) fn extension() -> Extension {
     Extension {
         name: "miniclient",
+        ops: std::borrow::Cow::Owned(vec![
+            ops::op_fetch(),
+            ops::op_fetch_abort(),
+            ops::op_fetch_sync(),
+            ops::op_fs_stat(),
+            ops::op_fs_read(),
+        ]),
         ..Default::default()
     }
 }
@@ -181,10 +197,14 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new() -> Self {
+    /// `snapshot` must contain mini's production scripts -- `bootstrap.js` destructures
+    /// `globalThis.__happyDomBundle`, which only the snapshot provides. `url` becomes the
+    /// page's initial location, read off `globalThis.__BASE_URL__` before `newPage()`.
+    pub fn new(snapshot: &'static [u8], url: &str) -> Self {
         init_platform();
         let (commands, mut rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let url = url.to_string();
         let thread = std::thread::spawn(move || {
             let tokio = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -194,6 +214,7 @@ impl Runtime {
                 let mut js = {
                     let _lock = lifecycle_lock();
                     JsRuntime::new(RuntimeOptions {
+                        startup_snapshot: Some(snapshot),
                         extensions: vec![extension()],
                         ..Default::default()
                     })
@@ -201,6 +222,19 @@ impl Runtime {
                 let marshal = js
                     .execute_script("<marshal>", MARSHAL_JS)
                     .expect("the marshaling helper must compile");
+                let url_json =
+                    deno_core::serde_json::to_string(&url).expect("URL is always JSON-safe");
+                js.execute_script(
+                    "<runtime-config>",
+                    format!("globalThis.__BASE_URL__ = {url_json};"),
+                )
+                .expect("failed to install __BASE_URL__");
+                js.execute_script(
+                    "bootstrap.js",
+                    std::fs::read_to_string(BOOTSTRAP_JS)
+                        .unwrap_or_else(|e| panic!("failed to read {BOOTSTRAP_JS}: {e}")),
+                )
+                .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
                 ready_tx.send(()).ok();
 
                 while let Some(command) = rx.recv().await {
@@ -255,12 +289,6 @@ impl Runtime {
     }
 }
 
-impl Default for Runtime {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Drop for Runtime {
     fn drop(&mut self) {
         self.close();
@@ -269,18 +297,35 @@ impl Drop for Runtime {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::OnceLock;
+
     use super::Runtime;
+    use crate::snapshot::{self, support};
+
+    /// Built once and shared across every construction below: a snapshot is expensive, and
+    /// `Runtime::new` only ever needs to read it, never mutate it.
+    fn test_snapshot() -> &'static [u8] {
+        static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+        SNAPSHOT.get_or_init(|| {
+            snapshot::create_snapshot(
+                support::production_scripts(),
+                Some(support::warmup_script()),
+            )
+            .expect("failed to build the test snapshot")
+        })
+    }
 
     #[test]
     fn constructs_and_closes_concurrently() {
+        let _guard = support::v8_test_lock();
         let threads: Vec<_> = (0..8)
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..3 {
-                        Runtime::new().close();
+                        Runtime::new(test_snapshot(), "http://localhost/").close();
                     }
                     // The last one closes via Drop instead.
-                    Runtime::new();
+                    Runtime::new(test_snapshot(), "http://localhost/");
                 })
             })
             .collect();
