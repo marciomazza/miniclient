@@ -2,6 +2,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Dry run: builds and checks every wheel, publishes nothing. The steps that spend a version
+  # number are gated on an actual tag below.
+  workflow_dispatch:
 permissions:
   contents: write
   id-token: write
@@ -82,13 +85,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Tag must match Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
         run: test "${GITHUB_REF_NAME#v}" = "$(cargo metadata --format-version 1 --no-deps | jq -r .packages[0].version)"
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+        if: startsWith(github.ref, 'refs/tags/')
       - name: Extract release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           python3 -c "
           import os, re, sys
@@ -97,6 +103,7 @@ jobs:
           m = re.search(rf'^## \[{re.escape(version)}\]\n(.*?)(?=^## \[|\Z)', text, re.M | re.S)
           sys.stdout.write(m.group(1) if m else '')
           " > release-notes.md
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --notes-file release-notes.md
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: gh release create "$GITHUB_REF_NAME" dist/* --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
