@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 
+pub mod runtime;
+
 /// The runtime still lives in jsrun until the swap. This exists so the crate makes a real
 /// call into V8: without one the linker drops the static lib and the wheel ships no V8 at all.
 #[pyfunction]
