@@ -6,10 +6,10 @@ use tokio::sync::{mpsc, oneshot};
 
 /// Safety net only: the platform init below is the actual fix for deno_core#952. Held
 /// across isolate construction and destruction, never while a live runtime is in use.
-static LIFECYCLE: Mutex<()> = Mutex::new(());
+static ISOLATE_LIFECYCLE: Mutex<()> = Mutex::new(());
 
 fn lifecycle_lock() -> MutexGuard<'static, ()> {
-    LIFECYCLE
+    ISOLATE_LIFECYCLE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
