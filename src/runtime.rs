@@ -72,6 +72,9 @@ impl Runtime {
                 };
                 ready_tx.send(()).ok();
 
+                // One variant today, so the loop always breaks on its first pass; §4's ops
+                // add variants that handle a command and keep going.
+                #[allow(clippy::never_loop)]
                 while let Some(command) = rx.recv().await {
                     match command {
                         Command::Close => break,
