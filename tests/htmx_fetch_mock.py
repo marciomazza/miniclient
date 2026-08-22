@@ -96,10 +96,10 @@ class HttpxFetchMock:
         )
         return seq_id
 
-    async def _op_next(self, req: dict) -> dict:
+    def _op_next(self, req: dict) -> dict:
         seq_id = req["seq_id"]
         if entry := self._seq_entries.get(seq_id):
-            await entry.release_queue.put(True)
+            entry.release_queue.put_nowait(True)  # unbounded queue: never blocks
         return {}
 
     async def before_fetch(self, req: dict) -> None:
