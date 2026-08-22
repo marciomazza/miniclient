@@ -27,13 +27,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # build.rs shells out to npm/node, which runs on the host even for container builds.
+      # On Linux, maturin-action builds inside the manylinux container, which setup-node above
+      # cannot reach -- so build.rs would find no npm there. before-script-linux runs inside it.
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist --interpreter 3.14
           manylinux: auto
           sccache: true
+          before-script-linux: |
+            set -eux
+            NODE=node-v22.23.2-linux-x64
+            curl -fsSL "https://nodejs.org/dist/v22.23.2/$NODE.tar.xz" | tar -xJ -C /opt
+            ln -sf "/opt/$NODE/bin/node" /usr/local/bin/node
+            ln -sf "/opt/$NODE/bin/npm" /usr/local/bin/npm
+            node --version && npm --version
       - name: Wheel must carry V8 and fit PyPI's 100MB limit
         shell: bash
         run: |
