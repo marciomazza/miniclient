@@ -5,7 +5,6 @@ import fcntl
 import hashlib
 import json
 import subprocess
-import threading
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import cache
@@ -13,9 +12,8 @@ from pathlib import Path
 from typing import TypedDict
 
 import httpx2 as httpx
-from jsrun import Runtime, RuntimeConfig, SnapshotBuilder
 
-from miniclient import _miniclient
+from miniclient._miniclient import Runtime, create_snapshot, v8_version
 
 _ROOT = Path(__file__).parent.parent.parent
 # build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart.
@@ -98,7 +96,7 @@ def _snapshot_cache_path(scripts: list[tuple[str, str]], warmup: str) -> Path:
     # leaves every script byte-identical, and V8 refuses a blob stamped by another build --
     # an error pointing nowhere near a cache file nobody knew existed. The key rides in the
     # file name, so a miss is a missing file and a stale blob can never be read back.
-    key = hashlib.sha256(_miniclient.v8_version().encode())
+    key = hashlib.sha256(v8_version().encode())
     for name, source in [*scripts, ("warmup", warmup)]:
         key.update(f"{name}\0{source}\0".encode())
     return _GENERATED / f"snapshot-{key.hexdigest()[:16]}.bin"
@@ -110,7 +108,7 @@ def production_snapshot() -> bytes:
     scripts = get_snapshot_scripts()
     warmup = _SNAPSHOT_WARMUP.read_text()
     if not _IN_CHECKOUT:
-        return _miniclient.create_snapshot(scripts, warmup)
+        return create_snapshot(scripts, warmup)
     path = _snapshot_cache_path(scripts, warmup)
     _GENERATED.mkdir(parents=True, exist_ok=True)
     # Same flock as the happy-dom bundle above, for the same reason: parallel test workers
@@ -121,44 +119,10 @@ def production_snapshot() -> bytes:
             if not path.exists():
                 for stale in _GENERATED.glob("snapshot-*.bin"):
                     stale.unlink()
-                path.write_bytes(_miniclient.create_snapshot(scripts, warmup))
+                path.write_bytes(create_snapshot(scripts, warmup))
             return path.read_bytes()
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
-
-
-@cache
-def _build_v8_snapshot() -> bytes:
-    # jsrun still consumes the snapshot until the crate's Runtime replaces it, and it cannot
-    # read a blob built by the crate's own V8 -- so the live path keeps its own builder.
-    builder = SnapshotBuilder()
-    for name, source in get_snapshot_scripts():
-        builder.execute_script(name, source)
-    return builder.build()  # pragma: no cover
-
-
-@cache
-def _read_cached(path: Path) -> str:
-    return path.read_text()
-
-
-def _resolver(spec: str, ref: str) -> str | None:
-    # The only module jsrun ever loads is bootstrap.js itself (a file:// entry URI with
-    # no `import`s of its own -- happy-dom is baked into the snapshot, and all page-level
-    # <script>/<script type=module> execution is handled by happy-dom's own JS-side fetch
-    # and module compiler, not by jsrun's native ES module system). Confirmed by
-    # instrumenting this function across the full test suite: every call site is
-    # file:///.../bootstrap.js. Anything else is unexpected -- fail loudly rather than
-    # silently mis-resolve it.
-    if spec.startswith("file://"):
-        return spec
-    return None  # pragma: no cover
-
-
-async def _loader(spec: str) -> str:
-    if spec.startswith(prefix := "file://"):
-        return _read_cached(Path(spec.removeprefix(prefix)))
-    raise ValueError(f"Cannot load module: {spec!r}")  # pragma: no cover
 
 
 def _fs_stat_op(path: str) -> dict:
@@ -290,18 +254,6 @@ class VirtualServer(TypedDict):
     directory: str
 
 
-# jsrun's close() acks before the isolate is actually dropped on its own
-# un-joined OS thread, so a Runtime() constructed right after can race that teardown
-# on V8's process-wide WasmCodePointerTable (segfault; upstream denoland/deno_core#952).
-# This lock+delay keeps construction and close+teardown mutually exclusive across the
-# whole process -- it doesn't stop concurrent Runtimes from running, just from
-# constructing/closing at the same instant. Ceiling: heuristic delay, not a real fix.
-# Remove once jsrun's RuntimeHandle::close() joins the teardown thread before returning
-# (see /home/mazza/extra/hc/tmp/handoff-miniclient-jsrun-segfault-20260803-3.md).
-_RUNTIME_LIFECYCLE_LOCK = threading.Lock()
-_RUNTIME_TEARDOWN_BUFFER_S = 0.01
-
-
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
@@ -313,29 +265,18 @@ async def open_runtime(
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        with _RUNTIME_LIFECYCLE_LOCK:
-            r = Runtime(RuntimeConfig(snapshot=v8_snapshot or _build_v8_snapshot()))
-
-        r.set_module_resolver(_resolver)
-        r.set_module_loader(_loader)
+        r = Runtime(v8_snapshot or production_snapshot(), url, json.dumps(virtual_servers or []))
 
         _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
-        r.bind_function("__host_fetch", _fetch_op)
-        r.bind_function("__host_fetch_abort", _fetch_abort_op)
-        r.bind_function(
-            "__host_fetch_sync", _make_fetch_sync_op(client, asyncio.get_running_loop())
+        r.install_host_ops(
+            _fetch_op,
+            _fetch_abort_op,
+            _make_fetch_sync_op(client, asyncio.get_running_loop()),
+            _fs_stat_op,
+            _fs_read_op,
         )
-        r.bind_function("__host_fs_stat", _fs_stat_op)
-        r.bind_function("__host_fs_read", _fs_read_op)
-        r.eval(f"globalThis.__BASE_URL__ = {json.dumps(url)}")
-        r.eval(f"globalThis.__VIRTUAL_SERVERS__ = {json.dumps(virtual_servers or [])}")
-
-        _bootstrap_uri = (_JS / "bootstrap.js").as_uri()
-        await r.eval_module_async(_bootstrap_uri)
 
         try:
             yield r
         finally:
-            with _RUNTIME_LIFECYCLE_LOCK:
-                r.close()
-                await asyncio.sleep(_RUNTIME_TEARDOWN_BUFFER_S)
+            r.close()

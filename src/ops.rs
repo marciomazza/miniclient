@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
+use deno_core::JsBuffer;
 use deno_core::OpState;
 use deno_core::ToJsBuffer;
 use deno_core::op2;
@@ -18,6 +19,11 @@ use serde::{Deserialize, Serialize};
 /// Matches the dict shape `_fetch_op`/`_fetch_sync_op` already accept in `runtime.py` --
 /// `headers` is a plain object there, unlike the response side (see `FetchResponse`), because
 /// nothing on the Python side needs duplicate request header names.
+///
+/// `body` is `JsBuffer`, not `Vec<u8>`: `bootstrap.js` always sends it as a `Uint8Array`
+/// (never a plain JS array of numbers), and `serde_v8` only accepts that shape through its
+/// "magic" buffer types -- a plain `Vec<u8>` field expects an `Array` and throws on a
+/// `Uint8Array`.
 #[derive(Deserialize)]
 pub struct FetchRequest {
     pub id: String,
@@ -26,7 +32,7 @@ pub struct FetchRequest {
     #[serde(default)]
     pub headers: HashMap<String, String>,
     #[serde(default)]
-    pub body: Option<Vec<u8>>,
+    pub body: Option<JsBuffer>,
 }
 
 /// Matches the dict shape `_fetch_op`/`_fetch_sync_op` already return. `headers` is a list of
@@ -460,4 +466,3 @@ async def fetch_impl(req):
         assert!(start.elapsed() >= std::time::Duration::from_millis(30));
     }
 }
-

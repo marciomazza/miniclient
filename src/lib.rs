@@ -85,8 +85,13 @@ struct Runtime(runtime::Runtime);
 impl Runtime {
     /// The isolate holding the leaked snapshot dies with the process anyway (see snapshot::leak).
     #[new]
-    fn new(snapshot: &[u8], url: &str) -> Self {
-        Self(runtime::Runtime::new(Box::leak(Box::from(snapshot)), url))
+    #[pyo3(signature = (snapshot, url, virtual_servers_json="[]"))]
+    fn new(snapshot: &[u8], url: &str, virtual_servers_json: &str) -> Self {
+        Self(runtime::Runtime::new(
+            Box::leak(Box::from(snapshot)),
+            url,
+            virtual_servers_json,
+        ))
     }
 
     /// Detaches from the interpreter while waiting: the script may call back into Python.
@@ -103,8 +108,12 @@ impl Runtime {
         Python::attach(|py| to_python(py, outcome))
     }
 
-    fn close(&self) {
-        self.0.close();
+    /// Detaches from the interpreter while waiting, same as `eval`: `close()` blocks on the
+    /// isolate thread joining, and that thread needs the GIL back to drop any `Py<PyAny>`
+    /// callable still held in `OpState` (registered functions, fetch/fs ops) or to finish an
+    /// in-flight `op_fetch` await -- holding the GIL here would deadlock against that.
+    fn close(&self, py: Python<'_>) {
+        py.detach(|| self.0.close());
     }
 
     /// Binds a sync Python callable to a JS global, backed by one dispatch op regardless of how
@@ -125,6 +134,33 @@ impl Runtime {
         let outcome = py.detach(|| rx.blocking_recv());
         to_python(py, outcome.map_err(closed)?)?;
         Ok(())
+    }
+
+    /// Installs the 5 fetch/fs callables `op_fetch` and friends dispatch to (spec §4). `fetch`
+    /// must be a coroutine function -- `op_fetch` bridges to it via `TaskLocals` captured from
+    /// the caller's own running event loop, so this must be called from inside one. Safe to call
+    /// any time before JS first reaches one of those ops (see `send_install_host_ops`).
+    fn install_host_ops(
+        &self,
+        py: Python<'_>,
+        fetch: Py<PyAny>,
+        fetch_abort: Py<PyAny>,
+        fetch_sync: Py<PyAny>,
+        fs_stat: Py<PyAny>,
+        fs_read: Py<PyAny>,
+    ) -> PyResult<()> {
+        let fetch_locals =
+            pyo3_async_runtimes::TaskLocals::with_running_loop(py)?.copy_context(py)?;
+        let host_ops = ops::HostOps {
+            fetch,
+            fetch_locals,
+            fetch_abort,
+            fetch_sync,
+            fs_stat,
+            fs_read,
+        };
+        let rx = self.0.send_install_host_ops(host_ops);
+        py.detach(|| rx.blocking_recv()).map_err(closed)
     }
 }
 
@@ -218,7 +254,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_binds_a_sync_callable_reachable_from_js() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
             runtime
@@ -235,7 +275,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_raises_cleanly_on_a_non_json_return_value() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         Python::attach(|py| {
             let not_json = fixtures(py).getattr("not_json").unwrap().unbind();
             runtime
@@ -251,7 +295,11 @@ async_instance = AsyncCallable()
         let _guard = support::v8_test_lock();
         // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python, sleep.
         assert_eq!(crate::runtime::extension().ops.len(), 7);
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         Python::attach(|py| {
             let fixtures = fixtures(py);
             for name in [
@@ -275,7 +323,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_a_name_that_is_not_a_js_identifier() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         let err = Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
             runtime
@@ -291,7 +343,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_proto() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         let err = Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
             runtime
@@ -304,7 +360,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_an_async_callable() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         let err = Python::attach(|py| {
             let async_fn = fixtures(py).getattr("async_fn").unwrap().unbind();
             runtime
@@ -321,7 +381,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_an_async_generator_function() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         let err = Python::attach(|py| {
             let async_gen_fn = fixtures(py).getattr("async_gen_fn").unwrap().unbind();
             runtime
@@ -336,7 +400,11 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_an_object_with_an_async_call() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
         let err = Python::attach(|py| {
             let async_instance = fixtures(py).getattr("async_instance").unwrap().unbind();
             runtime

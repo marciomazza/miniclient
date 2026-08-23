@@ -5,9 +5,8 @@ from pathlib import Path
 import pytest
 from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
-from jsrun import Runtime, SnapshotBuilder
 
-from miniclient.runtime import get_snapshot_scripts, open_runtime
+from miniclient.runtime import Runtime, create_snapshot, get_snapshot_scripts, open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -75,10 +74,7 @@ def htmx_v8_snapshot() -> bytes:
         ("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text()),
         ("runner", _RUNNER_JS.read_text()),
     ]
-    builder = SnapshotBuilder()
-    for name, source in scripts:
-        builder.execute_script(name, source)
-    return builder.build()
+    return create_snapshot(scripts)
 
 
 # todo: Perhaps make this a module scoped feature again after the tests pass.
@@ -122,7 +118,7 @@ async def _run_js_tests(r: Runtime, js_file: Path) -> None:
     for _suite, name in _SKIP_TESTS.get(js_file.stem, set()):
         js = js.replace(f"it('{name}'", f"it.skip('{name}'")
     unscaled = [f"{suite}::{name}" for suite, name in _UNSCALED_TESTS.get(js_file.stem, set())]
-    r.eval(f"globalThis.__unscaledTests = new Set({json.dumps(unscaled)})")
+    r.eval(f"globalThis.__unscaledTests = new Set({json.dumps(unscaled)}); void 0")
     r.eval(js)
     results = await r.eval_async("__runAllTests()")
     failures = [res for res in results if not res["passed"]]

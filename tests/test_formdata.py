@@ -4,9 +4,8 @@ import json
 from collections.abc import AsyncGenerator
 
 import pytest
-from jsrun import Runtime
 
-from miniclient.runtime import open_runtime
+from miniclient.runtime import Runtime, open_runtime
 
 
 @pytest.fixture(scope="module")

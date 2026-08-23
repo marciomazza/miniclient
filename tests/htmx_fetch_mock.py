@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 import httpx2 as httpx
-from jsrun import Runtime
+
+from miniclient.runtime import Runtime
 
 
 @dataclass

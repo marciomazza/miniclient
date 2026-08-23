@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Self, TypeVar, cast
 
 import httpx2 as httpx
-from jsrun import Runtime
 
-from miniclient.runtime import open_runtime
+from miniclient.runtime import Runtime, open_runtime
 
 
 def _event_class(event_type: str) -> str:

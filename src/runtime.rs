@@ -212,11 +212,15 @@ impl Runtime {
     /// `snapshot` must contain mini's production scripts -- `bootstrap.js` destructures
     /// `globalThis.__happyDomBundle`, which only the snapshot provides. `url` becomes the
     /// page's initial location, read off `globalThis.__BASE_URL__` before `newPage()`.
-    pub fn new(snapshot: &'static [u8], url: &str) -> Self {
+    /// `virtual_servers_json` is a JSON array (already-encoded, matching `__VIRTUAL_SERVERS__`'s
+    /// shape) read by `bootstrap.js` at the same point -- both globals must land before it runs,
+    /// not after, since it reads them once at top level and never again.
+    pub fn new(snapshot: &'static [u8], url: &str, virtual_servers_json: &str) -> Self {
         init_platform();
         let (commands, mut rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let url = url.to_string();
+        let virtual_servers_json = virtual_servers_json.to_string();
         let thread = std::thread::spawn(move || {
             let tokio = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -241,6 +245,11 @@ impl Runtime {
                     format!("globalThis.__BASE_URL__ = {url_json};"),
                 )
                 .expect("failed to install __BASE_URL__");
+                js.execute_script(
+                    "<runtime-config>",
+                    format!("globalThis.__VIRTUAL_SERVERS__ = {virtual_servers_json};"),
+                )
+                .expect("failed to install __VIRTUAL_SERVERS__");
                 js.op_state()
                     .borrow_mut()
                     .put(ops::PythonFunctions::default());
@@ -392,10 +401,10 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..3 {
-                        Runtime::new(test_snapshot(), "http://localhost/").close();
+                        Runtime::new(test_snapshot(), "http://localhost/", "[]").close();
                     }
                     // The last one closes via Drop instead.
-                    Runtime::new(test_snapshot(), "http://localhost/");
+                    Runtime::new(test_snapshot(), "http://localhost/", "[]");
                 })
             })
             .collect();
