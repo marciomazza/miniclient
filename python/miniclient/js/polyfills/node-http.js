@@ -33,28 +33,30 @@ class ClientRequest extends Emitter {
     destroy(err) {
         if (this.destroyed) return;
         this.destroyed = true;
-        __host_fetch_abort(this._id);
+        Deno.core.ops.op_fetch_abort(this._id);
         if (err) this.emit("error", err);
     }
 
     end() {
         const body = this._chunks.length ? Buffer.concat(this._chunks) : undefined;
-        __host_fetch({
-            url: this._url,
-            method: this._options.method ?? "GET",
-            headers: this._options.headers ?? {},
-            body,
-            id: this._id,
-        }).then(
-            // A destroyed request already emitted its own 'error' from destroy();
-            // don't act on whatever the now-irrelevant promise settles with.
-            (res) => {
-                if (!this.destroyed) this._respond(res);
-            },
-            (err) => {
-                if (!this.destroyed) this.emit("error", err);
-            },
-        );
+        Deno.core.ops
+            .op_fetch({
+                url: this._url,
+                method: this._options.method ?? "GET",
+                headers: this._options.headers ?? {},
+                body,
+                id: this._id,
+            })
+            .then(
+                // A destroyed request already emitted its own 'error' from destroy();
+                // don't act on whatever the now-irrelevant promise settles with.
+                (res) => {
+                    if (!this.destroyed) this._respond(res);
+                },
+                (err) => {
+                    if (!this.destroyed) this.emit("error", err);
+                },
+            );
     }
 
     _respond(res) {

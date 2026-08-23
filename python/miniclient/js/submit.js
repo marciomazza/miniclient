@@ -1,8 +1,8 @@
 // Runs after a fresh document has been written into the page (by document.write(),
 // or internally by happy-dom's own navigation machinery via browserFrame.goto()/
-// frame.content=): fixes up the parsed DOM, (re-)initializes htmx on it, and
-// synthesizes DOMContentLoaded. happy-dom never dispatches DOMContentLoaded natively
-// (no "loading" readyState, and its one native `load` event fires once for the whole
+// frame.content=): fixes up the parsed DOM, processes htmx on it, and synthesizes
+// DOMContentLoaded. happy-dom never dispatches DOMContentLoaded natively (no
+// "loading" readyState, and its one native `load` event fires once for the whole
 // Window's lifetime, not once per navigation). Synthesize it once this write's own
 // deferred/module scripts have actually finished running, mirroring the real-browser
 // rule that plain `async` scripts don't delay DOMContentLoaded but `defer`/
@@ -21,9 +21,22 @@ globalThis.__zzz_finish_load = function () {
                     script.addEventListener("error", resolve, { once: true });
                 }),
         );
-    return Promise.all(pending).then(() => {
-        document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true, cancelable: false }));
-    });
+    return Promise.all(pending)
+        .then(() => {
+            document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true, cancelable: false }));
+        })
+        .then(
+            () =>
+                // A plain, unattributed `<script src="...">` (e.g. htmx.js) already ran by
+                // the time we get here, but document.readyState is "complete", not
+                // "loading", when it ran -- unlike a real browser, where such scripts
+                // block the parser and always see "loading". So a script whose own
+                // self-init depends on that ("if loading, wait for DOMContentLoaded, else
+                // setTimeout(0)") falls into the setTimeout(0) branch here, and that timer
+                // is still pending when this promise resolves. Give it one tick to fire so
+                // callers of load()/goto() don't race a library's deferred self-init.
+                new Promise((resolve) => setTimeout(resolve, 0)),
+        );
 };
 
 // beforeContentCallback fires after goto() constructs the new Window but before it

@@ -1,4 +1,14 @@
 (function () {
+    // Real, circular-safe console (replaces deno_core's built-in one, which throws on any
+    // circular arg -- htmx passes those). 00_url.js is force-loaded too: 01_console.js
+    // lazy-loads it on first use, and only scripts touched here (the snapshot's cold pass)
+    // survive into the snapshot's residual lazy table.
+    {
+        Deno.core.loadExtScript("ext:deno_web/00_url.js");
+        const { Console } = Deno.core.loadExtScript("ext:deno_web/01_console.js");
+        globalThis.console = new Console(Deno.core.print);
+    }
+
     globalThis.process = {
         platform: "linux",
         arch: "x64",
@@ -41,8 +51,6 @@
     // Must exist before happy-dom is imported: its modules do
     // `globalThis.setTimeout.bind(globalThis)` at import time and keep that bound
     // reference forever, so happy-dom's internal timers run on whatever is defined here.
-    //
-    // Timer implementation using Atomics.waitAsync — pure ECMAScript, no Python ops.
     // win.setTimeout (happy-dom) never fires in this runtime because its internal timer
     // queue is never drained; these replace it entirely.
     {
@@ -50,11 +58,7 @@
         const _active = {}; // timerId -> true
         const _intervals = {}; // intervalId -> current timerId
 
-        const _wait = (ms) => {
-            const view = new Int32Array(new SharedArrayBuffer(4));
-            const r = Atomics.waitAsync(view, 0, 0, ms || 0);
-            return r.async ? r.value : Promise.resolve();
-        };
+        const _wait = (ms) => Deno.core.ops.op_sleep(ms || 0);
 
         globalThis.setTimeout = (fn, ms = 0, ...args) => {
             const id = _nextId++;

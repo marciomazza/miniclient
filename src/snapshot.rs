@@ -1,19 +1,17 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
 
-use crate::runtime::{extension, init_platform, lifecycle_lock};
+use crate::runtime::{extensions, init_platform, lifecycle_lock};
 
-/// deno_core wants `&'static` for the warmup source, but ours is read from disk at call
-/// time. Leaking is bounded: a snapshot is built at most a couple of times per process, and
-/// the isolate holding the leaked text dies with the process anyway.
-fn leak(s: String) -> &'static str {
-    Box::leak(s.into_boxed_str())
-}
-
-/// Runs `scripts` in order into a fresh isolate and serializes it. `warmup` is deno_core's
-/// second pass: the cold snapshot is restored, the script is run, and the *exercised*
-/// context is what gets serialized, so its lazily-compiled functions ship compiled.
+/// Runs `scripts` in order (warmup last, if given) into a single isolate and serializes it.
+///
+/// `warmup` is appended as an ordinary script rather than passed to deno_core's own
+/// `warmup_script` parameter: that parameter restores the cold snapshot into a *second*
+/// isolate, runs the script there, and reserializes -- and that restore-then-reserialize
+/// round trip corrupts a snapshot that also used `Deno.core.loadExtScript()` (as
+/// `pre_globals.js` does for the console), reliably segfaulting V8 on the next ordinary
+/// deserialize. See `zz/deno-core-issue-draft-loadextscript-warmup-snapshot-segfault.md` for
+/// the upstream report and minimal repro. Running warmup content in the same single pass
+/// still exercises and precompiles it, without ever triggering that path.
 pub fn create_snapshot(
     scripts: Vec<(String, String)>,
     warmup: Option<String>,
@@ -25,50 +23,55 @@ pub fn create_snapshot(
     // exactly those two moments against each other.
     let _lock = lifecycle_lock();
     // Not `Extension::js_files`: those must be 7-bit ASCII, and both text-encoding and the
-    // happy-dom bundle are not. `with_runtime_cb` runs once per pass, so the cold pass is
-    // gated -- the warm pass must not replay every script over the context it just restored.
-    let cold_pass = AtomicBool::new(true);
+    // happy-dom bundle are not.
+    let scripts: Vec<_> = scripts
+        .into_iter()
+        .chain(warmup.map(|w| ("warmup".to_string(), w)))
+        .collect();
     let output = deno_create_snapshot(
         CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             startup_snapshot: None,
             skip_op_registration: false,
-            extensions: vec![extension()],
+            extensions: extensions(),
             extension_transpiler: None,
             with_runtime_cb: Some(Box::new(move |js| {
-                if !cold_pass.swap(false, Ordering::Relaxed) {
-                    return;
-                }
                 for (name, source) in &scripts {
                     js.execute_script(name.clone(), source.clone())
                         .unwrap_or_else(|e| panic!("snapshot script `{name}` failed: {e}"));
                 }
             })),
         },
-        warmup.map(leak),
+        None,
     )?;
     Ok(output.output)
 }
 
+/// Test-only helpers shared with `runtime.rs`'s tests: both need a real, bootable snapshot
+/// (mini's actual production scripts), not just `snapshot.rs`'s own round-trip checks.
 #[cfg(test)]
-mod tests {
+pub(crate) mod support {
     use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
 
-    use deno_core::{JsRuntime, RuntimeOptions};
+    /// `cargo test`'s default parallelism segfaults V8 when `create_snapshot` overlaps with
+    /// concurrent isolate construction elsewhere -- test-only, since production never builds a
+    /// snapshot concurrently with itself the way this binary's parallel test threads do.
+    pub(crate) fn v8_test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: Mutex<()> = Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
-    use super::create_snapshot;
-    use crate::runtime::extension;
-
-    fn root() -> PathBuf {
+    pub(crate) fn root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     }
 
-    fn read(rel: &str) -> String {
+    pub(crate) fn read(rel: &str) -> String {
         std::fs::read_to_string(root().join(rel)).unwrap()
     }
 
     /// Mirrors `get_snapshot_scripts()` in runtime.py, which owns the canonical list.
-    fn production_scripts() -> Vec<(String, String)> {
+    pub(crate) fn production_scripts() -> Vec<(String, String)> {
         let xpath = read("node_modules/xpath/xpath.js");
         vec![
             (
@@ -98,12 +101,25 @@ mod tests {
         ]
     }
 
+    pub(crate) fn warmup_script() -> String {
+        read("python/miniclient/js/snapshot_warmup.js")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use deno_core::{JsRuntime, RuntimeOptions};
+
+    use super::create_snapshot;
+    use super::support::{production_scripts, v8_test_lock, warmup_script};
+    use crate::runtime::extensions;
+
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
     /// restorable, not merely non-empty.
     fn eval_in_snapshot(blob: Box<[u8]>, expr: &'static str) -> String {
         let mut js = JsRuntime::new(RuntimeOptions {
             startup_snapshot: Some(Box::leak(blob)),
-            extensions: vec![extension()],
+            extensions: extensions(),
             ..Default::default()
         });
         let value = js.execute_script("<test>", expr).unwrap();
@@ -113,7 +129,8 @@ mod tests {
 
     #[test]
     fn production_scripts_and_warmup_produce_a_bootable_snapshot() {
-        let warmup = read("python/miniclient/js/snapshot_warmup.js");
+        let _guard = v8_test_lock();
+        let warmup = warmup_script();
         let blob = create_snapshot(production_scripts(), Some(warmup)).unwrap();
         assert_eq!(
             eval_in_snapshot(blob, "[typeof FormData, typeof __happyDomBundle].join()"),
@@ -124,10 +141,10 @@ mod tests {
     /// tests/test_htmx.py's shape: the same list with extra scripts appended.
     #[test]
     fn appended_scripts_produce_a_distinct_bootable_snapshot() {
+        let _guard = v8_test_lock();
         let mut scripts = production_scripts();
         scripts.push(("marker".into(), "globalThis.__marker = 'chai';".into()));
-        let warmup = read("python/miniclient/js/snapshot_warmup.js");
-        let blob = create_snapshot(scripts, Some(warmup)).unwrap();
+        let blob = create_snapshot(scripts, Some(warmup_script())).unwrap();
         assert_eq!(eval_in_snapshot(blob, "__marker"), "chai");
     }
 }

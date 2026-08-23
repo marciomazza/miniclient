@@ -17,7 +17,6 @@ classifiers = [
 ]
 dependencies = [
   "httpx2~=2.6.0",
-  "jsrun~=0.1.0",
 ]
 dynamic = ["version"]
 

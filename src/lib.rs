@@ -1,9 +1,10 @@
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
 use crate::runtime::{EvalError, EvalOutcome};
 
+pub mod ops;
 pub mod runtime;
 pub mod snapshot;
 
@@ -37,16 +38,62 @@ fn closed<E>(_: E) -> PyErr {
     PyRuntimeError::new_err("the runtime is closed")
 }
 
+/// `inspect.iscoroutinefunction` already unwraps `functools.partial`, but it looks at the
+/// object itself, not at `__call__` -- so a plain function check misses an instance whose
+/// `__call__` is async. It also only covers `async def`, not `async def ...: yield ...`
+/// (an async generator function, checked separately by `isasyncgenfunction`) -- calling either
+/// shape hands `op_call_python` something that isn't a JSON-serializable return value, so both
+/// need to be refused at bind time, on the callable itself and on `__call__`.
+fn is_async_callable(py: Python<'_>, callable: &Py<PyAny>) -> PyResult<bool> {
+    let inspect = py.import("inspect")?;
+    let is_async_function = |obj: &Bound<'_, PyAny>| -> PyResult<bool> {
+        let is_coroutine: bool = inspect
+            .call_method1("iscoroutinefunction", (obj,))?
+            .extract()?;
+        let is_async_gen: bool = inspect
+            .call_method1("isasyncgenfunction", (obj,))?
+            .extract()?;
+        Ok(is_coroutine || is_async_gen)
+    };
+    let bound = callable.bind(py);
+    if is_async_function(bound)? {
+        return Ok(true);
+    }
+    match bound.getattr("__call__") {
+        Ok(call) => is_async_function(&call),
+        Err(_) => Ok(false),
+    }
+}
+
+/// `name` is spliced verbatim into `globalThis.<name> = ...` (spec §4's binding line), so it
+/// must be a valid JS identifier -- otherwise a caller could inject arbitrary JS through it.
+/// `__proto__` is excluded even though it matches: unlike every other valid identifier it is an
+/// accessor `Object.prototype` defines, so assigning a function to it rewires `globalThis`'s
+/// prototype chain to that function instead of adding a normal property.
+fn is_valid_js_identifier(name: &str) -> bool {
+    static IDENTIFIER: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").unwrap());
+    IDENTIFIER.is_match(name) && name != "__proto__"
+}
+
 /// A V8 isolate with its own thread. JS values cross as JSON in both directions (spec §4):
 /// `undefined` and `null` both arrive as `None`, and anything JSON cannot carry raises.
-#[pyclass(module = "miniclient._miniclient")]
+// weakref: page.py's sync Page wrapper keys a WeakKeyDictionary on the Runtime instance
+// (_loop_by_runtime) to find its event loop from __del__ without holding a strong ref.
+#[pyclass(module = "miniclient._miniclient", weakref)]
 struct Runtime(runtime::Runtime);
 
 #[pymethods]
 impl Runtime {
+    /// The isolate holding the leaked snapshot dies with the process anyway (see snapshot::leak).
     #[new]
-    fn new() -> Self {
-        Self(runtime::Runtime::new())
+    #[pyo3(signature = (snapshot, url, virtual_servers_json="[]"))]
+    fn new(snapshot: &[u8], url: &str, virtual_servers_json: &str) -> Self {
+        Self(runtime::Runtime::new(
+            Box::leak(Box::from(snapshot)),
+            url,
+            virtual_servers_json,
+        ))
     }
 
     /// Detaches from the interpreter while waiting: the script may call back into Python.
@@ -63,8 +110,59 @@ impl Runtime {
         Python::attach(|py| to_python(py, outcome))
     }
 
-    fn close(&self) {
-        self.0.close();
+    /// Detaches from the interpreter while waiting, same as `eval`: `close()` blocks on the
+    /// isolate thread joining, and that thread needs the GIL back to drop any `Py<PyAny>`
+    /// callable still held in `OpState` (registered functions, fetch/fs ops) or to finish an
+    /// in-flight `op_fetch` await -- holding the GIL here would deadlock against that.
+    fn close(&self, py: Python<'_>) {
+        py.detach(|| self.0.close());
+    }
+
+    /// Binds a sync Python callable to a JS global, backed by one dispatch op regardless of how
+    /// many names are bound (spec §4). An async callable is refused here, at bind time -- there
+    /// is no `register_function` twin that parks a `PromiseResolver` for it, and nothing needs one.
+    fn register_function(&self, py: Python<'_>, name: String, callable: Py<PyAny>) -> PyResult<()> {
+        if !is_valid_js_identifier(&name) {
+            return Err(PyValueError::new_err(format!(
+                "register_function({name:?}): name must be a valid JS identifier"
+            )));
+        }
+        if is_async_callable(py, &callable)? {
+            return Err(PyTypeError::new_err(format!(
+                "register_function({name:?}): callable must be sync, got an async function"
+            )));
+        }
+        let rx = self.0.send_register_function(name, callable);
+        let outcome = py.detach(|| rx.blocking_recv());
+        to_python(py, outcome.map_err(closed)?)?;
+        Ok(())
+    }
+
+    /// Installs the 5 fetch/fs callables `op_fetch` and friends dispatch to (spec §4). `fetch`
+    /// must be a coroutine function -- `op_fetch` bridges to it via `TaskLocals` captured from
+    /// the caller's own running event loop, so this must be called from inside one. Safe to call
+    /// any time before JS first reaches one of those ops (see `send_install_host_ops`).
+    fn install_host_ops(
+        &self,
+        py: Python<'_>,
+        fetch: Py<PyAny>,
+        fetch_abort: Py<PyAny>,
+        fetch_sync: Py<PyAny>,
+        fs_stat: Py<PyAny>,
+        fs_read: Py<PyAny>,
+    ) -> PyResult<()> {
+        let fetch_locals =
+            pyo3_async_runtimes::TaskLocals::with_running_loop(py)?.copy_context(py)?;
+        let host_ops = ops::HostOps {
+            fetch,
+            fetch_locals,
+            fetch_abort,
+            fetch_sync,
+            fs_stat,
+            fs_read,
+        };
+        let rx = self.0.send_install_host_ops(host_ops);
+        py.detach(|| rx.blocking_recv()).map_err(closed)
     }
 }
 
@@ -96,4 +194,225 @@ fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Runtime>()?;
     m.add_function(wrap_pyfunction!(v8_version, m)?)?;
     m.add_function(wrap_pyfunction!(create_snapshot, m)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+    use std::sync::OnceLock;
+
+    use pyo3::types::PyModule;
+
+    use super::*;
+    use crate::snapshot::{self, support};
+
+    /// Built once and shared across tests below, same rationale as `runtime.rs`'s own copy of
+    /// this helper: a snapshot is expensive and only ever read here, never mutated.
+    fn test_snapshot() -> &'static [u8] {
+        static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+        SNAPSHOT.get_or_init(|| {
+            snapshot::create_snapshot(
+                support::production_scripts(),
+                Some(support::warmup_script()),
+            )
+            .expect("failed to build the test snapshot")
+        })
+    }
+
+    fn fixtures(py: Python<'_>) -> Bound<'_, PyModule> {
+        PyModule::from_code(
+            py,
+            &CString::new(
+                r#"
+def add(a, b):
+    return a + b
+
+def echo(*args):
+    return list(args)
+
+async def async_fn():
+    return 1
+
+async def async_gen_fn():
+    yield 1
+
+def not_json():
+    return float("nan")
+
+class AsyncCallable:
+    async def __call__(self):
+        return 1
+
+async_instance = AsyncCallable()
+"#,
+            )
+            .unwrap(),
+            &CString::new("register_function_test_fixtures.py").unwrap(),
+            &CString::new("register_function_test_fixtures").unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn register_function_binds_a_sync_callable_reachable_from_js() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        Python::attach(|py| {
+            let add = fixtures(py).getattr("add").unwrap().unbind();
+            runtime
+                .register_function(py, "__test_add".into(), add)
+                .unwrap();
+        });
+        let result = Python::attach(|py| runtime.eval(py, "__test_add(1, 2)".into())).unwrap();
+        Python::attach(|py| assert_eq!(result.extract::<i64>(py).unwrap(), 3));
+    }
+
+    /// `json.dumps`'s default `allow_nan=True` would otherwise hand `op_call_python` a
+    /// `NaN`/`Infinity` token `serde_json::from_str` can't parse -- a bare `.expect` on that
+    /// would panic across the V8 FFI boundary instead of raising a clean Python-visible error.
+    #[test]
+    fn register_function_raises_cleanly_on_a_non_json_return_value() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        Python::attach(|py| {
+            let not_json = fixtures(py).getattr("not_json").unwrap().unbind();
+            runtime
+                .register_function(py, "__test_not_json".into(), not_json)
+                .unwrap();
+        });
+        let err = Python::attach(|py| runtime.eval(py, "__test_not_json()".into())).unwrap_err();
+        assert!(err.to_string().contains("not JSON compliant"));
+    }
+
+    #[test]
+    fn registering_many_names_still_costs_exactly_one_op() {
+        let _guard = support::v8_test_lock();
+        // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python, sleep.
+        assert_eq!(crate::runtime::miniclient_extension().ops.len(), 7);
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        Python::attach(|py| {
+            let fixtures = fixtures(py);
+            for name in [
+                "__mini_fm_register",
+                "__mini_fm_reset",
+                "__mini_fm_register_seq",
+                "__mini_fm_next",
+            ] {
+                let echo = fixtures.getattr("echo").unwrap().unbind();
+                runtime.register_function(py, name.into(), echo).unwrap();
+            }
+        });
+        let result =
+            Python::attach(|py| runtime.eval(py, "__mini_fm_next(1, 2, 3)".into())).unwrap();
+        Python::attach(|py| {
+            assert_eq!(result.extract::<Vec<i64>>(py).unwrap(), vec![1, 2, 3]);
+        });
+        assert_eq!(crate::runtime::miniclient_extension().ops.len(), 7);
+    }
+
+    #[test]
+    fn register_function_refuses_a_name_that_is_not_a_js_identifier() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        let err = Python::attach(|py| {
+            let add = fixtures(py).getattr("add").unwrap().unbind();
+            runtime
+                .register_function(py, "x; globalThis.__pwned = true".into(), add)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("identifier"));
+        let pwned =
+            Python::attach(|py| runtime.eval(py, "typeof globalThis.__pwned".into())).unwrap();
+        Python::attach(|py| assert_eq!(pwned.extract::<String>(py).unwrap(), "undefined"));
+    }
+
+    #[test]
+    fn register_function_refuses_proto() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        let err = Python::attach(|py| {
+            let add = fixtures(py).getattr("add").unwrap().unbind();
+            runtime
+                .register_function(py, "__proto__".into(), add)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("identifier"));
+    }
+
+    #[test]
+    fn register_function_refuses_an_async_callable() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        let err = Python::attach(|py| {
+            let async_fn = fixtures(py).getattr("async_fn").unwrap().unbind();
+            runtime
+                .register_function(py, "__bad".into(), async_fn)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("async"));
+        let unset = Python::attach(|py| runtime.eval(py, "typeof __bad".into())).unwrap();
+        Python::attach(|py| assert_eq!(unset.extract::<String>(py).unwrap(), "undefined"));
+    }
+
+    /// `inspect.iscoroutinefunction` alone misses this shape too: an async generator function
+    /// is not a coroutine function even though calling it returns an (unmarshalable) generator.
+    #[test]
+    fn register_function_refuses_an_async_generator_function() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        let err = Python::attach(|py| {
+            let async_gen_fn = fixtures(py).getattr("async_gen_fn").unwrap().unbind();
+            runtime
+                .register_function(py, "__bad_gen".into(), async_gen_fn)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("async"));
+    }
+
+    /// `inspect.iscoroutinefunction` alone misses this shape: an instance is not itself a
+    /// coroutine function even though calling it returns one.
+    #[test]
+    fn register_function_refuses_an_object_with_an_async_call() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(
+            test_snapshot(),
+            "http://localhost/",
+            "[]",
+        ));
+        let err = Python::attach(|py| {
+            let async_instance = fixtures(py).getattr("async_instance").unwrap().unbind();
+            runtime
+                .register_function(py, "__bad_instance".into(), async_instance)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("async"));
+    }
 }

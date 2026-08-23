@@ -1,6 +1,6 @@
 """The crate's own `Runtime.eval`/`eval_async`: the JSON value contract and JavaScriptError.
 
-Bare isolates, no snapshot and no bootstrap.js -- those arrive with the ops.
+No `install_host_ops()` call -- fetch/fs ops arrive separately from construction.
 """
 
 import asyncio
@@ -9,12 +9,13 @@ import re
 import pytest
 
 from miniclient._miniclient import JavaScriptError, Runtime
+from miniclient.runtime import production_snapshot
 
 
 @pytest.fixture
 def bare_runtime():
-    """Not conftest's `runtime`: no snapshot, no happy-dom, no bootstrap.js."""
-    r = Runtime()
+    """Not conftest's `runtime`: no install_host_ops() call, so no fetch/fs support."""
+    r = Runtime(production_snapshot(), "http://localhost/")
     yield r
     r.close()
 

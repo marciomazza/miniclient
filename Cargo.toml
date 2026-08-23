@@ -11,7 +11,20 @@ crate-type = ["cdylib"]
 
 [dependencies]
 deno_core = "0.410.0"
+deno_error = "0.7.1"
+# For a real, circular-safe console (see pre_globals.js). deno_web requires deno_webidl.
+deno_web = "0.288.0"
+deno_webidl = "0.257.0"
 # `extension-module` comes from maturin's `features` in pyproject.toml, not from here:
 # baked in, it leaves Python symbols undefined and `cargo test` cannot link.
-pyo3 = { version = "0.27", features = ["experimental-async"] }
+pyo3 = { version = "0.29", features = ["experimental-async"] }
+pyo3-async-runtimes = { version = "0.29.0", features = ["tokio-runtime"] }
+regex = "1"
+serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
+
+[dev-dependencies]
+# Only active for `cargo test`/benches/examples, never the extension-module wheel build (that
+# build never pulls in [dev-dependencies]) -- `auto-initialize` and `extension-module` conflict,
+# since an extension module doesn't own the interpreter but a standalone `cargo test` binary does.
+pyo3 = { version = "0.29", features = ["auto-initialize"] }

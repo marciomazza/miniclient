@@ -2,9 +2,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest_asyncio
-from jsrun import Runtime
 
-from miniclient.runtime import VirtualServer, open_runtime
+from miniclient.runtime import Runtime, VirtualServer, open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _VENDOR_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
