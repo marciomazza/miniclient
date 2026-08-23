@@ -59,10 +59,10 @@ class HttpxFetchMock:
         self.transport = _MockTransport(self)
 
     def install(self, runtime: Runtime) -> None:
-        runtime.bind_function("__host_fm_register", self._op_register)
-        runtime.bind_function("__host_fm_reset", self._op_reset)
-        runtime.bind_function("__host_fm_register_seq", self._op_register_seq)
-        runtime.bind_function("__host_fm_next", self._op_next)
+        runtime.register_function("__mini_fm_register", self._op_register)
+        runtime.register_function("__mini_fm_reset", self._op_reset)
+        runtime.register_function("__mini_fm_register_seq", self._op_register_seq)
+        runtime.register_function("__mini_fm_next", self._op_next)
 
     def _op_register(self, req: dict) -> dict:
         self._entries.append(

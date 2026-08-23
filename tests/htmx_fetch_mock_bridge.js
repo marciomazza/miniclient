@@ -44,7 +44,7 @@
         }
 
         reset() {
-            __host_fm_reset({});
+            __mini_fm_reset({});
             this.calls = [];
             this.pendingRequests = [];
             this.functionMocks = [];
@@ -61,7 +61,7 @@
                 body = response;
             } else if (typeof response === "function" || response instanceof Response) {
                 // A real Response can't be registered through the Python-backed
-                // __host_fm_register (its body/headers require an async .text() read,
+                // __mini_fm_register (its body/headers require an async .text() read,
                 // and a ReadableStream body must stay a live stream, not be flattened to
                 // a string) — resolve it lazily in JS instead, same as a function mock.
                 const patternStr = toPatternStr(urlPattern);
@@ -80,7 +80,7 @@
 
             const patternStr = toPatternStr(urlPattern);
 
-            __host_fm_register({
+            __mini_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: body,
@@ -95,7 +95,7 @@
         mockJsonResponse(method, urlPattern, data, status) {
             status = status || 200;
             const patternStr = toPatternStr(urlPattern);
-            __host_fm_register({
+            __mini_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: JSON.stringify(data),
@@ -111,7 +111,7 @@
             status = status || 500;
             message = message || "Server Error";
             const patternStr = toPatternStr(urlPattern);
-            __host_fm_register({
+            __mini_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: message,
@@ -127,7 +127,7 @@
             error = error || new Error("Network Error");
             const patternStr = toPatternStr(urlPattern);
             const msg = error instanceof Error ? error.message : String(error);
-            __host_fm_register({
+            __mini_fm_register({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: "",
@@ -151,7 +151,7 @@
             const body = typeof response === "string" ? response : JSON.stringify(response);
             const patternStr = toPatternStr(urlPattern);
 
-            const seqId = __host_fm_register_seq({
+            const seqId = __mini_fm_register_seq({
                 method: method.toUpperCase(),
                 urlPattern: patternStr,
                 body: body,
@@ -163,7 +163,7 @@
                 next() {
                     // Fire-and-forget: runner.js ignores the return value and waits
                     // for htmx:finally:request instead.
-                    __host_fm_next({ seq_id: seqId });
+                    __mini_fm_next({ seq_id: seqId });
                     return Promise.resolve();
                 },
                 get pendingCount() {
