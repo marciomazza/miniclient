@@ -54,6 +54,7 @@ pub(crate) fn extension() -> Extension {
             ops::op_fs_stat(),
             ops::op_fs_read(),
             ops::op_call_python(),
+            ops::op_sleep(),
         ]),
         ..Default::default()
     }

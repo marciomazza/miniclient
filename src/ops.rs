@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use deno_core::OpState;
 use deno_core::ToJsBuffer;
@@ -228,6 +229,11 @@ pub fn op_call_python(
     .map_err(py_err_to_js)
 }
 
+#[op2]
+pub async fn op_sleep(ms: f64) {
+    tokio::time::sleep(Duration::from_millis(ms as u64)).await;
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
@@ -434,4 +440,24 @@ async def fetch_impl(req):
             "201 async-body"
         );
     }
+
+    #[test]
+    fn op_sleep_actually_delays() {
+        let _guard = v8_test_lock();
+        let mut js = bare_runtime();
+        let start = std::time::Instant::now();
+        let tokio = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        tokio.block_on(async {
+            js.execute_script("<test>", "Deno.core.ops.op_sleep(30)")
+                .unwrap();
+            js.run_event_loop(deno_core::PollEventLoopOptions::default())
+                .await
+                .unwrap();
+        });
+        assert!(start.elapsed() >= std::time::Duration::from_millis(30));
+    }
 }
+
