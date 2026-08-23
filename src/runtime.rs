@@ -198,20 +198,100 @@ async fn eval(
     marshal: &v8::Global<v8::Value>,
     source: String,
     is_async: bool,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
 ) -> EvalOutcome {
     let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
     let value = if is_async {
         let resolve = Box::pin(js.resolve(value));
-        js.with_event_loop_promise(resolve, PollEventLoopOptions::default())
-            .await
-            .map_err(|e| match e.into_kind() {
-                CoreErrorKind::Js(js_error) => EvalError::Js(js_error),
-                other => EvalError::Other(other.to_string()),
-            })?
+        run_with_interleaved_commands(js, marshal, resolve, rx, stop).await?
     } else {
         value
     };
     to_json(js, marshal, value)
+}
+
+/// Polls `resolve` to completion the same way a plain `.await` on `with_event_loop_promise`
+/// would, but also drains `rx` in between polls: a Python callback invoked from an in-flight op
+/// (e.g. a mocked fetch transport awaited by `op_fetch`) can call back into `eval`/`eval_async`
+/// on the same runtime without the isolate thread deadlocking on itself, since the command loop
+/// no longer has to fully finish this eval before it can service another one.
+async fn run_with_interleaved_commands<F>(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    mut resolve: std::pin::Pin<Box<F>>,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
+) -> Result<v8::Global<v8::Value>, EvalError>
+where
+    F: std::future::Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>>,
+{
+    loop {
+        tokio::select! {
+            biased;
+            Some(command) = rx.recv() => {
+                Box::pin(handle_command(js, marshal, command, rx, stop)).await;
+                if *stop {
+                    return Err(EvalError::Other(
+                        "runtime closed while a request was in flight".into(),
+                    ));
+                }
+            }
+            result = js.with_event_loop_promise(&mut resolve, PollEventLoopOptions::default()) => {
+                return result.map_err(|e| match e.into_kind() {
+                    CoreErrorKind::Js(js_error) => EvalError::Js(js_error),
+                    other => EvalError::Other(other.to_string()),
+                });
+            }
+        }
+    }
+}
+
+/// One command's worth of work, shared between the top-level command loop and the reentrant
+/// path in `run_with_interleaved_commands` so both dispatch the same way.
+async fn handle_command(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    command: Command,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
+) {
+    match command {
+        Command::Close => *stop = true,
+        Command::Eval {
+            source,
+            is_async,
+            reply,
+        } => {
+            // A dropped receiver just means Python stopped caring.
+            reply
+                .send(eval(js, marshal, source, is_async, rx, stop).await)
+                .ok();
+        }
+        Command::RegisterFunction {
+            name,
+            callable,
+            reply,
+        } => {
+            let index = {
+                let state = js.op_state();
+                let mut state = state.borrow_mut();
+                state.borrow_mut::<ops::PythonFunctions>().push(callable)
+            };
+            // Trailing `void 0`: an assignment expression evaluates to the assigned value, and
+            // MARSHAL_JS refuses to marshal the function itself back to Python.
+            let binding_js = format!(
+                "globalThis.{name} = (...args) => Deno.core.ops.op_call_python({index}, args); void 0;"
+            );
+            reply
+                .send(eval(js, marshal, binding_js, false, rx, stop).await)
+                .ok();
+        }
+        Command::InstallHostOps { host_ops, reply } => {
+            js.op_state().borrow_mut().put(host_ops);
+            reply.send(()).ok();
+        }
+    }
 }
 
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
@@ -275,44 +355,12 @@ impl Runtime {
                 .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
                 ready_tx.send(()).ok();
 
-                while let Some(command) = rx.recv().await {
-                    match command {
-                        Command::Close => break,
-                        Command::Eval {
-                            source,
-                            is_async,
-                            reply,
-                        } => {
-                            // A dropped receiver just means Python stopped caring.
-                            reply
-                                .send(eval(&mut js, &marshal, source, is_async).await)
-                                .ok();
-                        }
-                        Command::RegisterFunction {
-                            name,
-                            callable,
-                            reply,
-                        } => {
-                            let index = {
-                                let state = js.op_state();
-                                let mut state = state.borrow_mut();
-                                state.borrow_mut::<ops::PythonFunctions>().push(callable)
-                            };
-                            // Trailing `void 0`: an assignment expression evaluates to the
-                            // assigned value, and MARSHAL_JS refuses to marshal the function
-                            // itself back to Python.
-                            let binding_js = format!(
-                                "globalThis.{name} = (...args) => Deno.core.ops.op_call_python({index}, args); void 0;"
-                            );
-                            reply
-                                .send(eval(&mut js, &marshal, binding_js, false).await)
-                                .ok();
-                        }
-                        Command::InstallHostOps { host_ops, reply } => {
-                            js.op_state().borrow_mut().put(host_ops);
-                            reply.send(()).ok();
-                        }
-                    }
+                let mut stop = false;
+                while !stop {
+                    let Some(command) = rx.recv().await else {
+                        break;
+                    };
+                    handle_command(&mut js, &marshal, command, &mut rx, &mut stop).await;
                 }
                 let _lock = lifecycle_lock();
                 drop(js);
