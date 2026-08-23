@@ -185,6 +185,9 @@ def echo(*args):
 async def async_fn():
     return 1
 
+def not_json():
+    return float("nan")
+
 class AsyncCallable:
     async def __call__(self):
         return 1
@@ -211,6 +214,23 @@ async_instance = AsyncCallable()
         });
         let result = Python::attach(|py| runtime.eval(py, "__test_add(1, 2)".into())).unwrap();
         Python::attach(|py| assert_eq!(result.extract::<i64>(py).unwrap(), 3));
+    }
+
+    /// `json.dumps`'s default `allow_nan=True` would otherwise hand `op_call_python` a
+    /// `NaN`/`Infinity` token `serde_json::from_str` can't parse -- a bare `.expect` on that
+    /// would panic across the V8 FFI boundary instead of raising a clean Python-visible error.
+    #[test]
+    fn register_function_raises_cleanly_on_a_non_json_return_value() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        Python::attach(|py| {
+            let not_json = fixtures(py).getattr("not_json").unwrap().unbind();
+            runtime
+                .register_function(py, "__test_not_json".into(), not_json)
+                .unwrap();
+        });
+        let err = Python::attach(|py| runtime.eval(py, "__test_not_json()".into())).unwrap_err();
+        assert!(err.to_string().contains("not JSON compliant"));
     }
 
     #[test]

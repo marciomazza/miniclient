@@ -216,7 +216,13 @@ pub fn op_call_python(
         let args_json = serde_json::to_string(&args).expect("args is always JSON-safe");
         let py_args: Bound<'_, PyList> = json.call_method1("loads", (args_json,))?.extract()?;
         let result = callable.bind(py).call1(py_args.to_tuple())?;
-        let result_json: String = json.call_method1("dumps", (result,))?.extract()?;
+        // `allow_nan=False`: dumps's default lets NaN/Infinity through as bare (non-JSON)
+        // tokens, which would make the `expect` below panic instead of raising cleanly.
+        let dumps_kwargs = PyDict::new(py);
+        dumps_kwargs.set_item("allow_nan", false)?;
+        let result_json: String = json
+            .call_method("dumps", (result,), Some(&dumps_kwargs))?
+            .extract()?;
         Ok(serde_json::from_str(&result_json).expect("json module output is valid JSON"))
     })
     .map_err(py_err_to_js)
