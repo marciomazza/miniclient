@@ -1,4 +1,4 @@
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -68,6 +68,25 @@ impl Runtime {
     fn close(&self) {
         self.0.close();
     }
+
+    /// Binds a sync Python callable to a JS global, backed by one dispatch op regardless of how
+    /// many names are bound (spec §4). An async callable is refused here, at bind time -- there
+    /// is no `register_function` twin that parks a `PromiseResolver` for it, and nothing needs one.
+    fn register_function(&self, py: Python<'_>, name: String, callable: Py<PyAny>) -> PyResult<()> {
+        let is_async: bool = py
+            .import("inspect")?
+            .call_method1("iscoroutinefunction", (&callable,))?
+            .extract()?;
+        if is_async {
+            return Err(PyTypeError::new_err(format!(
+                "register_function({name:?}): callable must be sync, got an async function"
+            )));
+        }
+        let rx = self.0.send_register_function(name, callable);
+        let outcome = py.detach(|| rx.blocking_recv());
+        to_python(py, outcome.map_err(closed)?)?;
+        Ok(())
+    }
 }
 
 /// The runtime still lives in jsrun until the swap. This exists so the crate makes a real
@@ -98,4 +117,105 @@ fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Runtime>()?;
     m.add_function(wrap_pyfunction!(v8_version, m)?)?;
     m.add_function(wrap_pyfunction!(create_snapshot, m)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+    use std::sync::OnceLock;
+
+    use pyo3::types::PyModule;
+
+    use super::*;
+    use crate::snapshot::{self, support};
+
+    /// Built once and shared across tests below, same rationale as `runtime.rs`'s own copy of
+    /// this helper: a snapshot is expensive and only ever read here, never mutated.
+    fn test_snapshot() -> &'static [u8] {
+        static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+        SNAPSHOT.get_or_init(|| {
+            snapshot::create_snapshot(
+                support::production_scripts(),
+                Some(support::warmup_script()),
+            )
+            .expect("failed to build the test snapshot")
+        })
+    }
+
+    fn fixtures(py: Python<'_>) -> Bound<'_, PyModule> {
+        PyModule::from_code(
+            py,
+            &CString::new(
+                r#"
+def add(a, b):
+    return a + b
+
+def echo(*args):
+    return list(args)
+
+async def async_fn():
+    return 1
+"#,
+            )
+            .unwrap(),
+            &CString::new("register_function_test_fixtures.py").unwrap(),
+            &CString::new("register_function_test_fixtures").unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn register_function_binds_a_sync_callable_reachable_from_js() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        Python::attach(|py| {
+            let add = fixtures(py).getattr("add").unwrap().unbind();
+            runtime
+                .register_function(py, "__test_add".into(), add)
+                .unwrap();
+        });
+        let result = Python::attach(|py| runtime.eval(py, "__test_add(1, 2)".into())).unwrap();
+        Python::attach(|py| assert_eq!(result.extract::<i64>(py).unwrap(), 3));
+    }
+
+    #[test]
+    fn registering_many_names_still_costs_exactly_one_op() {
+        let _guard = support::v8_test_lock();
+        // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python (spec §4).
+        assert_eq!(crate::runtime::extension().ops.len(), 6);
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        Python::attach(|py| {
+            let fixtures = fixtures(py);
+            for name in [
+                "__mini_fm_register",
+                "__mini_fm_reset",
+                "__mini_fm_register_seq",
+                "__mini_fm_next",
+            ] {
+                let echo = fixtures.getattr("echo").unwrap().unbind();
+                runtime.register_function(py, name.into(), echo).unwrap();
+            }
+        });
+        let result =
+            Python::attach(|py| runtime.eval(py, "__mini_fm_next(1, 2, 3)".into())).unwrap();
+        Python::attach(|py| {
+            assert_eq!(result.extract::<Vec<i64>>(py).unwrap(), vec![1, 2, 3]);
+        });
+        assert_eq!(crate::runtime::extension().ops.len(), 6);
+    }
+
+    #[test]
+    fn register_function_refuses_an_async_callable() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let err = Python::attach(|py| {
+            let async_fn = fixtures(py).getattr("async_fn").unwrap().unbind();
+            runtime
+                .register_function(py, "__bad".into(), async_fn)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("async"));
+        let unset = Python::attach(|py| runtime.eval(py, "typeof __bad".into())).unwrap();
+        Python::attach(|py| assert_eq!(unset.extract::<String>(py).unwrap(), "undefined"));
+    }
 }

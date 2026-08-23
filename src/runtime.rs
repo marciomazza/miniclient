@@ -3,6 +3,7 @@ use std::thread::JoinHandle;
 
 use deno_core::error::{CoreErrorKind, JsError};
 use deno_core::{Extension, JsRuntime, PollEventLoopOptions, RuntimeOptions, v8};
+use pyo3::{Py, PyAny};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::ops;
@@ -52,6 +53,7 @@ pub(crate) fn extension() -> Extension {
             ops::op_fetch_sync(),
             ops::op_fs_stat(),
             ops::op_fs_read(),
+            ops::op_call_python(),
         ]),
         ..Default::default()
     }
@@ -76,6 +78,11 @@ enum Command {
         source: String,
         /// Resolve the result and pump the event loop before answering.
         is_async: bool,
+        reply: oneshot::Sender<EvalOutcome>,
+    },
+    RegisterFunction {
+        name: String,
+        callable: Py<PyAny>,
         reply: oneshot::Sender<EvalOutcome>,
     },
 }
@@ -229,6 +236,9 @@ impl Runtime {
                     format!("globalThis.__BASE_URL__ = {url_json};"),
                 )
                 .expect("failed to install __BASE_URL__");
+                js.op_state()
+                    .borrow_mut()
+                    .put(ops::PythonFunctions(Vec::new()));
                 js.execute_script(
                     "bootstrap.js",
                     std::fs::read_to_string(BOOTSTRAP_JS)
@@ -248,6 +258,28 @@ impl Runtime {
                             // A dropped receiver just means Python stopped caring.
                             reply
                                 .send(eval(&mut js, &marshal, source, is_async).await)
+                                .ok();
+                        }
+                        Command::RegisterFunction {
+                            name,
+                            callable,
+                            reply,
+                        } => {
+                            let index = {
+                                let state = js.op_state();
+                                let mut state = state.borrow_mut();
+                                let functions = state.borrow_mut::<ops::PythonFunctions>();
+                                functions.0.push(callable);
+                                functions.0.len() - 1
+                            };
+                            // Trailing `void 0`: an assignment expression evaluates to the
+                            // assigned value, and MARSHAL_JS refuses to marshal the function
+                            // itself back to Python.
+                            let binding_js = format!(
+                                "globalThis.{name} = (...args) => Deno.core.ops.op_call_python({index}, args); void 0;"
+                            );
+                            reply
+                                .send(eval(&mut js, &marshal, binding_js, false).await)
                                 .ok();
                         }
                     }
@@ -273,6 +305,24 @@ impl Runtime {
             .send(Command::Eval {
                 source,
                 is_async,
+                reply,
+            })
+            .ok();
+        rx
+    }
+
+    /// Queues a callable registration and hands back the channel its outcome will arrive on --
+    /// same shape as `send_eval`, since binding is just one more eval under the hood.
+    pub fn send_register_function(
+        &self,
+        name: String,
+        callable: Py<PyAny>,
+    ) -> oneshot::Receiver<EvalOutcome> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::RegisterFunction {
+                name,
+                callable,
                 reply,
             })
             .ok();
