@@ -133,18 +133,21 @@ def _fs_read_op(path: str) -> bytes:
     return Path(path).read_bytes()
 
 
-def _clean_response_headers(r: httpx.Response) -> list[list[str]]:
+def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
     # httpx already transparently decompresses gzip/br/deflate but keeps the
     # original Content-Encoding/Content-Length headers, which would make a
     # consumer try to decode already-decoded bytes. Strip/fix them here so
-    # callers never see a mismatch. Headers are a list of pairs (not a dict)
-    # to preserve repeated header names (e.g. multiple Set-Cookie).
+    # callers never see a mismatch. Headers are pairs (not a dict) to preserve
+    # repeated header names (e.g. multiple Set-Cookie) -- tuples, not lists:
+    # the Rust side extracts each pair as `(String, String)`, which pyo3 only
+    # accepts from an actual Python tuple, silently dropping every header
+    # into an empty Vec (via `.unwrap_or_default()`) if given a 2-element list.
     headers = [
-        [k, v]
+        (k, v)
         for k, v in r.headers.multi_items()
         if k.lower() not in ("content-encoding", "content-length")
     ]
-    headers.append(["content-length", str(len(r.content))])
+    headers.append(("content-length", str(len(r.content))))
     return headers
 
 
