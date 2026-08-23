@@ -42,9 +42,23 @@ pub fn init_platform() {
     });
 }
 
+/// Order matters: `deno_web` declares `deps = [deno_webidl]`, checked at init time.
+pub(crate) fn extensions() -> Vec<Extension> {
+    vec![
+        deno_webidl::deno_webidl::init(),
+        deno_web::deno_web::init(
+            deno_web::BlobStore::default_arc(),
+            None,
+            false,
+            Default::default(),
+        ),
+        miniclient_extension(),
+    ]
+}
+
 /// Hand-built rather than via `extension!`: the macro buys nothing for a single fixed
 /// extension and hides what is actually registered.
-pub(crate) fn extension() -> Extension {
+pub(crate) fn miniclient_extension() -> Extension {
     Extension {
         name: "miniclient",
         ops: std::borrow::Cow::Owned(vec![
@@ -231,7 +245,7 @@ impl Runtime {
                     let _lock = lifecycle_lock();
                     JsRuntime::new(RuntimeOptions {
                         startup_snapshot: Some(snapshot),
-                        extensions: vec![extension()],
+                        extensions: extensions(),
                         ..Default::default()
                     })
                 };

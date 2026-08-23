@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
 
-use crate::runtime::{extension, init_platform, lifecycle_lock};
+use crate::runtime::{extensions, init_platform, lifecycle_lock};
 
 /// deno_core wants `&'static` for the warmup source, but ours is read from disk at call
 /// time. Leaking is bounded: a snapshot is built at most a couple of times per process, and
@@ -33,7 +33,7 @@ pub fn create_snapshot(
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
             startup_snapshot: None,
             skip_op_registration: false,
-            extensions: vec![extension()],
+            extensions: extensions(),
             extension_transpiler: None,
             with_runtime_cb: Some(Box::new(move |js| {
                 if !cold_pass.swap(false, Ordering::Relaxed) {
@@ -115,14 +115,14 @@ mod tests {
 
     use super::create_snapshot;
     use super::support::{production_scripts, v8_test_lock, warmup_script};
-    use crate::runtime::extension;
+    use crate::runtime::extensions;
 
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
     /// restorable, not merely non-empty.
     fn eval_in_snapshot(blob: Box<[u8]>, expr: &'static str) -> String {
         let mut js = JsRuntime::new(RuntimeOptions {
             startup_snapshot: Some(Box::leak(blob)),
-            extensions: vec![extension()],
+            extensions: extensions(),
             ..Default::default()
         });
         let value = js.execute_script("<test>", expr).unwrap();

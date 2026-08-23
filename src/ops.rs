@@ -248,7 +248,7 @@ mod tests {
     use pyo3::types::PyModule;
 
     use super::*;
-    use crate::runtime::extension;
+    use crate::runtime::miniclient_extension;
     use crate::snapshot::support::v8_test_lock;
 
     /// Runs `script`, reads one expression back out as a string -- same trick as
@@ -262,7 +262,7 @@ mod tests {
     fn bare_runtime() -> JsRuntime {
         crate::runtime::init_platform();
         JsRuntime::new(RuntimeOptions {
-            extensions: vec![extension()],
+            extensions: vec![miniclient_extension()],
             ..Default::default()
         })
     }

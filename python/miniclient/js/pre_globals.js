@@ -1,4 +1,14 @@
 (function () {
+    // Real, circular-safe console (replaces deno_core's built-in one, which throws on any
+    // circular arg -- htmx passes those). 00_url.js is force-loaded too: 01_console.js
+    // lazy-loads it on first use, and only scripts touched here (the snapshot's cold pass)
+    // survive into the snapshot's residual lazy table.
+    {
+        Deno.core.loadExtScript("ext:deno_web/00_url.js");
+        const { Console } = Deno.core.loadExtScript("ext:deno_web/01_console.js");
+        globalThis.console = new Console(Deno.core.print);
+    }
+
     globalThis.process = {
         platform: "linux",
         arch: "x64",
