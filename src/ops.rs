@@ -178,7 +178,27 @@ pub fn op_fs_read(state: &mut OpState, #[string] path: String) -> Result<ToJsBuf
 /// Callables bound by `Runtime::register_function`, indexed by the id baked into each
 /// binding's generated JS (spec §4) -- `op_call_python`'s only job is to look one up and call
 /// it, so binding any number of names still costs exactly this one op.
-pub struct PythonFunctions(pub Vec<Py<PyAny>>);
+#[derive(Default)]
+pub struct PythonFunctions(Vec<Py<PyAny>>);
+
+impl PythonFunctions {
+    /// Registers `callable` and returns the id `op_call_python` will look it up by.
+    pub fn push(&mut self, callable: Py<PyAny>) -> usize {
+        self.0.push(callable);
+        self.0.len() - 1
+    }
+
+    fn get(&self, call_id: u32, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.0
+            .get(call_id as usize)
+            .ok_or_else(|| {
+                PyRuntimeError::new_err(format!(
+                    "op_call_python: no callable registered at id {call_id}"
+                ))
+            })
+            .map(|callable| callable.clone_ref(py))
+    }
+}
 
 /// Dispatches to a callable registered via `register_function`. Args and the return value cross
 /// through Python's own `json` module rather than a second hand-rolled JSON<->PyAny conversion --
@@ -191,26 +211,12 @@ pub fn op_call_python(
     #[serde] args: Vec<serde_json::Value>,
 ) -> Result<serde_json::Value, JsErrorBox> {
     Python::attach(|py| -> PyResult<serde_json::Value> {
-        let callable = state
-            .borrow::<PythonFunctions>()
-            .0
-            .get(call_id as usize)
-            .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
-                    "op_call_python: no callable registered at id {call_id}"
-                ))
-            })?
-            .clone_ref(py);
+        let callable = state.borrow::<PythonFunctions>().get(call_id, py)?;
+        let json = py.import("json")?;
         let args_json = serde_json::to_string(&args).expect("args is always JSON-safe");
-        let py_args: Bound<'_, PyList> = py
-            .import("json")?
-            .call_method1("loads", (args_json,))?
-            .extract()?;
+        let py_args: Bound<'_, PyList> = json.call_method1("loads", (args_json,))?.extract()?;
         let result = callable.bind(py).call1(py_args.to_tuple())?;
-        let result_json: String = py
-            .import("json")?
-            .call_method1("dumps", (result,))?
-            .extract()?;
+        let result_json: String = json.call_method1("dumps", (result,))?.extract()?;
         Ok(serde_json::from_str(&result_json).expect("json module output is valid JSON"))
     })
     .map_err(py_err_to_js)

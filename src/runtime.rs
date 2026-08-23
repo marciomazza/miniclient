@@ -238,7 +238,7 @@ impl Runtime {
                 .expect("failed to install __BASE_URL__");
                 js.op_state()
                     .borrow_mut()
-                    .put(ops::PythonFunctions(Vec::new()));
+                    .put(ops::PythonFunctions::default());
                 js.execute_script(
                     "bootstrap.js",
                     std::fs::read_to_string(BOOTSTRAP_JS)
@@ -268,9 +268,7 @@ impl Runtime {
                             let index = {
                                 let state = js.op_state();
                                 let mut state = state.borrow_mut();
-                                let functions = state.borrow_mut::<ops::PythonFunctions>();
-                                functions.0.push(callable);
-                                functions.0.len() - 1
+                                state.borrow_mut::<ops::PythonFunctions>().push(callable)
                             };
                             // Trailing `void 0`: an assignment expression evaluates to the
                             // assigned value, and MARSHAL_JS refuses to marshal the function
