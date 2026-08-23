@@ -86,6 +86,10 @@ enum Command {
         callable: Py<PyAny>,
         reply: oneshot::Sender<EvalOutcome>,
     },
+    InstallHostOps {
+        host_ops: ops::HostOps,
+        reply: oneshot::Sender<()>,
+    },
 }
 
 /// `JSON.stringify` answers `undefined` for a function, a Symbol or an `undefined` member and
@@ -281,6 +285,10 @@ impl Runtime {
                                 .send(eval(&mut js, &marshal, binding_js, false).await)
                                 .ok();
                         }
+                        Command::InstallHostOps { host_ops, reply } => {
+                            js.op_state().borrow_mut().put(host_ops);
+                            reply.send(()).ok();
+                        }
                     }
                 }
                 let _lock = lifecycle_lock();
@@ -324,6 +332,19 @@ impl Runtime {
                 callable,
                 reply,
             })
+            .ok();
+        rx
+    }
+
+    /// Installs the Python callables `op_fetch`/`op_fetch_abort`/`op_fetch_sync`/`op_fs_stat`/
+    /// `op_fs_read` read from `OpState`. Safe to call any time before JS first reaches one of
+    /// those ops -- `bootstrap.js`'s own top-level execution never does, only functions it
+    /// defines for later, so this can run after construction rather than needing to land before
+    /// `bootstrap.js` loads.
+    pub fn send_install_host_ops(&self, host_ops: ops::HostOps) -> oneshot::Receiver<()> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::InstallHostOps { host_ops, reply })
             .ok();
         rx
     }
