@@ -39,17 +39,6 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
         # issue like the other two reconnect tests in this file; possibly a vendor hx-sse.js
         # reconnect-counting bug, not yet root-caused.
     },
-    "__handleHxHeadersAndMaybeReturnEarly": {
-        (
-            "__handleHxHeadersAndMaybeReturnEarly unit tests",
-            "honors HX-Location replace without pushing",
-        ),
-        # fixme: investigate new setup -- was a promise-pending crash (ticket 21) until the
-        # response-headers tuple fix; now a clean "expected 2 to equal 1" on history.replaceState
-        # call count. The chained HX-Location -> ajax(path, {replace}) call resolves to exactly
-        # one __replaceUrlInHistory() call by reading, so the second replaceState's origin isn't
-        # found yet -- possibly a real vendor htmx.js history double-seed, not root-caused.
-    },
 }
 
 # Tests that assert on real elapsed wall-clock time, or that use a waitForEvent()
