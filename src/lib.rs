@@ -1,4 +1,4 @@
-use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -38,6 +38,34 @@ fn closed<E>(_: E) -> PyErr {
     PyRuntimeError::new_err("the runtime is closed")
 }
 
+/// `inspect.iscoroutinefunction` already unwraps `functools.partial`, but it looks at the
+/// object itself, not at `__call__` -- so a plain function check misses an instance whose
+/// `__call__` is async. Checking both covers every shape `register_function` can be handed.
+fn is_async_callable(py: Python<'_>, callable: &Py<PyAny>) -> PyResult<bool> {
+    let inspect = py.import("inspect")?;
+    let is_coroutine_function = |obj: &Bound<'_, PyAny>| -> PyResult<bool> {
+        inspect
+            .call_method1("iscoroutinefunction", (obj,))?
+            .extract()
+    };
+    let bound = callable.bind(py);
+    if is_coroutine_function(bound)? {
+        return Ok(true);
+    }
+    match bound.getattr("__call__") {
+        Ok(call) => is_coroutine_function(&call),
+        Err(_) => Ok(false),
+    }
+}
+
+/// `name` is spliced verbatim into `globalThis.<name> = ...` (spec §4's binding line), so it
+/// must be a valid JS identifier -- otherwise a caller could inject arbitrary JS through it.
+fn is_valid_js_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
 /// A V8 isolate with its own thread. JS values cross as JSON in both directions (spec §4):
 /// `undefined` and `null` both arrive as `None`, and anything JSON cannot carry raises.
 #[pyclass(module = "miniclient._miniclient")]
@@ -73,11 +101,12 @@ impl Runtime {
     /// many names are bound (spec §4). An async callable is refused here, at bind time -- there
     /// is no `register_function` twin that parks a `PromiseResolver` for it, and nothing needs one.
     fn register_function(&self, py: Python<'_>, name: String, callable: Py<PyAny>) -> PyResult<()> {
-        let is_async: bool = py
-            .import("inspect")?
-            .call_method1("iscoroutinefunction", (&callable,))?
-            .extract()?;
-        if is_async {
+        if !is_valid_js_identifier(&name) {
+            return Err(PyValueError::new_err(format!(
+                "register_function({name:?}): name must be a valid JS identifier"
+            )));
+        }
+        if is_async_callable(py, &callable)? {
             return Err(PyTypeError::new_err(format!(
                 "register_function({name:?}): callable must be sync, got an async function"
             )));
@@ -155,6 +184,12 @@ def echo(*args):
 
 async def async_fn():
     return 1
+
+class AsyncCallable:
+    async def __call__(self):
+        return 1
+
+async_instance = AsyncCallable()
 "#,
             )
             .unwrap(),
@@ -205,6 +240,22 @@ async def async_fn():
     }
 
     #[test]
+    fn register_function_refuses_a_name_that_is_not_a_js_identifier() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let err = Python::attach(|py| {
+            let add = fixtures(py).getattr("add").unwrap().unbind();
+            runtime
+                .register_function(py, "x; globalThis.__pwned = true".into(), add)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("identifier"));
+        let pwned =
+            Python::attach(|py| runtime.eval(py, "typeof globalThis.__pwned".into())).unwrap();
+        Python::attach(|py| assert_eq!(pwned.extract::<String>(py).unwrap(), "undefined"));
+    }
+
+    #[test]
     fn register_function_refuses_an_async_callable() {
         let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
@@ -217,5 +268,20 @@ async def async_fn():
         assert!(err.to_string().contains("async"));
         let unset = Python::attach(|py| runtime.eval(py, "typeof __bad".into())).unwrap();
         Python::attach(|py| assert_eq!(unset.extract::<String>(py).unwrap(), "undefined"));
+    }
+
+    /// `inspect.iscoroutinefunction` alone misses this shape: an instance is not itself a
+    /// coroutine function even though calling it returns one.
+    #[test]
+    fn register_function_refuses_an_object_with_an_async_call() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let err = Python::attach(|py| {
+            let async_instance = fixtures(py).getattr("async_instance").unwrap().unbind();
+            runtime
+                .register_function(py, "__bad_instance".into(), async_instance)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("async"));
     }
 }
