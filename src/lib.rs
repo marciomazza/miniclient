@@ -40,20 +40,27 @@ fn closed<E>(_: E) -> PyErr {
 
 /// `inspect.iscoroutinefunction` already unwraps `functools.partial`, but it looks at the
 /// object itself, not at `__call__` -- so a plain function check misses an instance whose
-/// `__call__` is async. Checking both covers every shape `register_function` can be handed.
+/// `__call__` is async. It also only covers `async def`, not `async def ...: yield ...`
+/// (an async generator function, checked separately by `isasyncgenfunction`) -- calling either
+/// shape hands `op_call_python` something that isn't a JSON-serializable return value, so both
+/// need to be refused at bind time, on the callable itself and on `__call__`.
 fn is_async_callable(py: Python<'_>, callable: &Py<PyAny>) -> PyResult<bool> {
     let inspect = py.import("inspect")?;
-    let is_coroutine_function = |obj: &Bound<'_, PyAny>| -> PyResult<bool> {
-        inspect
+    let is_async_function = |obj: &Bound<'_, PyAny>| -> PyResult<bool> {
+        let is_coroutine: bool = inspect
             .call_method1("iscoroutinefunction", (obj,))?
-            .extract()
+            .extract()?;
+        let is_async_gen: bool = inspect
+            .call_method1("isasyncgenfunction", (obj,))?
+            .extract()?;
+        Ok(is_coroutine || is_async_gen)
     };
     let bound = callable.bind(py);
-    if is_coroutine_function(bound)? {
+    if is_async_function(bound)? {
         return Ok(true);
     }
     match bound.getattr("__call__") {
-        Ok(call) => is_coroutine_function(&call),
+        Ok(call) => is_async_function(&call),
         Err(_) => Ok(false),
     }
 }
@@ -188,6 +195,9 @@ def echo(*args):
 async def async_fn():
     return 1
 
+async def async_gen_fn():
+    yield 1
+
 def not_json():
     return float("nan")
 
@@ -304,6 +314,21 @@ async_instance = AsyncCallable()
         assert!(err.to_string().contains("async"));
         let unset = Python::attach(|py| runtime.eval(py, "typeof __bad".into())).unwrap();
         Python::attach(|py| assert_eq!(unset.extract::<String>(py).unwrap(), "undefined"));
+    }
+
+    /// `inspect.iscoroutinefunction` alone misses this shape too: an async generator function
+    /// is not a coroutine function even though calling it returns an (unmarshalable) generator.
+    #[test]
+    fn register_function_refuses_an_async_generator_function() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let err = Python::attach(|py| {
+            let async_gen_fn = fixtures(py).getattr("async_gen_fn").unwrap().unbind();
+            runtime
+                .register_function(py, "__bad_gen".into(), async_gen_fn)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("async"));
     }
 
     /// `inspect.iscoroutinefunction` alone misses this shape: an instance is not itself a
