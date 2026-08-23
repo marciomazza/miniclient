@@ -26,6 +26,11 @@ use serde::{Deserialize, Serialize};
 /// `Uint8Array`.
 #[derive(Deserialize)]
 pub struct FetchRequest {
+    // Only `op_fetch` (async) uses this, to track an in-flight request for abort. The sync
+    // path (`op_fetch_sync`, reached from XHR via `node-child-process.js`'s `execFileSync`)
+    // has no abort mechanism and never sends one -- defaulted, not required, so it doesn't
+    // fail deserialization there.
+    #[serde(default)]
     pub id: String,
     pub url: String,
     pub method: String,

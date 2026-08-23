@@ -42,6 +42,10 @@ const browser = new Browser({
     settings: {
         enableJavaScriptEvaluation: true,
         fetch: { virtualServers: globalThis.__VIRTUAL_SERVERS__ ?? [] },
+        // mini runs local page JS, not untrusted multi-tenant JS -- happy-dom's own
+        // insecure-VM-context warning doesn't apply here, and printing it now that
+        // console.warn actually reaches stdout/stderr breaks callers matching output.
+        suppressInsecureJavaScriptEnvironmentWarning: true,
     },
 });
 const page = browser.newPage();

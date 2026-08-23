@@ -171,6 +171,7 @@ async def test_getelementbyid_returns_first_in_tree_order(runtime):
         extra.id = 'x';
         extra.textContent = 'second';
         document.documentElement.appendChild(extra);
+        void 0;
     """)
     assert runtime.eval("document.getElementById('x').textContent") == "first"
 

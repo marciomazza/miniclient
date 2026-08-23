@@ -78,7 +78,9 @@ fn is_valid_js_identifier(name: &str) -> bool {
 
 /// A V8 isolate with its own thread. JS values cross as JSON in both directions (spec §4):
 /// `undefined` and `null` both arrive as `None`, and anything JSON cannot carry raises.
-#[pyclass(module = "miniclient._miniclient")]
+// weakref: page.py's sync Page wrapper keys a WeakKeyDictionary on the Runtime instance
+// (_loop_by_runtime) to find its event loop from __del__ without holding a strong ref.
+#[pyclass(module = "miniclient._miniclient", weakref)]
 struct Runtime(runtime::Runtime);
 
 #[pymethods]

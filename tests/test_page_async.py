@@ -406,13 +406,13 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
     """JS that appends a <script src=url>, applying attr_setup_js first, awaits its load/error."""
     return f"""
         new Promise((resolve, reject) => {{
-            const script = document.createElement('script');
-            {attr_setup_js}
-            script.src = {url!r};
-            script.onload = resolve;
-            script.onerror = () => reject(new Error('script failed to load'));
-            document.head.appendChild(script);
-        }})
+          const script = document.createElement('script');
+          {attr_setup_js};
+          script.src = {url!r};
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error('script failed to load'));
+          document.head.appendChild(script);
+        }});
     """
 
 
