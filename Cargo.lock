@@ -883,6 +883,7 @@ dependencies = [
  "deno_error",
  "pyo3",
  "pyo3-async-runtimes",
+ "regex",
  "serde",
  "tokio",
 ]

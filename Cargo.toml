@@ -16,6 +16,7 @@ deno_error = "0.7.1"
 # baked in, it leaves Python symbols undefined and `cargo test` cannot link.
 pyo3 = { version = "0.29", features = ["experimental-async"] }
 pyo3-async-runtimes = { version = "0.29.0", features = ["tokio-runtime"] }
+regex = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 

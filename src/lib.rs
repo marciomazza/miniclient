@@ -61,9 +61,9 @@ fn is_async_callable(py: Python<'_>, callable: &Py<PyAny>) -> PyResult<bool> {
 /// `name` is spliced verbatim into `globalThis.<name> = ...` (spec §4's binding line), so it
 /// must be a valid JS identifier -- otherwise a caller could inject arbitrary JS through it.
 fn is_valid_js_identifier(name: &str) -> bool {
-    let mut chars = name.chars();
-    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    static IDENTIFIER: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").unwrap());
+    IDENTIFIER.is_match(name)
 }
 
 /// A V8 isolate with its own thread. JS values cross as JSON in both directions (spec §4):
