@@ -1,19 +1,17 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
 
 use crate::runtime::{extensions, init_platform, lifecycle_lock};
 
-/// deno_core wants `&'static` for the warmup source, but ours is read from disk at call
-/// time. Leaking is bounded: a snapshot is built at most a couple of times per process, and
-/// the isolate holding the leaked text dies with the process anyway.
-fn leak(s: String) -> &'static str {
-    Box::leak(s.into_boxed_str())
-}
-
-/// Runs `scripts` in order into a fresh isolate and serializes it. `warmup` is deno_core's
-/// second pass: the cold snapshot is restored, the script is run, and the *exercised*
-/// context is what gets serialized, so its lazily-compiled functions ship compiled.
+/// Runs `scripts` in order (warmup last, if given) into a single isolate and serializes it.
+///
+/// `warmup` is appended as an ordinary script rather than passed to deno_core's own
+/// `warmup_script` parameter: that parameter restores the cold snapshot into a *second*
+/// isolate, runs the script there, and reserializes -- and that restore-then-reserialize
+/// round trip corrupts a snapshot that also used `Deno.core.loadExtScript()` (as
+/// `pre_globals.js` does for the console), reliably segfaulting V8 on the next ordinary
+/// deserialize. See `zz/deno-core-issue-draft-loadextscript-warmup-snapshot-segfault.md` for
+/// the upstream report and minimal repro. Running warmup content in the same single pass
+/// still exercises and precompiles it, without ever triggering that path.
 pub fn create_snapshot(
     scripts: Vec<(String, String)>,
     warmup: Option<String>,
@@ -25,9 +23,11 @@ pub fn create_snapshot(
     // exactly those two moments against each other.
     let _lock = lifecycle_lock();
     // Not `Extension::js_files`: those must be 7-bit ASCII, and both text-encoding and the
-    // happy-dom bundle are not. `with_runtime_cb` runs once per pass, so the cold pass is
-    // gated -- the warm pass must not replay every script over the context it just restored.
-    let cold_pass = AtomicBool::new(true);
+    // happy-dom bundle are not.
+    let scripts: Vec<_> = scripts
+        .into_iter()
+        .chain(warmup.map(|w| ("warmup".to_string(), w)))
+        .collect();
     let output = deno_create_snapshot(
         CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
@@ -36,16 +36,13 @@ pub fn create_snapshot(
             extensions: extensions(),
             extension_transpiler: None,
             with_runtime_cb: Some(Box::new(move |js| {
-                if !cold_pass.swap(false, Ordering::Relaxed) {
-                    return;
-                }
                 for (name, source) in &scripts {
                     js.execute_script(name.clone(), source.clone())
                         .unwrap_or_else(|e| panic!("snapshot script `{name}` failed: {e}"));
                 }
             })),
         },
-        warmup.map(leak),
+        None,
     )?;
     Ok(output.output)
 }
