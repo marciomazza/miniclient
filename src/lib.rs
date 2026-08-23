@@ -60,10 +60,13 @@ fn is_async_callable(py: Python<'_>, callable: &Py<PyAny>) -> PyResult<bool> {
 
 /// `name` is spliced verbatim into `globalThis.<name> = ...` (spec §4's binding line), so it
 /// must be a valid JS identifier -- otherwise a caller could inject arbitrary JS through it.
+/// `__proto__` is excluded even though it matches: unlike every other valid identifier it is an
+/// accessor `Object.prototype` defines, so assigning a function to it rewires `globalThis`'s
+/// prototype chain to that function instead of adding a normal property.
 fn is_valid_js_identifier(name: &str) -> bool {
     static IDENTIFIER: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").unwrap());
-    IDENTIFIER.is_match(name)
+    IDENTIFIER.is_match(name) && name != "__proto__"
 }
 
 /// A V8 isolate with its own thread. JS values cross as JSON in both directions (spec §4):
@@ -273,6 +276,19 @@ async_instance = AsyncCallable()
         let pwned =
             Python::attach(|py| runtime.eval(py, "typeof globalThis.__pwned".into())).unwrap();
         Python::attach(|py| assert_eq!(pwned.extract::<String>(py).unwrap(), "undefined"));
+    }
+
+    #[test]
+    fn register_function_refuses_proto() {
+        let _guard = support::v8_test_lock();
+        let runtime = Runtime(runtime::Runtime::new(test_snapshot(), "http://localhost/"));
+        let err = Python::attach(|py| {
+            let add = fixtures(py).getattr("add").unwrap().unbind();
+            runtime
+                .register_function(py, "__proto__".into(), add)
+                .unwrap_err()
+        });
+        assert!(err.to_string().contains("identifier"));
     }
 
     #[test]
