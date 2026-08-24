@@ -40,4 +40,11 @@ Follow the same approach — a resolver plus hand-written polyfills — for any 
 
 A [Vite](https://vite.dev/) production bundle sidesteps this almost entirely: bundling resolves the whole import graph at build time, so nothing needs runtime `require()` or bare-specifier resolution — a standard browser-targeted build just works. The exception is Node-targeted output (SSR, `target: 'node'`) that still calls real `fs`/`child_process`/`os` at runtime — bundling flattens imports, not the runtime APIs, so that code hits the same missing-Node-API wall as unbundled code.
 
+**Reduced hardening against malicious page JS.** This project disables one of V8's memory-safety
+defenses (Memory Protection Keys) process-wide, to work around a V8 threading bug. This makes V8
+somewhat easier to exploit if it ever mishandles memory while running untrusted JavaScript. If
+you're testing your own pages or trusted fixtures, this doesn't matter. If you'd point this
+project at page content from an untrusted or adversarial source, treat it the same as running any
+other JS engine without that protection, and don't rely on it as a security boundary.
+
 **One window per runtime.** A jsrun `Runtime` wraps a single `deno_core::JsRuntime` with one V8 `globalThis`, so there's no true per-window isolation — this only matters if the project ever needs to support multiple simultaneous `Window` instances inside one `Runtime`, which isn't possible today. Globals persist across navigations rather than resetting per-page as in a real browser. This is usually acceptable for a test scenario but is important to keep in mind.
