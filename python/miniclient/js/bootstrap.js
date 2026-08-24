@@ -147,6 +147,27 @@ function registerWindowGlobals(win) {
     // the final, authoritative values — not overwritten by the registration copy above,
     // which only knows about happy-dom's unpatched classes.
     patchHappyDom(win);
+
+    // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM
+    // node as a short collapsed tag, never eagerly walking its full property graph. Deno's
+    // console (installed in pre_globals.js) has no such special case and falls back to its
+    // generic object formatter, which recurses through every own property happy-dom puts
+    // on a node (internal caches, parent/child backrefs, ...). That's expensive enough to
+    // matter: htmx logs `*:error` events via console.error(..., {elt, detail}) by default,
+    // and elt is the live element — each such call was costing ~150ms, enough by itself to
+    // blow through a reconnect-loop test's real-time assertion window (see hx-sse.js's
+    // "reconnectMaxAttempts"/"reconnectMaxDelay" tests). Set per-window like patchHappyDom
+    // above, for the same reason: each new Window gets its own fresh Node class.
+    {
+        const customInspect = Symbol.for("Deno.customInspect");
+        win.Node.prototype[customInspect] = function () {
+            if (this.nodeType === this.TEXT_NODE)
+                return `#text ${JSON.stringify((this.data ?? "").slice(0, 40))}`;
+            if (typeof this.tagName !== "string") return `[Node ${this.nodeType}]`;
+            const id = this.id ? ` id="${this.id}"` : "";
+            return `<${this.tagName.toLowerCase()}${id}>`;
+        };
+    }
 }
 // Protected from registerWindowGlobals' own reset-to-baseline sweep below: these two
 // are bootstrap-level helpers, not per-window state, and must survive every

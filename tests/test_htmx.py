@@ -29,15 +29,8 @@ _SKIP = {
 # eval_async call and never produce a result to filter.
 _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
     "hx-swap": {
-        ("hx-swap modifiers", "swap with scroll:bottom modifier scrolls to bottom"),
         # scroll position is always 0 in a headless DOM
-    },
-    "hx-sse": {
-        ("hx-sse SSE extension", "reconnectMaxAttempts configuration works"),
-        ("hx-sse SSE extension", "reconnectMaxDelay configuration caps backoff"),
-        # fixme: investigate new setup -- fails even unscaled/real-time, not a timer-scaling
-        # issue like the other two reconnect tests in this file; possibly a vendor hx-sse.js
-        # reconnect-counting bug, not yet root-caused.
+        ("hx-swap modifiers", "swap with scroll:bottom modifier scrolls to bottom"),
     },
 }
 
@@ -60,12 +53,6 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
     },
     "hx-ws": {
         ("Deep Review Fixes", "cleans up expired pending requests on message receive"),
-    },
-    "hx-sse": {
-        ("hx-sse SSE extension", "reconnectMaxAttempts configuration works"),
-        ("hx-sse SSE extension", "reconnectMaxDelay configuration caps backoff"),
-        ("hx-sse SSE extension", "reconnectJitter randomizes reconnect delays"),
-        ("hx-sse SSE extension", "reconnects after waitUntil rejects"),
     },
     "morph": {
         ("htmx processing during morph", "processes new htmx attributes added during innerMorph"),
