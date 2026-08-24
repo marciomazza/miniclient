@@ -23,7 +23,9 @@ globalThis.__zzz_finish_load = function () {
         );
     return Promise.all(pending)
         .then(() => {
-            document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true, cancelable: false }));
+            document.dispatchEvent(
+                new Event("DOMContentLoaded", { bubbles: true, cancelable: false }),
+            );
         })
         .then(
             () =>

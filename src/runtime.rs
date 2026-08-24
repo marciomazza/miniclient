@@ -27,6 +27,10 @@ pub(crate) fn lifecycle_lock() -> MutexGuard<'static, ()> {
 
 /// Initializes V8 once per process, before any isolate exists. Snapshot builders must call
 /// this too -- their isolates are bound by the same rule.
+// No test guards a regression here -- reverting to new_default_platform reproduces
+// deno_core#952 only as a heisenbug needing hundreds of cycles under real mixed JS load; 3050
+// raw construct/close cycles in a probe never caught it. Upgrade path: an upstream deno_core
+// fix, or a CI-nightly stress job if this ever regresses.
 pub fn init_platform() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
