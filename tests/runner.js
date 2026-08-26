@@ -1,4 +1,4 @@
-// Minimal mocha-compatible test runner for jsrun
+// Minimal mocha-compatible test runner
 (function () {
     const _suites = [];
     let _cur = null;

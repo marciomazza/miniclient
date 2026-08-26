@@ -6,7 +6,7 @@ icon: lucide/layers
 
 ## Comparison to other tools
 
-Browser automation tools — [Playwright](https://playwright.dev/), [Selenium](https://www.selenium.dev/), [Puppeteer](https://pptr.dev/) — drive a real browser (Chromium, Firefox, WebKit) over a devtools/wire protocol: real rendering, real JS engine, maximum fidelity, but you pay for browser process startup, IPC round-trips, and often GPU/rendering work your test might not need. This project instead runs actual JavaScript code against a real DOM implementation ([happy-dom](https://happy-dom.dev/)) inside an embedded V8 isolate, in-process — no browser process, no protocol, no rendering. That makes the common case (assert a request/DOM-swap/event loop happened correctly) dramatically faster, at the cost of not being a full browser: no layout/paint, no CSS cascade beyond what happy-dom implements, and behavior can diverge anywhere happy-dom or this project's polyfills differ from a real engine (see *Known limitations*).
+Browser automation tools — [Playwright](https://playwright.dev/), [Selenium](https://www.selenium.dev/), [Puppeteer](https://pptr.dev/) — drive a real browser (Chromium, Firefox, WebKit) over a devtools/wire protocol: real rendering, real JS engine, maximum fidelity, but you pay for browser process startup, IPC round-trips, and often GPU/rendering work your test might not need. This project instead runs actual JavaScript code against a real DOM implementation ([happy-dom](https://happy-dom.dev/)) inside an embedded V8 isolate, in-process — no browser process, no protocol, no rendering. That makes the common case (assert a request/DOM-swap/event loop happened correctly) dramatically faster, at the cost of not being a full browser: no layout/paint, no CSS cascade beyond what happy-dom implements, and behavior can diverge anywhere happy-dom or this project's polyfills differ from a real engine (see _Known limitations_).
 
 ## How this was made
 
@@ -32,10 +32,10 @@ Hypothesis drives stateful fuzzing that goes further than any hand-written tests
 ## Known limitations
 
 **No real Node.js.** The JavaScript code runs inside a V8 Isolate, not Node.
-There's no node_modules resolution, no require(), and no *package.json* lookup — only ESM import against a closed allowlist of pre-vendored packages; anything else fails to resolve. In practice this means arbitrary npm packages that depend on the Node APIs won't run as-is.
+There's no node_modules resolution, no require(), and no _package.json_ lookup — only ESM import against a closed allowlist of pre-vendored packages; anything else fails to resolve. In practice this means arbitrary npm packages that depend on the Node APIs won't run as-is.
 
-But notice that *happy-dom* itself is a Node package and depends on many parts of the Node API.
-It works because [*jsrun* module system](https://imfing.github.io/jsrun/guides/modules) allows us to map `node:*` specifiers to *polyfills* (that we made) covering the Node API surface that it touches.
+But notice that _happy-dom_ itself is a Node package and depends on many parts of the Node API.
+It works because this project's esbuild polyfill resolver (`build-happydom-bundle.mjs`) maps `node:*` specifiers to _polyfills_ (that we made) covering the Node API surface that it touches, baking the result into the V8 snapshot at build time.
 Follow the same approach — a resolver plus hand-written polyfills — for any other Node-dependent package you need to run.
 
 A [Vite](https://vite.dev/) production bundle sidesteps this almost entirely: bundling resolves the whole import graph at build time, so nothing needs runtime `require()` or bare-specifier resolution — a standard browser-targeted build just works. The exception is Node-targeted output (SSR, `target: 'node'`) that still calls real `fs`/`child_process`/`os` at runtime — bundling flattens imports, not the runtime APIs, so that code hits the same missing-Node-API wall as unbundled code.
@@ -47,4 +47,5 @@ you're testing your own pages or trusted fixtures, this doesn't matter. If you'd
 project at page content from an untrusted or adversarial source, treat it the same as running any
 other JS engine without that protection, and don't rely on it as a security boundary.
 
-**One window per runtime.** A jsrun `Runtime` wraps a single `deno_core::JsRuntime` with one V8 `globalThis`, so there's no true per-window isolation — this only matters if the project ever needs to support multiple simultaneous `Window` instances inside one `Runtime`, which isn't possible today. Globals persist across navigations rather than resetting per-page as in a real browser. This is usually acceptable for a test scenario but is important to keep in mind.
+**One window per runtime.** This project's own `Runtime` wraps a single `deno_core::JsRuntime` with one V8 `globalThis`, so there's no true per-window isolation — this only matters if the project ever needs to support multiple simultaneous `Window` instances inside one `Runtime`, which isn't possible today. Globals persist across navigations rather than resetting per-page as in a real browser. This is usually acceptable for a test scenario but is important to keep in mind.
+Especially if you happen to reuse the same runtime for many tests, be mindful of that.

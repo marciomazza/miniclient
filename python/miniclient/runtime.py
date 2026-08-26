@@ -43,7 +43,7 @@ def _happydom_bundle_source_list() -> list[Path]:
 
 
 def _happydom_bundle_update() -> None:
-    # flock is not a cross-platform lock lib -- fine since jsrun/deno_core is Linux/mac-only anyway.
+    # flock is not a cross-platform lock lib -- fine since this runtime is Linux/mac-only anyway.
     # Guards against parallel test workers racing esbuild onto the same outfile
     # (truncated/partial reads).
     _HAPPYDOM_BUNDLE.parent.mkdir(parents=True, exist_ok=True)
@@ -175,8 +175,8 @@ def _make_fetch_op(
     # (including a pending before_fetch() gate) instead of just discarding
     # the eventual result.
     pending: dict[str, asyncio.Task] = {}
-    # __host_fetch_abort is a sync-bound op, invoked from jsrun's own runtime
-    # thread rather than this event loop's thread -- Task.cancel() isn't
+    # __host_fetch_abort is a sync-bound op, invoked from this runtime's own
+    # dedicated thread rather than this event loop's thread -- Task.cancel() isn't
     # thread-safe, so it must be scheduled back onto the loop that owns it.
     loop = asyncio.get_running_loop()
 
@@ -209,7 +209,7 @@ def _make_fetch_op(
             return await task
         except asyncio.CancelledError:
             # Convert rather than re-raise: a bare CancelledError escaping this
-            # coroutine would mark the *outer* task (the one jsrun/pyo3 is
+            # coroutine would mark the *outer* task (the one pyo3-async-runtimes is
             # awaiting to resolve the JS promise) as cancelled too, since we
             # only meant to cancel our own child task above.
             raise RuntimeError("fetch aborted") from None
@@ -224,8 +224,8 @@ def _make_fetch_op(
 
 
 def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractEventLoop):
-    # jsrun calls sync-bound functions from its own OS thread, never the loop's
-    # thread, so blocking here on a coroutine scheduled onto the loop is safe.
+    # This runtime calls sync-bound functions from its own OS thread, never the
+    # loop's thread, so blocking here on a coroutine scheduled onto the loop is safe.
     def _fetch_sync_op_impl(req: dict) -> dict:
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None

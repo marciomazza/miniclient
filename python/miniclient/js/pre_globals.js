@@ -26,12 +26,13 @@
         getEntriesByName: () => [],
     };
 
-    // ponytail: Math.random()-backed, not cryptographically secure -- fine here since
-    // jsrun has no native CSPRNG and this runtime only ever drives test/dev DOM code.
+    // TODO: add deno_crypto as a dependency and drop this polyfill.
+    // Math.random()-backed, not cryptographically secure -- fine here since
+    // this runtime has no native CSPRNG and only ever drives test/dev DOM code.
     // Must exist before happy-dom is imported: its BrowserWindow does
     // `import { webcrypto } from 'crypto'; crypto = webcrypto`, which resolves through
     // node-crypto.js's `globalThis.crypto` forwarding -- upgrade to a real RNG binding
-    // in jsrun if this is ever used somewhere security-sensitive.
+    // in this runtime if this is ever used somewhere security-sensitive.
     globalThis.crypto ??= {
         getRandomValues(arr) {
             for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() * 256) | 0;
@@ -162,18 +163,6 @@
         isBuffer: () => false,
         alloc: (n) => new Uint8Array(n),
         concat: () => new Uint8Array(),
-    };
-
-    // crypto: neither happy-dom nor this jsrun embedding provides it. Polyfill
-    // randomUUID with Math.random — not cryptographically secure, fine for a
-    // test/dev runtime where nothing depends on unpredictability.
-    globalThis.crypto ??= {
-        randomUUID() {
-            return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-                const r = (Math.random() * 16) | 0;
-                return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-            });
-        },
     };
 
     globalThis.CSS = {

@@ -13,7 +13,8 @@ Rules:
 - IF graphify-out/wiki/index.md exists, navigate it instead of reading raw files
 - For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
-- If `graphify-out-deps/graph.json` exists (not guaranteed in every checkout), it's a separate graph of external deps (happy-dom, jsrun, vendored htmx tests). For questions about their internals, add `--graph graphify-out-deps/graph.json` to `query`/`explain`/`path`. Report: `graphify-out-deps/GRAPH_REPORT.md`.
+- If `graphify-out-deps/graph.json` exists (not guaranteed in every checkout), it's a separate graph of external deps (happy-dom, vendored htmx tests).
+  For questions about their internals, add `--graph graphify-out-deps/graph.json` to `query`/`explain`/`path`. Report: `graphify-out-deps/GRAPH_REPORT.md`.
 
 ## vendor/htmx
 
@@ -27,17 +28,17 @@ Vendored upstream code, untracked. Treat as read-only:
 
 ## Runtime stack
 
-- **jsrun** (V8 via deno_core + PyO3 bindings) is the JavaScript runtime. It is NOT Node.js and NOT QuickJS.
-- **happy-dom** runs INSIDE jsrun, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, etc.).
-- **htmx** runs inside the same jsrun context, initialized after happy-dom's `Window` is set up. It uses the polyfilled `fetch` and timers. `fetch` is done via `httpx`
-- The Python `Page` class in `python/miniclient/page.py` wraps a jsrun `Runtime`, mirroring happy-dom's own `Browser.newPage()` result — one window/document/frame, no tabs.
+- A JavaScript runtime provide by deno_core. It is NOT Node.js and NOT QuickJS.
+- **happy-dom** runs INSIDE that runtime, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, etc.).
+- **htmx** runs inside the same context, initialized after happy-dom's `Window` is set up. It uses the polyfilled `fetch` and timers. `fetch` is done via `httpx`
+- The Python `Page` class in `python/miniclient/page.py` wraps a `Runtime`, mirroring happy-dom's own `Browser.newPage()` result — one window/document/frame, no tabs.
 
 More details about htmx:
 @vendor/htmx/src/skills/htmx-guidance.md
 
 ## DOM interaction
 
-All DOM interaction (click, submit, dispatchEvent, query selectors, etc.) is done by evaluating JavaScript inside the jsrun runtime via `runtime.eval()` / `runtime.eval_async()`. There is no direct Python API to happy-dom or htmx objects — they live inside the V8 isolate.
+All DOM interaction (click, submit, dispatchEvent, query selectors, etc.) is done by evaluating JavaScript inside the runtime via `runtime.eval()` / `runtime.eval_async()`. There is no direct Python API to happy-dom or htmx objects — they live inside the V8 isolate.
 
 When adding DOM interaction methods, implement them in Python using `runtime.eval()` / `runtime.eval_async()` to execute JS against the happy-dom `document` already initialized in `bootstrap.js`.
 

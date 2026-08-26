@@ -342,13 +342,13 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 
 # --- Synchronous facade ---
 #
-# jsrun's Runtime must be created, called, and garbage-collected on the same
+# Runtime must be created, called, and garbage-collected on the same
 # thread. Page satisfies this by creating its own persistent event loop
 # on the caller's own thread (never a separate thread) and driving every
 # async-facing call through `loop.run_until_complete()`; plain reads (find,
 # eval, attr, ...) call straight through with no loop involved at all, since
 # they're already synchronous. Because everything -- creation, calls, and
-# eventual GC -- happens on that one thread, jsrun's cross-thread panic can't
+# eventual GC -- happens on that one thread, Runtime's cross-thread panic can't
 # occur here regardless of what a caller does with a returned Element.
 #
 # This only works if the caller's thread has no event loop of its own

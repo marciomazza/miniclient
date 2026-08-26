@@ -1,9 +1,9 @@
 // Bundles happy-dom + our patch-happy-dom.js into one classic (non-ESM) script so its
 // ~500-file module graph can be baked into the V8 snapshot instead of being re-parsed by
-// jsrun's async module loader on every Runtime() startup (measured ~100ms of a ~110ms
+// an async module loader on every Runtime() startup (measured ~100ms of a ~110ms
 // open_runtime() call). Node builtin imports (url, buffer, stream, ...) are redirected to
-// this project's own jsrun polyfills instead of esbuild's Node shims, so the bundle stays
-// consistent with what jsrun provides at runtime for everything else.
+// this project's own polyfills instead of esbuild's Node shims, so the bundle stays
+// consistent with what's provided elsewhere at runtime.
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 
@@ -37,7 +37,7 @@ const NPM_POLYFILL_FILES = {
 
 function polyfillResolverPlugin() {
   return {
-    name: "jsrun-polyfills",
+    name: "node-polyfills",
     setup(pluginBuild) {
       pluginBuild.onResolve({ filter: /^(node:)?[\w./-]+$/ }, (args) => {
         const bare = args.path.replace(/^node:/, "");

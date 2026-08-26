@@ -43,7 +43,7 @@ globalThis.__zzz_finish_load = function () {
 
 // beforeContentCallback fires after goto() constructs the new Window but before it
 // writes content (and runs that content's <script> tags) into it — registering here
-// rather than after goto() resolves matters because jsrun has one real global object:
+// rather than after goto() resolves matters because this runtime has one real global object:
 // a page's own scripts write to whatever globalThis is at the time they run, so
 // globalThis must already mirror the new window before those scripts execute, or
 // their writes (e.g. htmx.js's `globalThis.htmx = ...`) end up on the old window's

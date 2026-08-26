@@ -17,16 +17,16 @@ const {
 } = globalThis.__happyDomBundle;
 
 // Reassert node-stream-web.js's spec-compliant ReadableStream/WritableStream/
-// TransformStream onto globalThis: jsrun's own runtime installs its own (admittedly
-// minimal) ReadableStream fallback once a real Runtime starts, which is after the bundle
-// above was baked into the snapshot, so it can otherwise still win.
+// TransformStream onto globalThis: V8's own native (admittedly minimal) ReadableStream
+// stands once a real Runtime starts, which is after the bundle above was baked into the
+// snapshot, so it can otherwise still win.
 __refreshStreamGlobals();
 
 // Snapshot the global names that already exist before Window is constructed: native
-// jsrun/V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
+// V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
 // polyfills baked into the v8_snapshot (FormData, CSS, setTimeout/setInterval, console,
 // atob/btoa, ...). Window provides its own same-named versions of several of these
-// (e.g. FormData, setTimeout) that are worse fits for jsrun; the registration step
+// (e.g. FormData, setTimeout) that are worse fits for this runtime; the registration step
 // below must not let its blanket copy overwrite something that was already there.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
