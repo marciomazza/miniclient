@@ -342,20 +342,17 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 
 # --- Synchronous facade ---
 #
-# Runtime must be created, called, and garbage-collected on the same
-# thread. Page satisfies this by creating its own persistent event loop
-# on the caller's own thread (never a separate thread) and driving every
-# async-facing call through `loop.run_until_complete()`; plain reads (find,
-# eval, attr, ...) call straight through with no loop involved at all, since
-# they're already synchronous. Because everything -- creation, calls, and
-# eventual GC -- happens on that one thread, Runtime's cross-thread panic can't
-# occur here regardless of what a caller does with a returned Element.
+# Page needs *a* loop to drive Runtime's async-facing calls (eval_async,
+# fill, click, ...) through `loop.run_until_complete()`. It uses a private
+# event loop on the caller's own thread rather than spinning up a separate
+# thread, purely because asyncio can't nest `run_until_complete` on a thread
+# that already has a running loop -- Page.__init__ checks for that and raises
+# up front instead of letting the violation surface later as a cryptic
+# RuntimeError. Async callers should use AsyncPage instead.
 #
-# This only works if the caller's thread has no event loop of its own
-# already running (asyncio can't nest run_until_complete on one thread) --
-# Page.__init__ checks for that and raises up front rather than let a
-# violation surface later as a cryptic RuntimeError. Async callers should use
-# AsyncPage instead.
+# Runtime itself has no thread affinity: it owns a dedicated OS thread
+# internally and every call crosses to it over a channel, so this has
+# nothing to do with which thread drives the loop above.
 
 # Element construction needs to know which loop drives its Runtime; looked
 # up explicitly by Runtime identity since it's not otherwise passed through
