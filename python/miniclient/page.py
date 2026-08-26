@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import weakref
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Self, TypeVar, cast
@@ -354,13 +353,6 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 # internally and every call crosses to it over a channel, so this has
 # nothing to do with which thread drives the loop above.
 
-# Element construction needs to know which loop drives its Runtime; looked
-# up explicitly by Runtime identity since it's not otherwise passed through
-# the shared _FindMixin._make_element() construction path.
-_loop_by_runtime: weakref.WeakKeyDictionary[Runtime, asyncio.AbstractEventLoop] = (
-    weakref.WeakKeyDictionary()
-)
-
 
 class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     """Sync-facade element: `AsyncElementBase` + find()/find_all() that
@@ -375,7 +367,9 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
         runtime: Runtime,
     ) -> None:
         super().__init__(handle, runtime)
-        self._loop = _loop_by_runtime[runtime]
+        # Set once in Page.__init__; not otherwise passed through the shared
+        # _FindMixin._make_element() construction path.
+        self._loop = runtime._loop
 
     def click(self) -> None:  # type: ignore[override]
         """Dispatch a click MouseEvent and wait for the page to settle."""
@@ -445,7 +439,7 @@ class Page:
         )
         self._async._element_cls = Element
         self._loop.run_until_complete(self._async._build())
-        _loop_by_runtime[self._async.runtime] = self._loop
+        self._async.runtime._loop = self._loop
 
     def eval(self, code: str) -> object:
         """Evaluate arbitrary JavaScript and return the result."""

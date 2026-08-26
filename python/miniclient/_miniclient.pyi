@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 class JavaScriptError(Exception):
@@ -6,6 +7,9 @@ class JavaScriptError(Exception):
     stack: str | None
 
 class Runtime:
+    # Not set by Rust; page.py's sync Page stashes its driving loop here for Element to read.
+    _loop: asyncio.AbstractEventLoop
+
     def __init__(self, snapshot: bytes, url: str, virtual_servers_json: str = "[]") -> None: ...
     def eval(self, source: str) -> Any: ...
     async def eval_async(self, source: str) -> Any: ...
