@@ -1,8 +1,6 @@
-import subprocess
-import sys
+import gc
 from collections.abc import Iterator
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 from conftest import HTMX_SCRIPT_TAG, HTMX_VIRTUAL_SERVER
@@ -43,7 +41,7 @@ def htmx_page() -> Iterator[Page]:
 # JS-generation correctness (query selectors, attribute handling, htmx
 # settle logic, ...) is already covered exhaustively by test_page_async.py /
 # test_htmx_integration.py against AsyncPage. These only check that going
-# through the sync facade's background-thread bridge doesn't change the
+# through the sync facade's run_until_complete bridge doesn't change the
 # result — so one broad test per bridge "shape" (plain queries/mutations,
 # htmx interactions) rather than one test per method.
 # ---------------------------------------------------------------------------
@@ -136,63 +134,37 @@ def test_page_virtual_servers(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Page GC / cross-thread lifecycle (regression)
+# Page GC lifecycle (regression)
 #
-# jsrun's Runtime panics (Rust-level) if it is ever garbage-collected on a
-# thread other than the one that created it. Page.close() defuses this,
-# but the defusing only works if it actually runs and actually reaches every
-# live reference — these are process-level regression tests (the panic is a
-# GC/interpreter-shutdown phenomenon, not observable reliably as a plain
-# exception inside the pytest process itself), run in a subprocess so a
-# regression can't corrupt the test runner.
+# Runtime has no thread affinity (it owns its own dedicated OS thread and
+# dispatches over a channel — see src/runtime.rs), and close() is idempotent,
+# so dropping it from anywhere is safe by construction. These guard that a
+# Page/Element still held past close(), or never closed at all, tears down
+# silently instead of raising.
 # ---------------------------------------------------------------------------
 
 
-def _run_script(tmp_path: Path, name: str, body: str) -> subprocess.CompletedProcess[str]:
-    script = tmp_path / name
-    script.write_text(body)
-    return subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=30)
+def test_gc_regression_held_element() -> None:
+    # Element/FormElement kept alive past Page.close() must not raise when
+    # it's eventually garbage collected.
+    with Page() as b:
+        b.load("<button id='x'>hi</button>")
+        el = b.find("#x")
+        assert el is not None
+    del el
+    gc.collect()
 
 
-@pytest.mark.parametrize(
-    "name,body",
-    [
-        (
-            # Element/FormElement kept alive past Page.close() must not
-            # crash when it's eventually garbage collected, even at
-            # interpreter shutdown.
-            "held_element.py",
-            dedent("""\
-                from miniclient.page import Page
-                with Page() as b:
-                    b.load("<button id='x'>hi</button>")
-                    el = b.find('#x')
-                    assert el is not None
-                print('done')
-            """),
-        ),
-        (
-            # A Page that is never explicitly closed must still clean up
-            # silently via __del__ when it's dropped or the process exits.
-            "never_closed.py",
-            dedent("""\
-                from miniclient.page import Page
-                b = Page()
-                b.load("<button id='x'>hi</button>")
-                el = b.find('#x')
-                el.click()
-                b = None
-                el = None
-                print('done')
-            """),
-        ),
-    ],
-)
-def test_gc_panic_regression(tmp_path: Path, name: str, body: str) -> None:
-    result = _run_script(tmp_path, name, body)
-    assert result.returncode == 0
-    assert result.stdout.strip() == "done"
-    assert result.stderr == ""
+def test_gc_regression_never_closed() -> None:
+    # A Page that is never explicitly closed must still clean up silently
+    # via __del__ when it's dropped.
+    b = Page()
+    b.load("<button id='x'>hi</button>")
+    el = b.find("#x")
+    assert el is not None
+    el.click()
+    del b, el
+    gc.collect()
 
 
 async def test_page_rejects_running_event_loop() -> None:
