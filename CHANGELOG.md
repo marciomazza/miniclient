@@ -4,6 +4,47 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- The JavaScript runtime is now a Rust extension compiled into the wheel, built directly on
+  `deno_core` — the external `jsrun` dependency is gone. Timers (`setTimeout`/`setInterval`/…)
+  are reimplemented on tokio, filesystem reads are native Rust ops instead of Python callbacks
+  (`fetch` still goes through Python), and the console is deno_web's circular-safe inspector.
+  The V8 snapshot is now built and cached by us, with a DOM warmup pass (mutation + event
+  dispatch pre-exercised).
+- The package now lives in `python/miniclient/` and is built with **maturin** instead of
+  hatchling. Linux wheels build on `manylinux_2_28`; CI and release pin Node 24.
+- happy-dom pinned to 20.11.8.
+- `Page.eval()`/`eval_async()` now run in their own strict-mode scope with `this` bound to
+  `globalThis`, so `var`/function declarations no longer leak between evals. The result is
+  still the completion value of the last statement.
+
+### Added
+
+- `AsyncPage.eval()`/`eval_async()` and `Element.eval()`/`AsyncElement.eval_async()` are now
+  public, instead of reaching through `.runtime` or the private `Element._eval`. `Element.eval`
+  binds `this` to the element.
+- `Runtime.eval()`/`eval_async()` with a strict JSON-only value contract, raising
+  `JavaScriptError` on JS-side errors.
+- `Runtime.register_function()` to expose a Python callable to JS, with name and callable
+  safety checks (rejects `__proto__`, async callables, async generators, …).
+
+### Fixed
+
+- Response headers were silently dropped on every `fetch()`.
+- Reentrant `eval`/`eval_async` could deadlock the isolate command loop.
+- Pending self-init timers were not flushed after page load/navigation.
+- Worked around a `deno_core` pkey/threading segfault
+  ([denoland/deno_core#952](https://github.com/denoland/deno_core/issues/952)): V8 Memory
+  Protection Keys are disabled process-wide, and a lifecycle mutex serializes isolate
+  construction and teardown so they never overlap.
+- Worked around a snapshot-corruption crash from combining `Deno.core.loadExtScript()` with
+  deno_core's warmup pass, by running warmup in a single pass.
+- happy-dom: `hidden` is now reflected as an enumerated attribute; `insertAdjacentHTML` gets a
+  proper parsing context.
+
 ## [0.1.3]
 
 ### Changed
