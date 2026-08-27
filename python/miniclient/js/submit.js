@@ -28,9 +28,7 @@ globalThis.__zzz_finish_load = function () {
     const hasDeferredScripts = [...document.querySelectorAll("script[src]")].some(
         (script) => script.type === "module" || script.defer,
     );
-    const ready = hasDeferredScripts
-        ? window.happyDOM.waitUntilComplete()
-        : Promise.resolve();
+    const ready = hasDeferredScripts ? window.happyDOM.waitUntilComplete() : Promise.resolve();
     return ready
         .then(() => {
             document.dispatchEvent(
