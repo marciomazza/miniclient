@@ -1,7 +1,7 @@
 {
   "name": "miniclient",
   "dependencies": {
-    "happy-dom": "^20.11.2",
+    "happy-dom": "20.11.8",
     "text-encoding": "^0.7.0",
     "web-streams-polyfill": "^4.3.0",
     "xpath": "^0.0.34"
