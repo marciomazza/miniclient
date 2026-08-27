@@ -12,6 +12,7 @@ version.
 
 To release `0.1.4`:
 
+1. Run the full test suite and `prek -a`; both must pass clean before anything else
 1. `Cargo.toml`: `0.1.4-dev` → `0.1.4`, then `cargo update -p miniclient` to sync `Cargo.lock`
 1. `CHANGELOG.md`: rename `## [Unreleased]` → `## [0.1.4]` — it becomes the GitHub release notes
 1. Commit (version bump + changelog in the same commit — the tag-match guard checks the tagged
