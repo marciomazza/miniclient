@@ -478,3 +478,22 @@ async def test_page_load_fires_dom_content_loaded_after_module_script(tmp_path: 
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
     assert b.runtime.eval("window.__dclFired") is True
+
+
+async def test_page_goto_page_with_external_module_script(
+    tmp_path: Path, httpx_mock: HTTPXMock
+) -> None:
+    """goto() a real page whose HTML links an external module script.
+
+    Regression: the script's own `load` event fires *during* navigation, before
+    __zzz_finish_load() runs, so waiting on that event there hung forever (30s
+    happy-dom navigation timeout -> "Promise resolution is still pending").
+    """
+    (tmp_path / "entry.js").write_text("window.__ran = 1;")
+    httpx_mock.add_response(
+        url="http://localhost/",
+        html='<script type="module" src="http://localhost/ext/entry.js"></script>',
+    )
+    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    await b.goto("http://localhost/")
+    assert b.runtime.eval("window.__ran") == 1

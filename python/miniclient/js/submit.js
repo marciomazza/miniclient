@@ -12,16 +12,26 @@ globalThis.__zzz_finish_load = function () {
     if (typeof htmx !== "undefined") {
         htmx.process(document.body);
     }
-    const pending = [...document.querySelectorAll("script[src]")]
-        .filter((script) => script.type === "module" || script.defer)
-        .map(
-            (script) =>
-                new Promise((resolve) => {
-                    script.addEventListener("load", resolve, { once: true });
-                    script.addEventListener("error", resolve, { once: true });
-                }),
-        );
-    return Promise.all(pending)
+    // `defer`/`type=module` scripts delay DOMContentLoaded (plain `async` ones
+    // don't). They finish asynchronously through happy-dom's own fetch/eval
+    // tasks, which waitUntilComplete() drains. We can't instead wait on each
+    // script's own `load`/`error` event: with this runtime, that event routinely
+    // fires *during* navigation, before this function runs, and happy-dom exposes
+    // no already-settled flag to test against -- so a plain addEventListener()
+    // here would block forever on an event that already fired.
+    //
+    // TODO: waitUntilComplete() also blocks on a slow `<script async>`'s fetch,
+    // which per spec shouldn't delay DOMContentLoaded. If that strict fidelity
+    // ever matters, wait per-script instead with
+    // `Promise.race([<load/error listener>, window.happyDOM.waitUntilComplete()])`
+    // -- more code for a payoff that's dubious in this harness.
+    const hasDeferredScripts = [...document.querySelectorAll("script[src]")].some(
+        (script) => script.type === "module" || script.defer,
+    );
+    const ready = hasDeferredScripts
+        ? window.happyDOM.waitUntilComplete()
+        : Promise.resolve();
+    return ready
         .then(() => {
             document.dispatchEvent(
                 new Event("DOMContentLoaded", { bubbles: true, cancelable: false }),

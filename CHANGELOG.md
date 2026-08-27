@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `goto()` hung for 30s on any page linking an external `<script type="module">` or
+  `<script defer src>`: `__zzz_finish_load()` waited on the script's `load` event, which now
+  fires *during* navigation, before the listener is attached. It drains the scripts' in-flight
+  tasks via `window.happyDOM.waitUntilComplete()` instead.
 - The default V8 snapshot is now built at compile time and embedded in the extension, instead
   of being assembled on first use. An installed wheel previously called `create_snapshot` at
   runtime, which made `deno_core` read `deno_web`'s ESM sources from the build machine's Cargo
