@@ -36,6 +36,11 @@ pub(crate) fn lifecycle_lock() -> MutexGuard<'static, ()> {
 pub fn init_platform() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
+        // Opt-in V8 tuning/profiling, e.g. MINICLIENT_V8_FLAGS="--prof". Must land before
+        // v8::Initialize(), which the platform init below triggers.
+        if let Ok(flags) = std::env::var("MINICLIENT_V8_FLAGS") {
+            v8::V8::set_flags_from_string(&flags);
+        }
         // Memory Protection Keys (pkeys) are a CPU feature V8's default platform uses to
         // write-protect its own heap; it demands every V8-touching thread descend from the
         // one that called v8::Initialize(). Each Runtime owns a thread spawned from whichever
