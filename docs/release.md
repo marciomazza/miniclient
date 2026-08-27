@@ -12,10 +12,11 @@ version.
 
 To release `0.1.4`:
 
-1. `Cargo.toml`: `0.1.4-dev` → `0.1.4`
-1. `CHANGELOG.md`: add the `## [0.1.4]` section — it becomes the GitHub release notes
-1. Commit, tag `v0.1.4`, push the tag
-1. `Cargo.toml`: `0.1.4` → `0.1.5-dev`
+1. `Cargo.toml`: `0.1.4-dev` → `0.1.4`, then `cargo update -p miniclient` to sync `Cargo.lock`
+1. `CHANGELOG.md`: rename `## [Unreleased]` → `## [0.1.4]` — it becomes the GitHub release notes
+1. Commit (version bump + changelog in the same commit — the tag-match guard checks the tagged
+   commit), tag `v0.1.4`, push the tag
+1. `Cargo.toml`: `0.1.4` → `0.1.5-dev`, then `cargo update -p miniclient` again
 
 CI builds wheels for Linux x86_64 and macOS arm64 only — every extra platform costs ~18 MB of
 PyPI's 10 GB project quota per release. It refuses to publish unless the tag matches
