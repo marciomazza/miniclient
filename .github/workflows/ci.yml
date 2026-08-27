@@ -16,6 +16,10 @@ jobs:
           enable-cache: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Bust the old cache: it stored v8 as "built" but without librusty_v8.a,
+          # so linking failed. Bump this suffix again if it re-poisons.
+          key: v2-lint
       - run: uv sync
       - run: uv run prek run --all-files
 
