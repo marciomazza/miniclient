@@ -184,7 +184,14 @@ async def test_element_eval_returns_completion_value_of_last_statement(page: Asy
     await page.load("<div id='d'></div>")
     el = page.find("#d")
     assert el is not None
-    assert el._eval("1; 2; 3") == 3
+    assert el.eval("1; 2; 3") == 3
+
+
+async def test_element_eval_async_awaits_a_promise(page: AsyncPage) -> None:
+    await page.load("<div id='d'></div>")
+    el = page.find("#d")
+    assert el is not None
+    assert await el.eval_async("Promise.resolve(this.id)") == "d"
 
 
 async def test_element_parent(page: AsyncPage) -> None:

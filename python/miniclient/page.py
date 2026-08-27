@@ -71,7 +71,7 @@ class _FindMixin(Generic[_E]):
         # method). Declared here only so find()/find_all() type-check; a real
         # `def` would shadow the sibling's implementation depending on base
         # order, since Python MRO doesn't know one side is "just a stub".
-        def _eval(self, expr: str) -> object: ...
+        def eval(self, code: str) -> object: ...
 
     def _make_element(self, handle: int, tag: str) -> _E:
         """Wrap a matched (handle, tagName) pair in the right Element subclass."""
@@ -84,10 +84,6 @@ class _FindMixin(Generic[_E]):
 
         If text is given, only consider elements whose textContent contains it.
         """
-        # "match"/"matches", not "el": _root_js can itself be "el" (element
-        # scope), and redeclaring `const el` in the same block as that would
-        # shadow it into the temporal dead zone (ReferenceError) before this
-        # code even runs.
         js = f"""
         (() => {{
           const text = {json.dumps(text)};
@@ -97,7 +93,7 @@ class _FindMixin(Generic[_E]):
           return match ? [__zzz_ref(match), match.tagName] : [null, null];
         }})();
         """
-        handle, tag = self._eval(js)  # type: ignore[misc]
+        handle, tag = self.eval(js)  # type: ignore[misc]
         if handle is None:
             return None
         return self._make_element(handle, tag)
@@ -115,7 +111,7 @@ class _FindMixin(Generic[_E]):
                 .map(m => [__zzz_ref(m), m.tagName]);
             }})();
         """
-        return [self._make_element(handle, tag) for handle, tag in self._eval(js)]  # type: ignore[misc]
+        return [self._make_element(handle, tag) for handle, tag in self.eval(js)]  # type: ignore[misc]
 
 
 class AsyncElementBase(Generic[_E]):
@@ -129,7 +125,7 @@ class AsyncElementBase(Generic[_E]):
     as long as the underlying node remains connected to the document.
     """
 
-    _root_js = "el"
+    _root_js = "this"
 
     def __init__(
         self,
@@ -144,26 +140,26 @@ class AsyncElementBase(Generic[_E]):
     @property
     def html(self) -> str:
         """Return outerHTML of the element."""
-        return str(self._eval("el.outerHTML"))
+        return str(self.eval("this.outerHTML"))
 
     @property
     def innerHTML(self) -> str:
         """Return innerHTML of the element."""
-        return str(self._eval("el.innerHTML"))
+        return str(self.eval("this.innerHTML"))
 
     @property
     def text(self) -> str:
         """Return textContent of the element."""
-        return str(self._eval("el.textContent"))
+        return str(self.eval("this.textContent"))
 
     def attr(self, name: str) -> str | None:
         """Return an attribute value, or None if absent."""
-        return self._eval(f"el.getAttribute({json.dumps(name)})")  # type: ignore[return-value]
+        return self.eval(f"this.getAttribute({json.dumps(name)})")  # type: ignore[return-value]
 
     if TYPE_CHECKING:
         # Real implementation always comes from _FindMixin, the sibling this
         # class is combined with in AsyncElement/Element. See the matching
-        # note on _FindMixin._eval for why this isn't a real `def`.
+        # note on _FindMixin.eval for why this isn't a real `def`.
         def _make_element(self, handle: int, tag: str) -> _E: ...
 
     @property
@@ -173,11 +169,11 @@ class AsyncElementBase(Generic[_E]):
         """
         js = """
         (() => {
-          const p = el.parentElement;
+          const p = this.parentElement;
           return p ? [__zzz_ref(p), p.tagName] : [null, null];
         })();
         """
-        handle, tag = self._eval(js)  # type: ignore[misc]
+        handle, tag = self.eval(js)  # type: ignore[misc]
         if handle is None:
             return None
         return self._make_element(handle, tag)
@@ -209,26 +205,36 @@ class AsyncElementBase(Generic[_E]):
 
     # --- Internal ---
 
-    def _eval(self, expr: str) -> object:
-        """Evaluate `expr` with `el` bound to the selected element.
+    def _el_js(self, code: str) -> str:
+        """Wrap `code` so `this` is the element and each call gets a fresh scope.
 
-        `expr` may be one statement or several (`;`-separated);
+        A strict-mode function provides the scope and the `this` binding;
+        the nested direct `eval()` keeps `code`'s completion value as the
+        return value, so callers still don't need an explicit `return`.
+        """
+        return f"""\
+            (function() {{
+              "use strict";
+              if (!this) throw new Error('Element not found (handle {self.handle})');
+              return eval({json.dumps(code.strip())});
+            }}).call(__zzz_deref({self.handle}))"""
+
+    def eval(self, code: str) -> object:
+        """Evaluate JavaScript with `this` bound to this element, returning the result.
+
+        `code` may be one statement or several (`;`-separated);
         the result is the completion value of the last one, same as a normal script.
         """
-        js = f"""\
-            const el = __zzz_deref({self.handle});
-            if (!el) throw new Error('Element not found (handle {self.handle})');
-            {expr.strip()};
-        """
-        # Runs via indirect `eval()` so each call's `const el`
-        # gets its own scope, instead of colliding with earlier calls' `el` in
-        # a shared top-level scope.
-        return self._runtime.eval(f"(0, eval)({json.dumps(js)})")
+        return self._runtime.eval(self._el_js(code))
 
 
 class AsyncElement(_FindMixin["AsyncElement"], AsyncElementBase["AsyncElement"]):
     """Async-facade element: `AsyncElementBase` + find()/find_all() that
     return `AsyncElement`."""
+
+    async def eval_async(self, code: str) -> object:
+        """Like `eval()`, but awaits the result when `code` returns a promise."""
+        return await self._runtime.eval_async(self._el_js(code))
 
 
 class AsyncFormElementBase:
@@ -298,13 +304,18 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
     def __await__(self):
         return self._build().__await__()
 
-    def _eval(self, expr: str) -> object:
-        return self.runtime.eval(expr)
+    def eval(self, code: str) -> object:
+        """Evaluate arbitrary JavaScript and return the result."""
+        return self.runtime.eval(code)
+
+    async def eval_async(self, code: str) -> object:
+        """Evaluate JavaScript, awaiting the result if it is a promise."""
+        return await self.runtime.eval_async(code)
 
     @property
     def url(self) -> str:
         """The current document URL (`location.href`)."""
-        return cast(str, self._eval("location.href"))
+        return cast(str, self.eval("location.href"))
 
     # --- Page operations ---
 
@@ -443,7 +454,7 @@ class Page:
 
     def eval(self, code: str) -> object:
         """Evaluate arbitrary JavaScript and return the result."""
-        return self._async.runtime.eval(code)
+        return self._async.eval(code)
 
     @property
     def url(self) -> str:

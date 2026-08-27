@@ -12,21 +12,24 @@ If the page includes htmx, it runs normally and htmx requests are awaited automa
 
 ## Creating a page
 
-Create a page with a context manager:
+Create a page:
 
 ```python
 from miniclient.page import Page
 
-with Page() as page:
-    ...
+page = Page()
+...
+page.close()
 ```
+
+`Page` can also be used as a context manager (`with Page() as page:`) to close it on exit.
 
 `Page(...)` accepts:
 
 - `httpx_transport` — an `httpx2.AsyncBaseTransport`, useful to test an ASGI/WSGI app in-process
-  with no real HTTP server (see below).
+  without an HTTP server (see below).
 - `mounts` — a `dict[str, Path]` mapping a URL prefix to a local directory, so `<script>` tags can
-  load local files (e.g. htmx itself) without a real server.
+  load local files (e.g. htmx itself or a bundle) without going through an HTTP request.
 
 ### Async
 
@@ -192,16 +195,30 @@ way, through `.click()`.
 
 For anything not covered by `Page` / `Element`, evaluate JavaScript directly.
 
-With sync `Page`, use `eval()` (`Page` doesn't expose a `.runtime` property the way
-`AsyncPage` does — the raw `Runtime` isn't thread-safe, so use this method instead):
+With sync `Page`, use `eval()`:
 
 ```python
-page.eval("document.title")
+title = page.eval("document.title")
 ```
 
-With `AsyncPage`, use `.runtime`, which also supports async evaluation:
+`Element` has its own `eval()`, with `this` bound to that element:
 
 ```python
-page.runtime.eval("document.title")
-await page.runtime.eval_async("fetch('/api/status').then(r => r.json())")
+height = page.find("#panel").eval("this.scrollHeight")
+```
+
+On an `AsyncPage`, elements also have `eval_async()`:
+
+```python
+async with AsyncPage() as page:
+    data = await page.find("#panel").eval_async("this.loadData()")  # this.loadData() returns a promise
+```
+
+`AsyncPage` also has `eval_async()`, which awaits the result when the JavaScript returns a
+promise:
+
+```python
+async with AsyncPage() as page:
+    title = page.eval("document.title")
+    status = await page.eval_async("fetch('/api/status').then(r => r.json())")
 ```
