@@ -50,6 +50,7 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
     },
     "hx-live": {
         ("hx-live extension", "debounce(ms) supersedes prior calls"),
+        ("hx-live extension", "debounce(ms, fn) runs the closure after the delay"),
     },
     "hx-ws": {
         ("Deep Review Fixes", "cleans up expired pending requests on message receive"),
