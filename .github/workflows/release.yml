@@ -29,7 +29,7 @@ jobs:
           python-version: "3.14"
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       # On Linux, maturin-action builds inside the manylinux container, which setup-node above
       # cannot reach -- so build.rs would find no npm there. before-script-linux runs inside it.
       - uses: PyO3/maturin-action@v1
@@ -40,8 +40,8 @@ jobs:
           sccache: true
           before-script-linux: |
             set -eux
-            NODE=node-v22.23.2-linux-x64
-            curl -fsSL "https://nodejs.org/dist/v22.23.2/$NODE.tar.xz" | tar -xJ -C /opt
+            NODE=node-v24.20.0-linux-x64
+            curl -fsSL "https://nodejs.org/dist/v24.20.0/$NODE.tar.xz" | tar -xJ -C /opt
             ln -sf "/opt/$NODE/bin/node" /usr/local/bin/node
             ln -sf "/opt/$NODE/bin/npm" /usr/local/bin/npm
             node --version && npm --version
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - run: npm ci
       - uses: PyO3/maturin-action@v1
         with:

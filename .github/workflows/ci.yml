@@ -16,7 +16,7 @@ jobs:
           enable-cache: true
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -39,7 +39,7 @@ jobs:
           bash scripts/setup-vendor-htmx.sh
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
