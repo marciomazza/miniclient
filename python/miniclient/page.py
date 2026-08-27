@@ -55,6 +55,23 @@ def _dispatch_js(handle: int, event: str, event_init: dict | None, js: str = "")
         }});"""
 
 
+def _scoped_js(code: str, this_js: str, guard: str = "") -> str:
+    """Wrap `code` in a strict-mode function so every eval gets its own scope
+    and an explicit `this` binding.
+
+    Strict mode is what isolates the scope: a direct `eval()` in sloppy mode
+    leaks `var`/function declarations into the caller. The nested `eval()` also
+    keeps `code`'s completion value as the return value, so callers never need
+    an explicit `return`.
+    """
+    return f"""\
+        (function () {{
+          'use strict';
+          {guard};
+          return eval({json.dumps(code.strip())});
+        }}).call({this_js});"""
+
+
 _E = TypeVar("_E", bound="AsyncElementBase", default="AsyncElement")
 
 
@@ -85,13 +102,11 @@ class _FindMixin(Generic[_E]):
         If text is given, only consider elements whose textContent contains it.
         """
         js = f"""
-        (() => {{
-          const text = {json.dumps(text)};
-          const matches = Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}));
-          const match =
-            text === null ? matches[0] : matches.find(m => m.textContent.includes(text));
-          return match ? [__zzz_ref(match), match.tagName] : [null, null];
-        }})();
+            const text = {json.dumps(text)};
+            const matches = Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}));
+            const match =
+              text === null ? matches[0] : matches.find(m => m.textContent.includes(text));
+            match ? [__zzz_ref(match), match.tagName] : [null, null];
         """
         handle, tag = self.eval(js)  # type: ignore[misc]
         if handle is None:
@@ -104,12 +119,10 @@ class _FindMixin(Generic[_E]):
         If text is given, only include elements whose textContent contains it.
         """
         js = f"""\
-            (() => {{
-              const text = {json.dumps(text)};
-              return Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}))
-                .filter(m => text === null || m.textContent.includes(text))
-                .map(m => [__zzz_ref(m), m.tagName]);
-            }})();
+            const text = {json.dumps(text)};
+            Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}))
+              .filter(m => text === null || m.textContent.includes(text))
+              .map(m => [__zzz_ref(m), m.tagName]);
         """
         return [self._make_element(handle, tag) for handle, tag in self.eval(js)]  # type: ignore[misc]
 
@@ -168,10 +181,8 @@ class AsyncElementBase(Generic[_E]):
         it's the root <html> element, or has been removed from the DOM).
         """
         js = """
-        (() => {
-          const p = this.parentElement;
-          return p ? [__zzz_ref(p), p.tagName] : [null, null];
-        })();
+        const p = this.parentElement;
+        p ? [__zzz_ref(p), p.tagName] : [null, null];
         """
         handle, tag = self.eval(js)  # type: ignore[misc]
         if handle is None:
@@ -206,18 +217,9 @@ class AsyncElementBase(Generic[_E]):
     # --- Internal ---
 
     def _el_js(self, code: str) -> str:
-        """Wrap `code` so `this` is the element and each call gets a fresh scope.
-
-        A strict-mode function provides the scope and the `this` binding;
-        the nested direct `eval()` keeps `code`'s completion value as the
-        return value, so callers still don't need an explicit `return`.
-        """
-        return f"""\
-            (function() {{
-              "use strict";
-              if (!this) throw new Error('Element not found (handle {self.handle})');
-              return eval({json.dumps(code.strip())});
-            }}).call(__zzz_deref({self.handle}))"""
+        """Wrap `code` so `this` is the element and each call gets a fresh scope."""
+        guard = f"if (!this) throw new Error('Element not found (handle {self.handle})');"
+        return _scoped_js(code, f"__zzz_deref({self.handle})", guard)
 
     def eval(self, code: str) -> object:
         """Evaluate JavaScript with `this` bound to this element, returning the result.
@@ -305,12 +307,16 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
         return self._build().__await__()
 
     def eval(self, code: str) -> object:
-        """Evaluate arbitrary JavaScript and return the result."""
-        return self.runtime.eval(code)
+        """Evaluate arbitrary JavaScript and return the result.
+
+        `code` runs in its own scope with `this` bound to `globalThis`; the
+        result is the completion value of the last statement, same as a script.
+        """
+        return self.runtime.eval(_scoped_js(code, "globalThis"))
 
     async def eval_async(self, code: str) -> object:
         """Evaluate JavaScript, awaiting the result if it is a promise."""
-        return await self.runtime.eval_async(code)
+        return await self.runtime.eval_async(_scoped_js(code, "globalThis"))
 
     @property
     def url(self) -> str:

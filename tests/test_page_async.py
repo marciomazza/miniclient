@@ -194,6 +194,30 @@ async def test_element_eval_async_awaits_a_promise(page: AsyncPage) -> None:
     assert await el.eval_async("Promise.resolve(this.id)") == "d"
 
 
+async def test_page_eval_returns_completion_value_of_last_statement(page: AsyncPage) -> None:
+    assert page.eval("1; 2; 3") == 3
+    assert await page.eval_async("1; Promise.resolve(3)") == 3
+
+
+@pytest.mark.parametrize("leak_js", ["var x = 1", "let x = 2", "function x() {}"])
+async def test_page_eval_does_not_leak_declarations_into_global_scope(
+    page: AsyncPage, leak_js: str
+) -> None:
+    page.eval(leak_js)
+    assert page.eval("typeof globalThis.x") == "undefined"
+    await page.eval_async(leak_js)
+    assert page.eval("typeof globalThis.x") == "undefined"
+
+
+async def test_page_eval_blocks_implicit_global_assignment(page: AsyncPage) -> None:
+    # strict mode turns an undeclared assignment into a ReferenceError instead
+    # of silently creating a global
+    with pytest.raises(Exception, match="undeclaredGlobal"):
+        page.eval("undeclaredGlobal = 1")
+    with pytest.raises(Exception, match="undeclaredGlobal"):
+        await page.eval_async("undeclaredGlobal = 1")
+
+
 async def test_element_parent(page: AsyncPage) -> None:
     await page.load("<div id='d'><span id='s'>hi</span></div>")
     el = page.find("#s")
