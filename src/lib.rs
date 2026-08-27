@@ -165,17 +165,14 @@ fn v8_version() -> &'static str {
     deno_core::v8::V8::get_version()
 }
 
-/// Serializes `scripts` (ordered `(name, source)` pairs) into a V8 snapshot blob, with
-/// `warmup` run as deno_core's second pass.
+/// Serializes `scripts` (ordered `(name, source)` pairs) into a V8 snapshot blob.
 #[pyfunction]
-#[pyo3(signature = (scripts, warmup=None))]
 fn create_snapshot<'py>(
     py: Python<'py>,
     scripts: Vec<(String, String)>,
-    warmup: Option<String>,
 ) -> PyResult<Bound<'py, PyBytes>> {
     let blob = py
-        .detach(|| snapshot::create_snapshot(scripts, warmup))
+        .detach(|| snapshot::create_snapshot(scripts))
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     Ok(PyBytes::new(py, &blob))
 }
@@ -203,11 +200,8 @@ mod tests {
     fn test_snapshot() -> &'static [u8] {
         static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
         SNAPSHOT.get_or_init(|| {
-            snapshot::create_snapshot(
-                support::production_scripts(),
-                Some(support::warmup_script()),
-            )
-            .expect("failed to build the test snapshot")
+            snapshot::create_snapshot(support::production_scripts())
+                .expect("failed to build the test snapshot")
         })
     }
 

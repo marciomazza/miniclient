@@ -2,19 +2,9 @@ use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_
 
 use crate::runtime::{extensions, init_platform, lifecycle_lock};
 
-/// Runs `scripts` in order (warmup last, if given) into a single isolate and serializes it.
-///
-/// `warmup` is appended as an ordinary script rather than passed to deno_core's own
-/// `warmup_script` parameter: that parameter restores the cold snapshot into a *second*
-/// isolate, runs the script there, and reserializes -- and that restore-then-reserialize
-/// round trip corrupts a snapshot that also used `Deno.core.loadExtScript()` (as
-/// `pre_globals.js` does for the console), reliably segfaulting V8 on the next ordinary
-/// deserialize. See `zz/deno-core-issue-draft-loadextscript-warmup-snapshot-segfault.md` for
-/// the upstream report and minimal repro. Running warmup content in the same single pass
-/// still exercises and precompiles it, without ever triggering that path.
+/// Runs `scripts` in order into a single isolate and serializes it.
 pub fn create_snapshot(
     scripts: Vec<(String, String)>,
-    warmup: Option<String>,
 ) -> Result<Box<[u8]>, deno_core::error::CoreError> {
     init_platform();
     // deno_core is explicit that a process is either snapshotting or not, and V8 in
@@ -24,10 +14,6 @@ pub fn create_snapshot(
     let _lock = lifecycle_lock();
     // Not `Extension::js_files`: those must be 7-bit ASCII, and both text-encoding and the
     // happy-dom bundle are not.
-    let scripts: Vec<_> = scripts
-        .into_iter()
-        .chain(warmup.map(|w| ("warmup".to_string(), w)))
-        .collect();
     let output = deno_create_snapshot(
         CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
@@ -98,11 +84,11 @@ pub(crate) mod support {
                 "happy-dom-bundle".into(),
                 read("python/miniclient/js/_generated/happy-dom-bundle.js"),
             ),
+            (
+                "warmup".into(),
+                read("python/miniclient/js/snapshot_warmup.js"),
+            ),
         ]
-    }
-
-    pub(crate) fn warmup_script() -> String {
-        read("python/miniclient/js/snapshot_warmup.js")
     }
 }
 
@@ -111,7 +97,7 @@ mod tests {
     use deno_core::{JsRuntime, RuntimeOptions};
 
     use super::create_snapshot;
-    use super::support::{production_scripts, v8_test_lock, warmup_script};
+    use super::support::{production_scripts, v8_test_lock};
     use crate::runtime::extensions;
 
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
@@ -130,8 +116,7 @@ mod tests {
     #[test]
     fn production_scripts_and_warmup_produce_a_bootable_snapshot() {
         let _guard = v8_test_lock();
-        let warmup = warmup_script();
-        let blob = create_snapshot(production_scripts(), Some(warmup)).unwrap();
+        let blob = create_snapshot(production_scripts()).unwrap();
         assert_eq!(
             eval_in_snapshot(blob, "[typeof FormData, typeof __happyDomBundle].join()"),
             "function,object"
@@ -144,7 +129,7 @@ mod tests {
         let _guard = v8_test_lock();
         let mut scripts = production_scripts();
         scripts.push(("marker".into(), "globalThis.__marker = 'chai';".into()));
-        let blob = create_snapshot(scripts, Some(warmup_script())).unwrap();
+        let blob = create_snapshot(scripts).unwrap();
         assert_eq!(eval_in_snapshot(blob, "__marker"), "chai");
     }
 }

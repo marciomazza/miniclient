@@ -452,11 +452,8 @@ mod tests {
     fn test_snapshot() -> &'static [u8] {
         static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
         SNAPSHOT.get_or_init(|| {
-            snapshot::create_snapshot(
-                support::production_scripts(),
-                Some(support::warmup_script()),
-            )
-            .expect("failed to build the test snapshot")
+            snapshot::create_snapshot(support::production_scripts())
+                .expect("failed to build the test snapshot")
         })
     }
 

@@ -1,11 +1,7 @@
 import pytest
 
 import miniclient.runtime
-from miniclient.runtime import (
-    _SNAPSHOT_WARMUP,
-    _snapshot_cache_path,
-    get_snapshot_scripts,
-)
+from miniclient.runtime import _snapshot_cache_path, get_snapshot_scripts
 
 # ---------------------------------------------------------------------------
 # Window / document basics
@@ -360,7 +356,7 @@ async def test_clearinterval_stops_firing(runtime):
 
 
 def test_a_new_v8_build_misses_the_cache_instead_of_reusing_it(monkeypatch):
-    args = (get_snapshot_scripts(), _SNAPSHOT_WARMUP.read_text())
-    path = _snapshot_cache_path(*args)
+    scripts = get_snapshot_scripts()
+    path = _snapshot_cache_path(scripts)
     monkeypatch.setattr(miniclient.runtime, "v8_version", lambda: "99.0.0.0-rusty")
-    assert _snapshot_cache_path(*args) != path
+    assert _snapshot_cache_path(scripts) != path

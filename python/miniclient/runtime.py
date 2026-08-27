@@ -73,7 +73,8 @@ def _happydom_bundle_source() -> str:
 
 
 def get_snapshot_scripts() -> list[tuple[str, str]]:
-    """The production scripts, in execution order (shared by prod and test snapshots)."""
+    """The production scripts, in execution order, warmup last (shared by prod and test
+    snapshots)."""
     xpath_src = (_NM / "xpath/xpath.js").read_text()
     return [
         ("text-encoding", (_NM / "text-encoding/lib/encoding.js").read_text()),
@@ -88,16 +89,19 @@ def get_snapshot_scripts() -> list[tuple[str, str]]:
         ("element-registry", (_JS / "element_registry.js").read_text()),
         ("submit", (_JS / "submit.js").read_text()),
         ("happy-dom-bundle", _happydom_bundle_source()),
+        # Last: warmup exercises and precompiles the above. Runs as an ordinary script rather
+        # than deno_core's warmup_script parameter (see create_snapshot in snapshot.rs).
+        ("warmup", _SNAPSHOT_WARMUP.read_text()),
     ]
 
 
-def _snapshot_cache_path(scripts: list[tuple[str, str]], warmup: str) -> Path:
+def _snapshot_cache_path(scripts: list[tuple[str, str]]) -> Path:
     # The V8 build identity belongs in the key as much as the sources do: bumping deno_core
     # leaves every script byte-identical, and V8 refuses a blob stamped by another build --
     # an error pointing nowhere near a cache file nobody knew existed. The key rides in the
     # file name, so a miss is a missing file and a stale blob can never be read back.
     key = hashlib.sha256(v8_version().encode())
-    for name, source in [*scripts, ("warmup", warmup)]:
+    for name, source in scripts:
         key.update(f"{name}\0{source}\0".encode())
     return _GENERATED / f"snapshot-{key.hexdigest()[:16]}.bin"
 
@@ -106,10 +110,9 @@ def _snapshot_cache_path(scripts: list[tuple[str, str]], warmup: str) -> Path:
 def production_snapshot() -> bytes:
     """The snapshot of `get_snapshot_scripts()`, cached on disk in a local checkout."""
     scripts = get_snapshot_scripts()
-    warmup = _SNAPSHOT_WARMUP.read_text()
     if not _IN_CHECKOUT:
-        return create_snapshot(scripts, warmup)
-    path = _snapshot_cache_path(scripts, warmup)
+        return create_snapshot(scripts)
+    path = _snapshot_cache_path(scripts)
     _GENERATED.mkdir(parents=True, exist_ok=True)
     # Same flock as the happy-dom bundle above, for the same reason: parallel test workers
     # would otherwise race each other onto the same output file.
@@ -119,7 +122,7 @@ def production_snapshot() -> bytes:
             if not path.exists():
                 for stale in _GENERATED.glob("snapshot-*.bin"):
                     stale.unlink()
-                path.write_bytes(create_snapshot(scripts, warmup))
+                path.write_bytes(create_snapshot(scripts))
             return path.read_bytes()
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
