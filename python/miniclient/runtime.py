@@ -125,14 +125,6 @@ def production_snapshot() -> bytes:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
-def _fs_stat_op(path: str) -> dict:
-    return {"isDirectory": Path(path).is_dir()}
-
-
-def _fs_read_op(path: str) -> bytes:
-    return Path(path).read_bytes()
-
-
 def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
     # httpx already transparently decompresses gzip/br/deflate but keeps the
     # original Content-Encoding/Content-Length headers, which would make a
@@ -275,8 +267,6 @@ async def open_runtime(
             _fetch_op,
             _fetch_abort_op,
             _make_fetch_sync_op(client, asyncio.get_running_loop()),
-            _fs_stat_op,
-            _fs_read_op,
         )
 
         try:

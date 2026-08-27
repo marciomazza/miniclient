@@ -19,8 +19,6 @@ class Runtime:
         fetch: Any,
         fetch_abort: Any,
         fetch_sync: Any,
-        fs_stat: Any,
-        fs_read: Any,
     ) -> None: ...
     def close(self) -> None: ...
 

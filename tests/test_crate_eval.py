@@ -1,6 +1,6 @@
 """The crate's own `Runtime.eval`/`eval_async`: the JSON value contract and JavaScriptError.
 
-No `install_host_ops()` call -- fetch/fs ops arrive separately from construction.
+No `install_host_ops()` call -- fetch ops arrive separately from construction.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from miniclient.runtime import production_snapshot
 
 @pytest.fixture
 def bare_runtime():
-    """Not conftest's `runtime`: no install_host_ops() call, so no fetch/fs support."""
+    """Not conftest's `runtime`: no install_host_ops() call, so no fetch support."""
     r = Runtime(production_snapshot(), "http://localhost/")
     yield r
     r.close()

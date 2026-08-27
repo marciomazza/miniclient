@@ -136,7 +136,7 @@ impl Runtime {
         Ok(())
     }
 
-    /// Installs the 5 fetch/fs callables `op_fetch` and friends dispatch to (spec §4). `fetch`
+    /// Installs the 3 fetch callables `op_fetch` and friends dispatch to (spec §4). `fetch`
     /// must be a coroutine function -- `op_fetch` bridges to it via `TaskLocals` captured from
     /// the caller's own running event loop, so this must be called from inside one. Safe to call
     /// any time before JS first reaches one of those ops (see `send_install_host_ops`).
@@ -146,8 +146,6 @@ impl Runtime {
         fetch: Py<PyAny>,
         fetch_abort: Py<PyAny>,
         fetch_sync: Py<PyAny>,
-        fs_stat: Py<PyAny>,
-        fs_read: Py<PyAny>,
     ) -> PyResult<()> {
         let fetch_locals =
             pyo3_async_runtimes::TaskLocals::with_running_loop(py)?.copy_context(py)?;
@@ -156,8 +154,6 @@ impl Runtime {
             fetch_locals,
             fetch_abort,
             fetch_sync,
-            fs_stat,
-            fs_read,
         };
         let rx = self.0.send_install_host_ops(host_ops);
         py.detach(|| rx.blocking_recv()).map_err(closed)

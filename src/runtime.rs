@@ -411,8 +411,8 @@ impl Runtime {
         rx
     }
 
-    /// Installs the Python callables `op_fetch`/`op_fetch_abort`/`op_fetch_sync`/`op_fs_stat`/
-    /// `op_fs_read` read from `OpState`. Safe to call any time before JS first reaches one of
+    /// Installs the Python callables `op_fetch`/`op_fetch_abort`/`op_fetch_sync` read from
+    /// `OpState`. Safe to call any time before JS first reaches one of
     /// those ops -- `bootstrap.js`'s own top-level execution never does, only functions it
     /// defines for later, so this can run after construction rather than needing to land before
     /// `bootstrap.js` loads.

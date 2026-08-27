@@ -53,23 +53,22 @@ pub struct FetchResponse {
     pub url: String,
 }
 
-/// Matches `_fs_stat_op`'s return shape.
+/// Shape `node-fs.js`'s `statSync` expects back from `op_fs_stat`.
 #[derive(Serialize, Deserialize)]
 pub struct FsStatResult {
     #[serde(rename = "isDirectory")]
     pub is_directory: bool,
 }
 
-/// The 5 Python callables these ops bridge to, plus the `TaskLocals` (event loop + context)
+/// The 3 Python callables these ops bridge to, plus the `TaskLocals` (event loop + context)
 /// `op_fetch` needs to await a Python coroutine from the isolate thread. Installed into
-/// `OpState` once, before any of these ops can be called from JS.
+/// `OpState` once, before any of these ops can be called from JS. (The fs ops hit the real
+/// filesystem natively and need nothing here.)
 pub struct HostOps {
     pub fetch: Py<PyAny>,
     pub fetch_locals: TaskLocals,
     pub fetch_abort: Py<PyAny>,
     pub fetch_sync: Py<PyAny>,
-    pub fs_stat: Py<PyAny>,
-    pub fs_read: Py<PyAny>,
 }
 
 fn py_err_to_js(err: PyErr) -> JsErrorBox {
@@ -165,26 +164,18 @@ pub fn op_fetch_sync(
 // `serde_v8` struct/buffer -- still runs natively on the isolate thread either way.
 #[op2]
 #[serde]
-pub fn op_fs_stat(state: &mut OpState, #[string] path: String) -> Result<FsStatResult, JsErrorBox> {
-    Python::attach(|py| {
-        let result = state
-            .borrow::<HostOps>()
-            .fs_stat
-            .clone_ref(py)
-            .call1(py, (path,))?;
-        let is_directory = result.bind(py).get_item("isDirectory")?.extract()?;
-        Ok(FsStatResult { is_directory })
-    })
-    .map_err(py_err_to_js)
+pub fn op_fs_stat(#[string] path: String) -> Result<FsStatResult, JsErrorBox> {
+    // Missing path -> not a directory, no error (`is_dir` swallows the stat error).
+    let is_directory = std::path::Path::new(&path).is_dir();
+    Ok(FsStatResult { is_directory })
 }
 
 #[op2]
 #[serde]
-pub fn op_fs_read(state: &mut OpState, #[string] path: String) -> Result<ToJsBuffer, JsErrorBox> {
-    let fs_read = Python::attach(|py| state.borrow::<HostOps>().fs_read.clone_ref(py));
-    let bytes: Vec<u8> =
-        Python::attach(|py| fs_read.call1(py, (path,))?.extract(py)).map_err(py_err_to_js)?;
-    Ok(bytes.into())
+pub fn op_fs_read(#[string] path: String) -> Result<ToJsBuffer, JsErrorBox> {
+    std::fs::read(&path)
+        .map(Into::into)
+        .map_err(|e| JsErrorBox::generic(format!("{path}: {e}")))
 }
 
 /// Callables bound by `Runtime::register_function`, indexed by the id baked into each
@@ -293,12 +284,6 @@ def fetch_sync_impl(req):
         "url": req["url"],
     }
 
-def fs_stat_impl(path):
-    return {"isDirectory": path.endswith("/")}
-
-def fs_read_impl(path):
-    return b"file-contents"
-
 async def fetch_impl(req):
     import asyncio
     await asyncio.sleep(0)
@@ -325,8 +310,6 @@ async def fetch_impl(req):
             fetch_locals: locals,
             fetch_abort: get("fetch_abort_impl"),
             fetch_sync: get("fetch_sync_impl"),
-            fs_stat: get("fs_stat_impl"),
-            fs_read: get("fs_read_impl"),
         }
     }
 
@@ -349,30 +332,34 @@ async def fetch_impl(req):
     }
 
     #[test]
-    fn fs_stat_and_fs_read_round_trip_to_python() {
+    fn fs_stat_and_fs_read_hit_the_real_filesystem() {
         let _guard = v8_test_lock();
         let mut js = bare_runtime();
-        Python::attach(|py| {
-            let fixtures = fixtures(py);
-            let locals = running_event_loop(py).unwrap();
-            js.op_state()
-                .borrow_mut()
-                .put(host_ops(py, &fixtures, locals));
-        });
+        let dir = std::env::temp_dir();
+        let file = dir.join(format!("miniclient-fs-op-{}.txt", std::process::id()));
+        std::fs::write(&file, b"file-contents").unwrap();
+
         assert_eq!(
             eval_string(
                 &mut js,
-                "String(Deno.core.ops.op_fs_stat('/tmp/').isDirectory)"
+                &format!(
+                    "String(Deno.core.ops.op_fs_stat({:?}).isDirectory)",
+                    dir.to_str().unwrap()
+                )
             ),
             "true"
         );
         assert_eq!(
             eval_string(
                 &mut js,
-                "Array.from(new Uint8Array(Deno.core.ops.op_fs_read('/tmp/x'))).map(b => String.fromCharCode(b)).join('')"
+                &format!(
+                    "Array.from(new Uint8Array(Deno.core.ops.op_fs_read({:?}))).map(b => String.fromCharCode(b)).join('')",
+                    file.to_str().unwrap()
+                )
             ),
             "file-contents"
         );
+        std::fs::remove_file(&file).ok();
     }
 
     #[test]
