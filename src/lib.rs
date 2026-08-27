@@ -177,12 +177,20 @@ fn create_snapshot<'py>(
     Ok(PyBytes::new(py, &blob))
 }
 
+/// Mini's default snapshot, built into the extension by build.rs. Lets a wheel skip
+/// `create_snapshot` entirely -- it can't read the build machine's deno_web sources.
+#[pyfunction]
+fn default_snapshot(py: Python<'_>) -> Bound<'_, PyBytes> {
+    PyBytes::new(py, snapshot::DEFAULT_SNAPSHOT)
+}
+
 #[pymodule]
 fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("JavaScriptError", m.py().get_type::<JavaScriptError>())?;
     m.add_class::<Runtime>()?;
     m.add_function(wrap_pyfunction!(v8_version, m)?)?;
-    m.add_function(wrap_pyfunction!(create_snapshot, m)?)
+    m.add_function(wrap_pyfunction!(create_snapshot, m)?)?;
+    m.add_function(wrap_pyfunction!(default_snapshot, m)?)
 }
 
 #[cfg(test)]

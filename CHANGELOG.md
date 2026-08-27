@@ -4,6 +4,20 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- The default V8 snapshot is now built at compile time and embedded in the extension, instead
+  of being assembled on first use. An installed wheel previously called `create_snapshot` at
+  runtime, which made `deno_core` read `deno_web`'s ESM sources from the build machine's Cargo
+  registry (`/root/.cargo/...`) and panic with `PermissionDenied`. Building from a checkout
+  still assembles the snapshot live so local JS edits are picked up.
+
+### Changed
+
+- `miniclient.runtime.production_snapshot()` renamed to `default_snapshot()`.
+
 ## [0.2.0]
 
 ### Changed

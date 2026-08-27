@@ -2,6 +2,12 @@ use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_
 
 use crate::runtime::{extensions, init_platform, lifecycle_lock};
 
+/// Mini's default snapshot, built by build.rs (`build_default_snapshot`) where deno_web's
+/// ESM is on disk. `runtime.py`'s `default_snapshot()` hands this to a wheel so it never runs
+/// `create_snapshot` -- which would fail reading the build machine's cargo registry.
+pub static DEFAULT_SNAPSHOT: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/DEFAULT_SNAPSHOT.bin"));
+
 /// Runs `scripts` in order into a single isolate and serializes it.
 pub fn create_snapshot(
     scripts: Vec<(String, String)>,

@@ -13,7 +13,12 @@ from typing import TypedDict
 
 import httpx2 as httpx
 
-from miniclient._miniclient import Runtime, create_snapshot, v8_version
+from miniclient._miniclient import (
+    Runtime,
+    create_snapshot,
+    default_snapshot as _embedded_snapshot,
+    v8_version,
+)
 
 _ROOT = Path(__file__).parent.parent.parent
 # build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart.
@@ -107,11 +112,16 @@ def _snapshot_cache_path(scripts: list[tuple[str, str]]) -> Path:
 
 
 @cache
-def production_snapshot() -> bytes:
-    """The snapshot of `get_snapshot_scripts()`, cached on disk in a local checkout."""
-    scripts = get_snapshot_scripts()
+def default_snapshot() -> bytes:
+    """The snapshot of `get_snapshot_scripts()`.
+
+    A wheel returns the blob build.rs baked into the extension: deno_core records deno_web's
+    sources as build-machine paths, so `create_snapshot` only works from a checkout. There it
+    still builds live (picking up local JS edits), cached on disk.
+    """
     if not _IN_CHECKOUT:
-        return create_snapshot(scripts)
+        return _embedded_snapshot()
+    scripts = get_snapshot_scripts()
     path = _snapshot_cache_path(scripts)
     _GENERATED.mkdir(parents=True, exist_ok=True)
     # Same flock as the happy-dom bundle above, for the same reason: parallel test workers
@@ -263,7 +273,7 @@ async def open_runtime(
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(v8_snapshot or production_snapshot(), url, json.dumps(virtual_servers or []))
+        r = Runtime(v8_snapshot or default_snapshot(), url, json.dumps(virtual_servers or []))
 
         _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
         r.install_host_ops(

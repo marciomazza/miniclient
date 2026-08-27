@@ -71,4 +71,81 @@ fn main() {
     for rel in VENDORED {
         copy_tree(&node_modules.join(rel), &vendor.join(rel));
     }
+
+    build_default_snapshot(
+        &node_modules,
+        &js,
+        &PathBuf::from(std::env::var("OUT_DIR").unwrap()),
+    );
+}
+
+/// Builds mini's default V8 snapshot at build time and embeds it in the `.so`.
+///
+/// deno_core 0.410 records deno_web / deno_webidl's ESM only as build-machine disk paths,
+/// read during `create_snapshot`. A wheel that ran `create_snapshot` at runtime would try to
+/// read the build box's `/root/.cargo` and panic with EACCES. Building here -- where those
+/// files exist -- and shipping the blob means the wheel never calls `create_snapshot`.
+///
+/// The script list mirrors `get_snapshot_scripts()` in `python/miniclient/runtime.py` and
+/// `production_scripts()` in `src/snapshot.rs`; keep the three in sync.
+fn build_default_snapshot(node_modules: &Path, js: &Path, out_dir: &Path) {
+    let read = |p: &Path| {
+        std::fs::read_to_string(p).unwrap_or_else(|e| panic!("snapshot input {p:?}: {e}"))
+    };
+    let xpath = read(&node_modules.join("xpath/xpath.js"));
+    let scripts: Vec<(String, String)> = vec![
+        (
+            "text-encoding".into(),
+            read(&node_modules.join("text-encoding/lib/encoding.js")),
+        ),
+        (
+            "xpath".into(),
+            format!(
+                "const __xpathLib = {{}};\n(function(exports){{{xpath}}})(__xpathLib);\nglobalThis.__xpathLib = __xpathLib;"
+            ),
+        ),
+        ("pre_globals".into(), read(&js.join("pre_globals.js"))),
+        ("formdata".into(), read(&js.join("formdata.js"))),
+        (
+            "element-registry".into(),
+            read(&js.join("element_registry.js")),
+        ),
+        ("submit".into(), read(&js.join("submit.js"))),
+        (
+            "happy-dom-bundle".into(),
+            read(&js.join("_generated/happy-dom-bundle.js")),
+        ),
+        ("warmup".into(), read(&js.join("snapshot_warmup.js"))),
+    ];
+
+    let snapshot = deno_core::snapshot::create_snapshot(
+        deno_core::snapshot::CreateSnapshotOptions {
+            cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
+            startup_snapshot: None,
+            skip_op_registration: false,
+            extensions: vec![
+                deno_webidl::deno_webidl::init(),
+                deno_web::deno_web::init(
+                    deno_web::BlobStore::default_arc(),
+                    None,
+                    false,
+                    <_>::default(),
+                ),
+            ],
+            extension_transpiler: None,
+            with_runtime_cb: Some(Box::new(move |rt| {
+                for (name, source) in &scripts {
+                    rt.execute_script(name.clone(), source.clone())
+                        .unwrap_or_else(|e| panic!("snapshot script `{name}` failed: {e}"));
+                }
+            })),
+        },
+        None,
+    )
+    .expect("failed to build the default V8 snapshot");
+
+    std::fs::write(out_dir.join("DEFAULT_SNAPSHOT.bin"), &snapshot.output).unwrap();
+    for path in &snapshot.files_loaded_during_snapshot {
+        println!("cargo::rerun-if-changed={}", path.display());
+    }
 }

@@ -23,6 +23,15 @@ regex = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 
+[build-dependencies]
+# build.rs bakes the deno_webidl + deno_web ESM into a base V8 snapshot: deno_core 0.410
+# only records those sources as build-machine disk paths, so a wheel that ran create_snapshot
+# at runtime would try (and fail) to read /root/.cargo. Keep these versions in lockstep with
+# [dependencies].
+deno_core = "0.410.0"
+deno_web = "0.288.0"
+deno_webidl = "0.257.0"
+
 [dev-dependencies]
 # Only active for `cargo test`/benches/examples, never the extension-module wheel build (that
 # build never pulls in [dev-dependencies]) -- `auto-initialize` and `extension-module` conflict,
