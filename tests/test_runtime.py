@@ -242,6 +242,37 @@ async def test_custom_event(runtime):
     assert result == 42
 
 
+async def test_performance_real_impl(runtime):
+    # deno_web's performance: monotonic now(), working marks/measures/entries.
+    assert runtime.eval("performance.now() >= 0 && typeof performance.now() === 'number'")
+    assert runtime.eval("performance.timeOrigin > 0")
+    result = runtime.eval("""\
+        performance.mark('a');
+        performance.measure('m', 'a');
+        JSON.stringify([
+            performance.getEntriesByType('mark').length,
+            performance.getEntriesByName('m', 'measure').length,
+        ])
+    """)
+    assert result == "[1,1]"
+
+
+async def test_performance_observer_fires(runtime):
+    result = await runtime.eval_async("""\
+        (async () => {
+            const seen = [];
+            const po = new PerformanceObserver((list) => {
+                for (const e of list.getEntries()) seen.push(e.entryType);
+            });
+            po.observe({ entryTypes: ['mark'] });
+            performance.mark('watched');
+            await new Promise((r) => setTimeout(r, 10));
+            return seen.join(',');
+        })()
+    """)
+    assert result == "mark"
+
+
 # ---------------------------------------------------------------------------
 # atob / btoa
 # ---------------------------------------------------------------------------

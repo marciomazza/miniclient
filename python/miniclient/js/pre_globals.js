@@ -32,13 +32,28 @@
         argv: ["node"],
     };
 
-    globalThis.performance ??= {
-        now: () => Date.now(),
-        mark: () => {},
-        measure: () => {},
-        getEntriesByType: () => [],
-        getEntriesByName: () => [],
-    };
+    // performance — deno_web's real implementation: monotonic now() (op_now), working
+    // marks/measures/observers. Force-loaded here (cold snapshot pass) so happy-dom's bundle
+    // captures the native classes and the singleton when it evals; node-perf-hooks.js re-exports
+    // PerformanceObserver/PerformanceEntry from the globals set below.
+    {
+        // 15_performance lazy-loads structured_clone for mark/measure detail; force it into
+        // the snapshot's residual table here since nothing else touches it in the cold pass.
+        globalThis.structuredClone = Deno.core.loadExtScript(
+            "ext:deno_web/02_structured_clone.js",
+        ).structuredClone;
+        const perf = Deno.core.loadExtScript("ext:deno_web/15_performance.js");
+        perf.setTimeOrigin();
+        Object.assign(globalThis, {
+            performance: perf.performance,
+            Performance: perf.Performance,
+            PerformanceEntry: perf.PerformanceEntry,
+            PerformanceMark: perf.PerformanceMark,
+            PerformanceMeasure: perf.PerformanceMeasure,
+            PerformanceObserver: perf.PerformanceObserver,
+            PerformanceObserverEntryList: perf.PerformanceObserverEntryList,
+        });
+    }
 
     // TODO: add deno_crypto as a dependency and drop this polyfill.
     // Math.random()-backed, not cryptographically secure -- fine here since

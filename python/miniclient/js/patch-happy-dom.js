@@ -345,6 +345,8 @@ export default function patch(win) {
         // for the same lesson).
         globalThis.CustomEvent = class CustomEvent extends _RealCustomEvent {
             constructor(type, eventInitDict) {
+                // `now` normally lives on deno_web's Performance.prototype, so an own
+                // descriptor may not exist — restore by deleting rather than redefining.
                 const desc = Object.getOwnPropertyDescriptor(win.performance, "now");
                 Object.defineProperty(win.performance, "now", {
                     value: _realNow,
@@ -354,7 +356,8 @@ export default function patch(win) {
                 try {
                     super(type, eventInitDict);
                 } finally {
-                    Object.defineProperty(win.performance, "now", desc);
+                    if (desc) Object.defineProperty(win.performance, "now", desc);
+                    else delete win.performance.now;
                 }
             }
         };
