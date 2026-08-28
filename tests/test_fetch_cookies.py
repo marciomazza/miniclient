@@ -60,6 +60,26 @@ async def test_set_cookie_response_reaches_next_request(
         page.close()
 
 
+async def test_cookie_set_on_followed_redirect_reaches_jar() -> None:
+    # A hop that answers 302 + Set-Cookie (Django login()/session rotation): the cookie must
+    # reach happy-dom's jar even though it never appears on the final response's headers.
+    def _app(environ: WSGIEnvironment, start_response: StartResponse):
+        if environ["PATH_INFO"] == "/login":
+            start_response(
+                "302 Found", [("Location", "/echo"), ("Set-Cookie", "sessionid=rotated; Path=/")]
+            )
+            return [b""]
+        start_response("200 OK", [("Content-Type", "text/html")])
+        return [b"<html><body>ok</body></html>"]
+
+    page = await AsyncPage(httpx_transport=WSGITransport(app=_app))
+    try:
+        await page.goto("http://testserver/login")
+        assert page.runtime.eval("document.cookie") == "sessionid=rotated"
+    finally:
+        page.close()
+
+
 async def test_cookie_survives_auto_followed_redirect() -> None:
     # httpx follows the 302 internally (`follow_redirects=True` in open_runtime), without
     # going back through JS -- the redirected leg must still carry the cookie happy-dom's

@@ -147,7 +147,14 @@ def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
     # the Rust side extracts each pair as `(String, String)`, which pyo3 only
     # accepts from an actual Python tuple, silently dropping every header
     # into an empty Vec (via `.unwrap_or_default()`) if given a 2-element list.
-    headers = [
+    # Set-Cookie set on an intermediate redirect hop (e.g. a login/session rotation that
+    # answers 302 + Set-Cookie) lands only in httpx's jar, never in the final response --
+    # replay each hop's Set-Cookie ahead of the final headers so happy-dom's jar (bootstrap.js)
+    # applies them in order, the final response still winning on any name clash.
+    hop_cookies = [
+        ("set-cookie", v) for hop in r.history for v in hop.headers.get_list("set-cookie")
+    ]
+    headers = hop_cookies + [
         (k, v)
         for k, v in r.headers.multi_items()
         if k.lower() not in ("content-encoding", "content-length")

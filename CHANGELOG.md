@@ -4,6 +4,15 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.2]
+
+### Fixed
+
+- `Set-Cookie` on an intermediate redirect hop (e.g. a login/session rotation answering
+  `302` + `Set-Cookie`) never reached happy-dom's cookie jar: only the final response's
+  headers were forwarded, so every later request in the page went out with the stale cookie.
+  Each hop's `Set-Cookie` is now replayed ahead of the final headers.
+
 ## [0.2.1]
 
 ### Fixed
