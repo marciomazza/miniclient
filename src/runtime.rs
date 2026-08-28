@@ -8,12 +8,14 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::ops;
 
-/// The only `file://` module mini ever loads. No resolver or loader op: the crate reads and
-/// evals this fixed path at construction instead of Python driving `eval_module_async` (spec §4).
-const BOOTSTRAP_JS: &str = concat!(
+/// The one script mini always evals at construction (never as an ES module -- there is no
+/// resolver or loader op). Embedded at compile time rather than read from disk: a wheel's
+/// `env!("CARGO_MANIFEST_DIR")` is the build machine's path, absent at runtime. Cargo tracks
+/// this file as a build input, so a checkout still rebuilds on edits.
+const BOOTSTRAP_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/python/miniclient/js/bootstrap.js"
-);
+));
 
 /// Safety net only: the platform init below is the actual fix for deno_core#952. Held
 /// across isolate construction and destruction, never while a live runtime is in use.
@@ -351,12 +353,8 @@ impl Runtime {
                 js.op_state()
                     .borrow_mut()
                     .put(ops::PythonFunctions::default());
-                js.execute_script(
-                    "bootstrap.js",
-                    std::fs::read_to_string(BOOTSTRAP_JS)
-                        .unwrap_or_else(|e| panic!("failed to read {BOOTSTRAP_JS}: {e}")),
-                )
-                .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
+                js.execute_script("bootstrap.js", BOOTSTRAP_JS)
+                    .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
                 ready_tx.send(()).ok();
 
                 let mut stop = false;

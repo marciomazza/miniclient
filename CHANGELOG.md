@@ -4,6 +4,15 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.3]
+
+### Fixed
+
+- Constructing a `Runtime` from an installed wheel panicked (`failed to read
+  .../python/miniclient/js/bootstrap.js: No such file or directory`): the crate read
+  `bootstrap.js` at runtime from the build machine's `CARGO_MANIFEST_DIR`. It is now embedded
+  at compile time.
+
 ## [0.2.2]
 
 ### Fixed
