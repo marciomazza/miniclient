@@ -53,6 +53,12 @@ function polyfillResolverPlugin() {
   };
 }
 
+// HAPPYDOM_BUNDLE_SOURCEMAP=1: unminified + inline sourcemap, so V8 profiles and DevTools
+// map frames back to patch-happy-dom.js / happy-dom sources. Off by default -- it bloats the
+// bundle and changes the snapshot cache key. Toggling it does not re-trigger the staleness
+// check in runtime.py; delete _generated/happy-dom-bundle.js to force a rebuild.
+const debug = process.env.HAPPYDOM_BUNDLE_SOURCEMAP === "1";
+
 await build({
   entryPoints: [_JS + "happydom-entry.js"],
   bundle: true,
@@ -60,7 +66,8 @@ await build({
   globalName: "__happyDomBundle",
   platform: "browser",
   target: "es2022",
-  minify: true,
+  minify: !debug,
+  sourcemap: debug ? "inline" : false,
   outfile: _JS + "_generated/happy-dom-bundle.js",
   plugins: [polyfillResolverPlugin()],
   logLevel: "info",
