@@ -13,14 +13,7 @@ const {
     DetachedWindowAPI,
     BrowserFrameNavigator,
     patchHappyDom,
-    __refreshStreamGlobals,
 } = globalThis.__happyDomBundle;
-
-// Reassert node-stream-web.js's spec-compliant ReadableStream/WritableStream/
-// TransformStream onto globalThis: V8's own native (admittedly minimal) ReadableStream
-// stands once a real Runtime starts, which is after the bundle above was baked into the
-// snapshot, so it can otherwise still win.
-__refreshStreamGlobals();
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the

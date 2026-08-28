@@ -140,6 +140,32 @@
         globalThis.btoa = btoa;
     }
 
+    // WHATWG Streams — deno_web's spec reference implementation: real backpressure
+    // (desiredSize) and correct EOF (a pending read() waits for a later enqueue()/close()
+    // rather than resolving done when the queue drains). Force-loaded here (cold snapshot
+    // pass) so happy-dom's bundle captures these as the global classes; node-stream-web.js
+    // re-exports them for the `stream/web` bundle alias, and FetchBodyUtility's
+    // `body instanceof ReadableStream` check needs that to be the exact global.
+    // 06_streams.js lazy-loads 03_abort_signal.js + 00_infra.js, pulled in transitively here.
+    {
+        const s = Deno.core.loadExtScript("ext:deno_web/06_streams.js");
+        Object.assign(globalThis, {
+            ReadableStream: s.ReadableStream,
+            WritableStream: s.WritableStream,
+            TransformStream: s.TransformStream,
+            ReadableStreamDefaultReader: s.ReadableStreamDefaultReader,
+            ReadableStreamBYOBReader: s.ReadableStreamBYOBReader,
+            ReadableStreamBYOBRequest: s.ReadableStreamBYOBRequest,
+            ReadableStreamDefaultController: s.ReadableStreamDefaultController,
+            ReadableByteStreamController: s.ReadableByteStreamController,
+            WritableStreamDefaultWriter: s.WritableStreamDefaultWriter,
+            WritableStreamDefaultController: s.WritableStreamDefaultController,
+            TransformStreamDefaultController: s.TransformStreamDefaultController,
+            ByteLengthQueuingStrategy: s.ByteLengthQueuingStrategy,
+            CountQueuingStrategy: s.CountQueuingStrategy,
+        });
+    }
+
     // XPathEvaluator backed by the xpath npm package (XPath 1.0).
     // Loaded via __xpathLib injected before this script runs.
     globalThis.XPathEvaluator = class XPathEvaluator {

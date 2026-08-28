@@ -5,7 +5,6 @@ import WindowBrowserContext from "happy-dom/lib/window/WindowBrowserContext.js";
 import DetachedWindowAPI from "happy-dom/lib/window/DetachedWindowAPI.js";
 import BrowserFrameNavigator from "happy-dom/lib/browser/utilities/BrowserFrameNavigator.js";
 import patchHappyDom from "./patch-happy-dom.js";
-import { __refreshStreamGlobals } from "./polyfills/node-stream-web.js";
 
 export {
     Browser,
@@ -16,5 +15,4 @@ export {
     DetachedWindowAPI,
     BrowserFrameNavigator,
     patchHappyDom,
-    __refreshStreamGlobals,
 };
