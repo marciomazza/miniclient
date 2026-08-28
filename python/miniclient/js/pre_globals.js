@@ -9,6 +9,20 @@
         globalThis.console = new Console(Deno.core.print);
     }
 
+    // TextEncoder/TextDecoder — deno_web's, backed by encoding_rs ops. Force-loaded here (cold
+    // snapshot pass) so happy-dom captures the native classes when its bundle evals. webidl
+    // must be touched too: only ext scripts loaded in the cold pass survive the snapshot.
+    {
+        Deno.core.loadExtScript("ext:deno_webidl/00_webidl.js");
+        const te = Deno.core.loadExtScript("ext:deno_web/08_text_encoding.js");
+        Object.assign(globalThis, {
+            TextEncoder: te.TextEncoder,
+            TextDecoder: te.TextDecoder,
+            TextEncoderStream: te.TextEncoderStream,
+            TextDecoderStream: te.TextDecoderStream,
+        });
+    }
+
     globalThis.process = {
         platform: "linux",
         arch: "x64",

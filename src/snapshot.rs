@@ -18,8 +18,7 @@ pub fn create_snapshot(
     // runtime kills the process inside V8's own init. The lifecycle lock already serializes
     // exactly those two moments against each other.
     let _lock = lifecycle_lock();
-    // Not `Extension::js_files`: those must be 7-bit ASCII, and both text-encoding and the
-    // happy-dom bundle are not.
+    // Not `Extension::js_files`: those must be 7-bit ASCII, and the happy-dom bundle is not.
     let output = deno_create_snapshot(
         CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
@@ -66,10 +65,6 @@ pub(crate) mod support {
     pub(crate) fn production_scripts() -> Vec<(String, String)> {
         let xpath = read("node_modules/xpath/xpath.js");
         vec![
-            (
-                "text-encoding".into(),
-                read("node_modules/text-encoding/lib/encoding.js"),
-            ),
             (
                 "xpath".into(),
                 format!(

@@ -11,8 +11,6 @@ const VENDORED: &[&str] = &[
     "happy-dom/LICENSE",
     "xpath/xpath.js",
     "xpath/LICENSE",
-    "text-encoding/lib/encoding.js",
-    "text-encoding/LICENSE.md",
     "entities/dist/esm",
     "entities/LICENSE",
 ];
@@ -94,10 +92,6 @@ fn build_default_snapshot(node_modules: &Path, js: &Path, out_dir: &Path) {
     };
     let xpath = read(&node_modules.join("xpath/xpath.js"));
     let scripts: Vec<(String, String)> = vec![
-        (
-            "text-encoding".into(),
-            read(&node_modules.join("text-encoding/lib/encoding.js")),
-        ),
         (
             "xpath".into(),
             format!(

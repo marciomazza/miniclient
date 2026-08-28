@@ -82,7 +82,6 @@ def get_snapshot_scripts() -> list[tuple[str, str]]:
     snapshots)."""
     xpath_src = (_NM / "xpath/xpath.js").read_text()
     return [
-        ("text-encoding", (_NM / "text-encoding/lib/encoding.js").read_text()),
         (
             "xpath",
             f"""const __xpathLib = {{}};
