@@ -80,6 +80,8 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_fs_read(),
             ops::op_call_python(),
             ops::op_sleep(),
+            ops::op_crypto_random_bytes(),
+            ops::op_crypto_random_uuid(),
         ]),
         ..Default::default()
     }

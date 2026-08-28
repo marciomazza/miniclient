@@ -236,6 +236,22 @@ pub async fn op_sleep(ms: f64) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await;
 }
 
+/// CSPRNG bytes for `crypto.getRandomValues` -- this runtime has no other entropy source.
+#[op2]
+#[serde]
+pub fn op_crypto_random_bytes(#[number] len: usize) -> Result<ToJsBuffer, JsErrorBox> {
+    let mut buf = vec![0u8; len];
+    getrandom::fill(&mut buf).map_err(|e| JsErrorBox::generic(e.to_string()))?;
+    Ok(buf.into())
+}
+
+/// `crypto.randomUUID` -- v4 (random) UUID, CSPRNG-backed via the `uuid` crate.
+#[op2]
+#[string]
+pub fn op_crypto_random_uuid() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
@@ -456,5 +472,38 @@ async def fetch_impl(req):
                 .unwrap();
         });
         assert!(start.elapsed() >= std::time::Duration::from_millis(30));
+    }
+
+    #[test]
+    fn crypto_ops_produce_random_bytes_and_a_uuid() {
+        let _guard = v8_test_lock();
+        let mut js = bare_runtime();
+
+        assert_eq!(
+            eval_string(
+                &mut js,
+                "new Uint8Array(Deno.core.ops.op_crypto_random_bytes(16)).length",
+            ),
+            "16"
+        );
+        // Two draws must differ -- a constant RNG would collide here.
+        assert_ne!(
+            eval_string(
+                &mut js,
+                "new Uint8Array(Deno.core.ops.op_crypto_random_bytes(16)).join()"
+            ),
+            eval_string(
+                &mut js,
+                "new Uint8Array(Deno.core.ops.op_crypto_random_bytes(16)).join()"
+            ),
+        );
+
+        let uuid = eval_string(&mut js, "Deno.core.ops.op_crypto_random_uuid()");
+        assert_eq!(uuid.len(), 36);
+        assert_eq!(uuid.chars().filter(|&c| c == '-').count(), 4);
+        assert_ne!(
+            uuid,
+            eval_string(&mut js, "Deno.core.ops.op_crypto_random_uuid()")
+        );
     }
 }

@@ -55,26 +55,18 @@
         });
     }
 
-    // TODO: add deno_crypto as a dependency and drop this polyfill.
-    // Math.random()-backed, not cryptographically secure -- fine here since
-    // this runtime has no native CSPRNG and only ever drives test/dev DOM code.
-    // Must exist before happy-dom is imported: its BrowserWindow does
-    // `import { webcrypto } from 'crypto'; crypto = webcrypto`, which resolves through
-    // node-crypto.js's `globalThis.crypto` forwarding -- upgrade to a real RNG binding
-    // in this runtime if this is ever used somewhere security-sensitive.
+    // crypto — CSPRNG backed by native ops (getrandom + the uuid crate). Must exist before
+    // happy-dom is imported: its BrowserWindow does `import { webcrypto } from 'crypto';
+    // crypto = webcrypto`, which resolves through node-crypto.js's `globalThis.crypto`
+    // forwarding. Only getRandomValues + randomUUID are used anywhere; no crypto.subtle.
     globalThis.crypto ??= {
         getRandomValues(arr) {
-            for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() * 256) | 0;
+            const bytes = new Uint8Array(Deno.core.ops.op_crypto_random_bytes(arr.byteLength));
+            new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength).set(bytes);
             return arr;
         },
         randomUUID() {
-            const b = [...globalThis.crypto.getRandomValues(new Uint8Array(16))];
-            b[6] = (b[6] & 0x0f) | 0x40;
-            b[8] = (b[8] & 0x3f) | 0x80;
-            const h = b.map((x) => x.toString(16).padStart(2, "0"));
-            return [h.slice(0, 4), h.slice(4, 6), h.slice(6, 8), h.slice(8, 10), h.slice(10, 16)]
-                .map((g) => g.join(""))
-                .join("-");
+            return Deno.core.ops.op_crypto_random_uuid();
         },
     };
 

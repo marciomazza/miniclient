@@ -1025,11 +1025,13 @@ dependencies = [
  "deno_error",
  "deno_web",
  "deno_webidl",
+ "getrandom",
  "pyo3",
  "pyo3-async-runtimes",
  "regex",
  "serde",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
