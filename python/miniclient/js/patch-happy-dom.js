@@ -1,5 +1,6 @@
 import patchDomParser from "./patch-happy-dom-parser.js";
 import patchAttr from "./patch-happy-dom-attr.js";
+import patchHxOnIndex from "./patch-happy-dom-hxon-index.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
 import SelectorItem from "happy-dom/lib/query-selector/SelectorItem.js";
 import SelectorParser from "happy-dom/lib/query-selector/SelectorParser.js";
@@ -384,6 +385,7 @@ export default function patch(win) {
 
     patchDomParser(win);
     patchAttr(win);
+    patchHxOnIndex(win);
 
     // -----------------------------------------------------------------------------------
     // Document.parseHTMLUnsafe — static method real browsers expose to parse an HTML
