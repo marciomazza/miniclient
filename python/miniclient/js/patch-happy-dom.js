@@ -228,14 +228,14 @@ export default function patch(win) {
     // document.write):
     // (1) `selected` attr not reflected onto .selected IDL property
     // (2) radio mutual exclusion not enforced within a name group
+    // The innerHTML setter skips this entirely unless the markup could contain either
+    // element — most htmx swaps carry neither, so the tree walk would be a waste.
     // -----------------------------------------------------------------------------------
     globalThis.__zzz_fixup_parsed_dom = function (root) {
-        root.querySelectorAll("option[selected]").forEach((opt) => {
-            opt.selected = true;
-        });
         const groups = {};
-        root.querySelectorAll("input[type=radio]").forEach((r) => {
-            (groups[r.name] ??= []).push(r);
+        root.querySelectorAll("option[selected], input[type=radio]").forEach((el) => {
+            if (el.tagName === "OPTION") el.selected = true;
+            else (groups[el.name] ??= []).push(el);
         });
         for (const group of Object.values(groups)) {
             const checked = group.filter((r) => r.checked);
@@ -256,7 +256,7 @@ export default function patch(win) {
                 get: _desc.get,
                 set(value) {
                     _desc.set.call(this, value);
-                    globalThis.__zzz_fixup_parsed_dom(this);
+                    if (/option|radio/i.test(value)) globalThis.__zzz_fixup_parsed_dom(this);
                 },
                 configurable: true,
             });
