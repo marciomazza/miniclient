@@ -1,15 +1,18 @@
-use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
-
-use crate::runtime::{extensions, init_platform, lifecycle_lock};
-
 /// Mini's default snapshot, built by build.rs (`build_default_snapshot`) where deno_web's
 /// ESM is on disk, and handed to every `Runtime`. Building it at runtime would fail reading
 /// the build machine's cargo registry, so it is baked into the extension instead.
 pub static DEFAULT_SNAPSHOT: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/DEFAULT_SNAPSHOT.bin"));
 
-/// Runs `scripts` in order into a single isolate and serializes it.
-pub fn create_snapshot(
+#[cfg(test)]
+use crate::runtime::{extensions, init_platform, lifecycle_lock};
+#[cfg(test)]
+use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
+
+/// Runs `scripts` in order into a single isolate and serializes it. The real default snapshot
+/// is built by `build.rs`; this is the crate's own test entry point into the same machinery.
+#[cfg(test)]
+pub(crate) fn create_snapshot(
     scripts: Vec<(String, String)>,
 ) -> Result<Box<[u8]>, deno_core::error::CoreError> {
     init_platform();
@@ -61,7 +64,7 @@ pub(crate) mod support {
         std::fs::read_to_string(root().join(rel)).unwrap()
     }
 
-    /// Mirrors `get_snapshot_scripts()` in runtime.py, which owns the canonical list.
+    /// Mirrors the list in `build.rs`'s `build_default_snapshot()`, which is canonical.
     pub(crate) fn runtime_scripts() -> Vec<(String, String)> {
         let xpath = read("node_modules/xpath/xpath.js");
         vec![
@@ -124,7 +127,7 @@ mod tests {
         );
     }
 
-    /// tests/test_htmx.py's shape: the same list with extra scripts appended.
+    /// Extra scripts appended to the list still produce a bootable, distinct snapshot.
     #[test]
     fn appended_scripts_produce_a_distinct_bootable_snapshot() {
         let _guard = v8_test_lock();
