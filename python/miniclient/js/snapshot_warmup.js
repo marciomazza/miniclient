@@ -15,7 +15,7 @@
 // not in the snapshot at all, a page loads it from a <script> tag. The hx-* attributes below
 // still warm the parser path htmx's own scan walks.
 //
-// The Rust tests `production_scripts_and_warmup_produce_a_bootable_snapshot` and
+// The Rust tests `runtime_scripts_and_warmup_produce_a_bootable_snapshot` and
 // `appended_scripts_produce_a_distinct_bootable_snapshot` are the guard: they fail if
 // anything added here stops the warmed context from serializing.
 (() => {

@@ -62,7 +62,7 @@ pub(crate) mod support {
     }
 
     /// Mirrors `get_snapshot_scripts()` in runtime.py, which owns the canonical list.
-    pub(crate) fn production_scripts() -> Vec<(String, String)> {
+    pub(crate) fn runtime_scripts() -> Vec<(String, String)> {
         let xpath = read("node_modules/xpath/xpath.js");
         vec![
             (
@@ -98,7 +98,7 @@ mod tests {
     use deno_core::{JsRuntime, RuntimeOptions};
 
     use super::create_snapshot;
-    use super::support::{production_scripts, v8_test_lock};
+    use super::support::{runtime_scripts, v8_test_lock};
     use crate::runtime::extensions;
 
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
@@ -115,9 +115,9 @@ mod tests {
     }
 
     #[test]
-    fn production_scripts_and_warmup_produce_a_bootable_snapshot() {
+    fn runtime_scripts_and_warmup_produce_a_bootable_snapshot() {
         let _guard = v8_test_lock();
-        let blob = create_snapshot(production_scripts()).unwrap();
+        let blob = create_snapshot(runtime_scripts()).unwrap();
         assert_eq!(
             eval_in_snapshot(blob, "[typeof FormData, typeof __happyDomBundle].join()"),
             "function,object"
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn appended_scripts_produce_a_distinct_bootable_snapshot() {
         let _guard = v8_test_lock();
-        let mut scripts = production_scripts();
+        let mut scripts = runtime_scripts();
         scripts.push(("marker".into(), "globalThis.__marker = 'chai';".into()));
         let blob = create_snapshot(scripts).unwrap();
         assert_eq!(eval_in_snapshot(blob, "__marker"), "chai");

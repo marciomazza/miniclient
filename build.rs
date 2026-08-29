@@ -90,7 +90,7 @@ fn main() {
 /// files exist -- and shipping the blob means the wheel never calls `create_snapshot`.
 ///
 /// The script list mirrors `get_snapshot_scripts()` in `python/miniclient/runtime.py` and
-/// `production_scripts()` in `src/snapshot.rs`; keep the three in sync.
+/// `runtime_scripts()` in `src/snapshot.rs`; keep the three in sync.
 fn build_default_snapshot(node_modules: &Path, js: &Path, out_dir: &Path) {
     let read = |p: &Path| {
         std::fs::read_to_string(p).unwrap_or_else(|e| panic!("snapshot input {p:?}: {e}"))
