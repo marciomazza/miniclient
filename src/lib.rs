@@ -71,8 +71,9 @@ fn is_async_callable(py: Python<'_>, callable: &Py<PyAny>) -> PyResult<bool> {
 /// accessor `Object.prototype` defines, so assigning a function to it rewires `globalThis`'s
 /// prototype chain to that function instead of adding a normal property.
 fn is_valid_js_identifier(name: &str) -> bool {
-    static IDENTIFIER: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").unwrap());
+    static IDENTIFIER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").expect("literal identifier regex")
+    });
     IDENTIFIER.is_match(name) && name != "__proto__"
 }
 
