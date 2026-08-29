@@ -316,13 +316,11 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    /// `snapshot` must contain mini's production scripts -- `bootstrap.js` destructures
-    /// `globalThis.__happyDomBundle`, which only the snapshot provides. `url` becomes the
-    /// page's initial location, read off `globalThis.__BASE_URL__` before `newPage()`.
-    /// `virtual_servers_json` is a JSON array (already-encoded, matching `__VIRTUAL_SERVERS__`'s
-    /// shape) read by `bootstrap.js` at the same point -- both globals must land before it runs,
-    /// not after, since it reads them once at top level and never again.
-    pub fn new(snapshot: &'static [u8], url: &str, virtual_servers_json: &str) -> Self {
+    /// `url` becomes the page's initial location, read off `globalThis.__BASE_URL__` before
+    /// `newPage()`. `virtual_servers_json` is a JSON array (already-encoded, matching
+    /// `__VIRTUAL_SERVERS__`'s shape) read by `bootstrap.js` at the same point -- both globals
+    /// must land before it runs, not after, since it reads them once at top level and never again.
+    pub fn new(url: &str, virtual_servers_json: &str) -> Self {
         init_platform();
         let (commands, mut rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -337,7 +335,7 @@ impl Runtime {
                 let mut js = {
                     let _lock = lifecycle_lock();
                     JsRuntime::new(RuntimeOptions {
-                        startup_snapshot: Some(snapshot),
+                        startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
                         extensions: extensions(),
                         ..Default::default()
                     })
@@ -447,20 +445,8 @@ impl Drop for Runtime {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::OnceLock;
-
     use super::Runtime;
-    use crate::snapshot::{self, support};
-
-    /// Built once and shared across every construction below: a snapshot is expensive, and
-    /// `Runtime::new` only ever needs to read it, never mutate it.
-    fn test_snapshot() -> &'static [u8] {
-        static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
-        SNAPSHOT.get_or_init(|| {
-            snapshot::create_snapshot(support::runtime_scripts())
-                .expect("failed to build the test snapshot")
-        })
-    }
+    use crate::snapshot::support;
 
     #[test]
     fn constructs_and_closes_concurrently() {
@@ -469,10 +455,10 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..3 {
-                        Runtime::new(test_snapshot(), "http://localhost/", "[]").close();
+                        Runtime::new("http://localhost/", "[]").close();
                     }
                     // The last one closes via Drop instead.
-                    Runtime::new(test_snapshot(), "http://localhost/", "[]");
+                    Runtime::new("http://localhost/", "[]");
                 })
             })
             .collect();
