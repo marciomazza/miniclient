@@ -1,6 +1,5 @@
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
 
 use crate::runtime::{EvalError, EvalOutcome};
 
@@ -84,15 +83,10 @@ struct Runtime(runtime::Runtime);
 
 #[pymethods]
 impl Runtime {
-    /// The isolate holding the leaked snapshot dies with the process anyway (see snapshot::leak).
     #[new]
-    #[pyo3(signature = (snapshot, url, virtual_servers_json="[]"))]
-    fn new(snapshot: &[u8], url: &str, virtual_servers_json: &str) -> Self {
-        Self(runtime::Runtime::new(
-            Box::leak(Box::from(snapshot)),
-            url,
-            virtual_servers_json,
-        ))
+    #[pyo3(signature = (url="http://localhost/", virtual_servers_json="[]"))]
+    fn new(url: &str, virtual_servers_json: &str) -> Self {
+        Self(runtime::Runtime::new(url, virtual_servers_json))
     }
 
     /// Detaches from the interpreter while waiting: the script may call back into Python.
@@ -161,58 +155,20 @@ impl Runtime {
     }
 }
 
-#[pyfunction]
-fn v8_version() -> &'static str {
-    deno_core::v8::V8::get_version()
-}
-
-/// Serializes `scripts` (ordered `(name, source)` pairs) into a V8 snapshot blob.
-#[pyfunction]
-fn create_snapshot<'py>(
-    py: Python<'py>,
-    scripts: Vec<(String, String)>,
-) -> PyResult<Bound<'py, PyBytes>> {
-    let blob = py
-        .detach(|| snapshot::create_snapshot(scripts))
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-    Ok(PyBytes::new(py, &blob))
-}
-
-/// Mini's default snapshot, built into the extension by build.rs. Lets a wheel skip
-/// `create_snapshot` entirely -- it can't read the build machine's deno_web sources.
-#[pyfunction]
-fn default_snapshot(py: Python<'_>) -> Bound<'_, PyBytes> {
-    PyBytes::new(py, snapshot::DEFAULT_SNAPSHOT)
-}
-
 #[pymodule]
 fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("JavaScriptError", m.py().get_type::<JavaScriptError>())?;
-    m.add_class::<Runtime>()?;
-    m.add_function(wrap_pyfunction!(v8_version, m)?)?;
-    m.add_function(wrap_pyfunction!(create_snapshot, m)?)?;
-    m.add_function(wrap_pyfunction!(default_snapshot, m)?)
+    m.add_class::<Runtime>()
 }
 
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
-    use std::sync::OnceLock;
 
     use pyo3::types::PyModule;
 
     use super::*;
-    use crate::snapshot::{self, support};
-
-    /// Built once and shared across tests below, same rationale as `runtime.rs`'s own copy of
-    /// this helper: a snapshot is expensive and only ever read here, never mutated.
-    fn test_snapshot() -> &'static [u8] {
-        static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
-        SNAPSHOT.get_or_init(|| {
-            snapshot::create_snapshot(support::runtime_scripts())
-                .expect("failed to build the test snapshot")
-        })
-    }
+    use crate::snapshot::support;
 
     fn fixtures(py: Python<'_>) -> Bound<'_, PyModule> {
         PyModule::from_code(
@@ -251,11 +207,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_binds_a_sync_callable_reachable_from_js() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
             runtime
@@ -272,11 +224,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_raises_cleanly_on_a_non_json_return_value() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         Python::attach(|py| {
             let not_json = fixtures(py).getattr("not_json").unwrap().unbind();
             runtime
@@ -293,11 +241,7 @@ async_instance = AsyncCallable()
         // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python, sleep,
         // crypto_random_bytes, crypto_random_uuid.
         assert_eq!(crate::runtime::miniclient_extension().ops.len(), 9);
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         Python::attach(|py| {
             let fixtures = fixtures(py);
             for name in [
@@ -321,11 +265,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_a_name_that_is_not_a_js_identifier() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
             runtime
@@ -341,11 +281,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_proto() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
             runtime
@@ -358,11 +294,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_an_async_callable() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let async_fn = fixtures(py).getattr("async_fn").unwrap().unbind();
             runtime
@@ -379,11 +311,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_an_async_generator_function() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let async_gen_fn = fixtures(py).getattr("async_gen_fn").unwrap().unbind();
             runtime
@@ -398,11 +326,7 @@ async_instance = AsyncCallable()
     #[test]
     fn register_function_refuses_an_object_with_an_async_call() {
         let _guard = support::v8_test_lock();
-        let runtime = Runtime(runtime::Runtime::new(
-            test_snapshot(),
-            "http://localhost/",
-            "[]",
-        ));
+        let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let async_instance = fixtures(py).getattr("async_instance").unwrap().unbind();
             runtime

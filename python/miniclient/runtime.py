@@ -1,140 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
-import hashlib
 import json
-import subprocess
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from functools import cache
-from pathlib import Path
 from typing import TypedDict
 
 import httpx2 as httpx
 
-from miniclient._miniclient import (
-    Runtime,
-    create_snapshot,
-    default_snapshot as _embedded_snapshot,
-    v8_version,
-)
-
-_ROOT = Path(__file__).parent.parent.parent
-# build.rs writes _vendor/ into a checkout too, so its presence cannot tell the two apart.
-# Cargo.toml sits beside the package only in a checkout; package.json would also match any
-# Node project a wheel happens to be installed under.
-_IN_CHECKOUT = (_ROOT / "Cargo.toml").exists()
-_NM = _ROOT / "node_modules" if _IN_CHECKOUT else Path(__file__).parent / "_vendor"
-_JS = Path(__file__).parent / "js"
-_POLYFILLS = _JS / "polyfills"
-_GENERATED = _JS / "_generated"
-_HAPPYDOM_BUNDLE = _GENERATED / "happy-dom-bundle.js"
-_SNAPSHOT_WARMUP = _JS / "snapshot_warmup.js"
-
-
-def _happydom_bundle_source_list() -> list[Path]:
-    # Nearly every file in polyfills/ ends up inlined into the bundle (happy-dom's static
-    # import graph reaches almost all Node builtins) -- glob instead of hand-listing, so a
-    # new polyfill file can't silently go unwatched the way node-stream-web.js's staleness
-    # check originally did.
-    return [
-        _JS / "build-happydom-bundle.mjs",
-        _JS / "happydom-entry.js",
-        *_JS.glob("patch-*.js"),
-        *_POLYFILLS.glob("*.js"),
-        _ROOT / "package-lock.json",
-    ]
-
-
-def _happydom_bundle_update() -> None:
-    # flock is not a cross-platform lock lib -- fine since this runtime is Linux/mac-only anyway.
-    # Guards against parallel test workers racing esbuild onto the same outfile
-    # (truncated/partial reads).
-    _HAPPYDOM_BUNDLE.parent.mkdir(parents=True, exist_ok=True)
-    with open(_HAPPYDOM_BUNDLE.parent / ".happy-dom-bundle.lock", "w") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            stale = not _HAPPYDOM_BUNDLE.exists() or any(
-                p.stat().st_mtime > _HAPPYDOM_BUNDLE.stat().st_mtime
-                for p in _happydom_bundle_source_list()
-            )
-            if stale:
-                # A local checkout (re)builds it here on first use or whenever one of the
-                # files above changes, including package-lock.json -- so bumping happy-dom
-                # (or any npm dep) triggers a rebuild too.
-                subprocess.run(
-                    ["node", "build-happydom-bundle.mjs"], cwd=_JS, check=True, capture_output=True
-                )  # pragma: no cover
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
-
-
-def _happydom_bundle_source() -> str:
-    if _IN_CHECKOUT:
-        _happydom_bundle_update()
-    # else: the packaged wheel ships a pre-built bundle -- trust it.
-    return _HAPPYDOM_BUNDLE.read_text()
-
-
-def get_snapshot_scripts() -> list[tuple[str, str]]:
-    """The production scripts, in execution order, warmup last (shared by prod and test
-    snapshots)."""
-    xpath_src = (_NM / "xpath/xpath.js").read_text()
-    return [
-        (
-            "xpath",
-            f"""const __xpathLib = {{}};
-        (function(exports){{{xpath_src}}})(__xpathLib);
-        globalThis.__xpathLib = __xpathLib;""",
-        ),
-        ("pre_globals", (_JS / "pre_globals.js").read_text()),
-        ("formdata", (_JS / "formdata.js").read_text()),
-        ("element-registry", (_JS / "element_registry.js").read_text()),
-        ("submit", (_JS / "submit.js").read_text()),
-        ("happy-dom-bundle", _happydom_bundle_source()),
-        # Last: warmup exercises and precompiles the above. Runs as an ordinary script rather
-        # than deno_core's warmup_script parameter (see create_snapshot in snapshot.rs).
-        ("warmup", _SNAPSHOT_WARMUP.read_text()),
-    ]
-
-
-def _snapshot_cache_path(scripts: list[tuple[str, str]]) -> Path:
-    # The V8 build identity belongs in the key as much as the sources do: bumping deno_core
-    # leaves every script byte-identical, and V8 refuses a blob stamped by another build --
-    # an error pointing nowhere near a cache file nobody knew existed. The key rides in the
-    # file name, so a miss is a missing file and a stale blob can never be read back.
-    key = hashlib.sha256(v8_version().encode())
-    for name, source in scripts:
-        key.update(f"{name}\0{source}\0".encode())
-    return _GENERATED / f"snapshot-{key.hexdigest()[:16]}.bin"
-
-
-@cache
-def default_snapshot() -> bytes:
-    """The snapshot of `get_snapshot_scripts()`.
-
-    A wheel returns the blob build.rs baked into the extension: deno_core records deno_web's
-    sources as build-machine paths, so `create_snapshot` only works from a checkout. There it
-    still builds live (picking up local JS edits), cached on disk.
-    """
-    if not _IN_CHECKOUT:
-        return _embedded_snapshot()
-    scripts = get_snapshot_scripts()
-    path = _snapshot_cache_path(scripts)
-    _GENERATED.mkdir(parents=True, exist_ok=True)
-    # Same flock as the happy-dom bundle above, for the same reason: parallel test workers
-    # would otherwise race each other onto the same output file.
-    with open(_GENERATED / ".snapshot.lock", "w") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            if not path.exists():
-                for stale in _GENERATED.glob("snapshot-*.bin"):
-                    stale.unlink()
-                path.write_bytes(create_snapshot(scripts))
-            return path.read_bytes()
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+from miniclient._miniclient import Runtime
 
 
 def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
@@ -278,7 +152,7 @@ async def open_runtime(
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(default_snapshot(), url, json.dumps(virtual_servers or []))
+        r = Runtime(url, json.dumps(virtual_servers or []))
 
         _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
         r.install_host_ops(

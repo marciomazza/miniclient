@@ -9,13 +9,12 @@ import re
 import pytest
 
 from miniclient._miniclient import JavaScriptError, Runtime
-from miniclient.runtime import default_snapshot
 
 
 @pytest.fixture
 def bare_runtime():
     """Not conftest's `runtime`: no install_host_ops() call, so no fetch support."""
-    r = Runtime(default_snapshot(), "http://localhost/")
+    r = Runtime("http://localhost/")
     yield r
     r.close()
 
