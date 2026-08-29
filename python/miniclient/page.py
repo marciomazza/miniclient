@@ -270,13 +270,11 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
-        v8_snapshot: bytes | None = None,
         *,
         runtime: Runtime | None = None,
     ) -> None:
         self._httpx_transport = httpx_transport
         self._mounts = mounts
-        self._v8_snapshot = v8_snapshot
         self._runtime = runtime  # type: ignore[assignment]
         self._stack: AsyncExitStack | None = None
 
@@ -293,7 +291,6 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
             self._stack = AsyncExitStack()  # type: ignore[assignment]
             self._runtime = await self._stack.enter_async_context(
                 open_runtime(
-                    v8_snapshot=self._v8_snapshot,
                     httpx_transport=self._httpx_transport,
                     virtual_servers=[
                         {"url": mount_url, "directory": str(directory)}
@@ -435,7 +432,6 @@ class Page:
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
-        v8_snapshot: bytes | None = None,
     ) -> None:
         try:
             asyncio.get_running_loop()
@@ -452,7 +448,6 @@ class Page:
         self._async: AsyncPage[Element] = AsyncPage(
             httpx_transport=httpx_transport,
             mounts=mounts,
-            v8_snapshot=v8_snapshot,
         )
         self._async._element_cls = Element
         self._loop.run_until_complete(self._async._build())

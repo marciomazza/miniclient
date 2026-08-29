@@ -7,8 +7,8 @@
  * fetchMock.calls[0].request.body (FormData) remains accessible to tests.
  */
 (function () {
-    // Captured lazily by installFetchMock() so the v8_snapshot build (which
-    // runs before bootstrap.js sets globalThis.fetch) does not capture undefined.
+    // Captured lazily by installFetchMock(), after a navigation may have
+    // replaced globalThis.fetch.
     let _origFetch = null;
 
     // A plain string urlPattern (e.g. '/test?name=test') is meant as a literal
