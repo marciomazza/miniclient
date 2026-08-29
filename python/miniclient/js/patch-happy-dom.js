@@ -3,12 +3,32 @@ import patchDomParser from "./patch-happy-dom-parser.js";
 import patchAttr from "./patch-happy-dom-attr.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
 import SelectorItem from "happy-dom/lib/query-selector/SelectorItem.js";
+import SelectorParser from "happy-dom/lib/query-selector/SelectorParser.js";
 import * as PropertySymbol from "happy-dom/lib/PropertySymbol.js";
 
 function patchMethod(proto, method, wrapper) {
     const orig = proto[method];
     proto[method] = function (...args) {
         return wrapper.call(this, orig, ...args);
+    };
+}
+
+// Parsed SelectorItem groups depend only on the selector string, but happy-dom keys its cache
+// on window[querySelectorCache], which navigation discards along with the Window — so every
+// goto / form submit / hx-boost re-parses every selector, and CSSParser.validateSelectorText
+// re-runs the full parser on every CSS rule of every stylesheet on top. Share one cache across
+// all windows instead.
+{
+    const CACHE = new Map();
+    const origUncached = SelectorParser.prototype.getSelectorGroupsUncached;
+    SelectorParser.prototype.getSelectorGroups = function (selector) {
+        selector = selector.trim();
+        let groups = CACHE.get(selector);
+        if (groups) return groups;
+        groups = origUncached.call(this, selector);
+        if (CACHE.size > 5000) CACHE.clear();
+        CACHE.set(selector, groups);
+        return groups;
     };
 }
 
