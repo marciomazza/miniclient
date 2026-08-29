@@ -185,8 +185,44 @@
 
     // XPathEvaluator backed by the xpath npm package (XPath 1.0).
     // Loaded via __xpathLib injected before this script runs.
+    // CONTRACT: shared with patch-happy-dom-hxon-index.js via this exact registry
+    // string. That patch is the writer (fills the Set on onSetAttribute); this is the
+    // reader. Change the string in both or the short-circuit silently returns nothing.
+    const HXON_INDEX_KEY = Symbol.for("miniclient.hxOnIndex");
+
+    // htmx's #hxOnQuery and hx-live's bind scan are both `.//*[@*[starts-with(name(), ...)]
+    // (or @exact ...)]` — a full element × attribute-name walk on every process(). Recognise
+    // that shape and answer it from patch-happy-dom-hxon-index's per-document Set instead.
+    function hxOnShortCircuit(expr) {
+        if (!/^\.\/\/\*\[@\*\[/.test(expr) || !expr.includes("starts-with(name()")) return null;
+        const prefixes = [...expr.matchAll(/starts-with\(name\(\),\s*"([^"]*)"\)/g)].map(
+            (m) => m[1],
+        );
+        const exacts = [...expr.matchAll(/(?:^|[\s([])@([a-z][\w:-]*)/gi)].map((m) => m[1]);
+        const matchName = (n) => prefixes.some((p) => n.startsWith(p)) || exacts.includes(n);
+        return function evaluate(ctx) {
+            const doc = ctx.ownerDocument || ctx;
+            const index = doc && doc[HXON_INDEX_KEY];
+            const out = [];
+            if (index) {
+                for (const el of index) {
+                    if (!el.isConnected) {
+                        index.delete(el);
+                        continue;
+                    }
+                    if (ctx !== el && !ctx.contains(el)) continue;
+                    if (el.getAttributeNames().some(matchName)) out.push(el);
+                }
+            }
+            let i = 0;
+            return { iterateNext: () => out[i++] ?? null };
+        };
+    }
+
     globalThis.XPathEvaluator = class XPathEvaluator {
         createExpression(expr) {
+            const shortCircuit = hxOnShortCircuit(expr);
+            if (shortCircuit) return { evaluate: shortCircuit };
             const compiled = globalThis.__xpathLib.parse(expr);
             return {
                 evaluate(ctx) {

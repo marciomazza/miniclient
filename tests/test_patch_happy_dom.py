@@ -232,6 +232,42 @@ async def test_dispatch_event_restores_global_event_after(runtime):
     assert result == "sentinel"
 
 
+async def test_hxon_index_short_circuit_matches_xpath(runtime):
+    # The patched XPathEvaluator answers htmx's #hxOnQuery from the per-document index.
+    # It must return exactly the elements a full attribute-name walk would: those with an
+    # hx-on / data-hx-on attribute, restricted to the query root's subtree, and nothing
+    # from a stale index entry that was later detached.
+    result = runtime.eval("""\
+        document.body.innerHTML =
+          '<div id="root"><b id="hit" hx-on:click="x"></b><i id="plain" class="c"></i></div>' +
+          '<b id="outside" hx-on:click="y"></b>';
+        const gone = document.createElement('b');
+        gone.setAttribute('hx-on:click', 'z');   // indexed, never connected
+        const expr = new XPathEvaluator().createExpression(
+          './/*[@*[starts-with(name(), "hx-on") or starts-with(name(), "data-hx-on")]]');
+        const iter = expr.evaluate(document.getElementById('root'));
+        const ids = [];
+        for (let n = iter.iterateNext(); n; n = iter.iterateNext()) ids.push(n.id);
+        ids;
+    """)
+    assert result == ["hit"]
+
+
+async def test_hxon_index_picks_up_dynamic_attr_for_process_force(runtime):
+    # Adding hx-on after load and re-scanning (htmx's process(el, true)) must see it —
+    # the onSetAttribute hook indexes the element on the spot.
+    result = runtime.eval("""\
+        document.body.innerHTML = '<div id="d"></div>';
+        const d = document.getElementById('d');
+        d.setAttribute('hx-on:click', 'handler');
+        const expr = new XPathEvaluator().createExpression(
+          './/*[@*[starts-with(name(), "hx-on") or starts-with(name(), "data-hx-on")]]');
+        const iter = expr.evaluate(document.body);
+        iter.iterateNext()?.id;
+    """)
+    assert result == "d"
+
+
 @pytest.mark.parametrize("attr", ["foo", ":foo", "foo:bar"])
 async def test_colon_attribute_setattribute_overwrites(runtime, attr):
     # setAttribute must keep overwriting, not silently freeze at the first value,
