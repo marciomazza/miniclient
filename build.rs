@@ -1,6 +1,6 @@
-// The wheel ships prebuilt JS: happy-dom bundled by esbuild, plus the npm files read at
-// runtime copied into the package as _vendor/. Cargo runs this on every build, and maturin
-// drives cargo -- so there is nowhere else to hook this.
+// The wheel ships prebuilt JS: happy-dom bundled by esbuild, plus the licence files of the
+// npm code that bundle/snapshot redistributes, copied into the package as _vendor/. Cargo
+// runs this on every build, and maturin drives cargo -- so there is nowhere else to hook this.
 //
 // A build script that fails the build on any I/O error is the intended behaviour, so the
 // unwrap/expect lints from Cargo.toml add nothing here.
@@ -10,15 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // maturin's `include` cannot remap paths, so the copy into the package happens here and
-// maturin picks the package dir up as-is. Narrower than the sdist list in pyproject.toml:
-// the wheel ships a prebuilt bundle, so it needs happy-dom's licence but not its sources.
-const VENDORED: &[&str] = &[
-    "happy-dom/LICENSE",
-    "xpath/xpath.js",
-    "xpath/LICENSE",
-    "entities/dist/esm",
-    "entities/LICENSE",
-];
+// maturin picks the package dir up as-is. Only licences: the wheel embeds the bundle and the
+// snapshot, so it redistributes this code but never reads these files at runtime.
+const VENDORED: &[&str] = &["happy-dom/LICENSE", "xpath/LICENSE", "entities/LICENSE"];
 
 fn run(program: &str, args: &[&str], cwd: &Path) {
     let status = Command::new(program)
@@ -71,6 +65,8 @@ fn main() {
     );
 
     let vendor = root.join("python/miniclient/_vendor");
+    // Wipe first so a dropped entry (e.g. a swapped-out dependency) can't linger on disk.
+    std::fs::remove_dir_all(&vendor).ok();
     for rel in VENDORED {
         copy_tree(&node_modules.join(rel), &vendor.join(rel));
     }
