@@ -94,7 +94,11 @@ async def test_url_search_params_round_trip(runtime, params):
 
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(
-    st.text(alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")), min_size=1),
+    # host: ASCII only -- WHATWG URL runs IDNA on the host and throws on labels that
+    # aren't valid Unicode domains.
+    st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-", min_size=1).filter(
+        lambda h: not h.startswith("-") and not h.endswith("-")
+    ),
     st.text(
         alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd", "Po", "Zs")), min_size=1
     ),
@@ -106,8 +110,12 @@ async def test_url_href_round_trip(runtime, host, path, query):
     safe_path = path.replace(" ", "%20").replace("?", "%3F")
     safe_query = query.replace(" ", "%20").replace("&", "%26")
     href = f"http://{host}.test/{safe_path}?q={safe_query}"
+    # WHATWG URL normalises (percent-encodes non-ASCII etc.), so the property is
+    # idempotence -- re-parsing the serialised href yields the same string -- not
+    # byte-identity with the raw input.
     result = runtime.eval(f"new URL({_js_str(href)}).href")
-    assert result == href
+    reparsed = runtime.eval(f"new URL({_js_str(result)}).href")
+    assert result == reparsed
 
 
 # ---------------------------------------------------------------------------

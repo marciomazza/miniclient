@@ -3,10 +3,27 @@
     // circular arg -- htmx passes those). 00_url.js is force-loaded too: 01_console.js
     // lazy-loads it on first use, and only scripts touched here (the snapshot's cold pass)
     // survive into the snapshot's residual lazy table.
+    //
+    // URL/URLSearchParams — deno_web's WHATWG impl (Servo `url` crate). Assigned here in the
+    // cold pass so happy-dom's bundle captures them as the globals when it evals; node-url.js
+    // re-exports them for the `url` bundle alias, which happy-dom's URL/URLSearchParams import
+    // from. searchParams mutations propagate back to href, and URLSearchParams accepts an
+    // iterable (incl. our FormData) as init -- both former patch-happy-dom-url.js jobs.
     {
-        Deno.core.loadExtScript("ext:deno_web/00_url.js");
+        const url = Deno.core.loadExtScript("ext:deno_web/00_url.js");
         const { Console } = Deno.core.loadExtScript("ext:deno_web/01_console.js");
         globalThis.console = new Console(Deno.core.print);
+
+        // deno's URL has no createObjectURL; hx-download.js needs it.
+        const _blobs = new Map();
+        url.URL.createObjectURL = (obj) => {
+            const id = `blob:local/${Deno.core.ops.op_crypto_random_uuid()}`;
+            _blobs.set(id, obj);
+            return id;
+        };
+        url.URL.revokeObjectURL = (id) => _blobs.delete(id);
+
+        Object.assign(globalThis, { URL: url.URL, URLSearchParams: url.URLSearchParams });
     }
 
     // TextEncoder/TextDecoder — deno_web's, backed by encoding_rs ops. Force-loaded here (cold

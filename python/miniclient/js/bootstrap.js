@@ -136,9 +136,8 @@ function registerWindowGlobals(win) {
     // classes (see WindowContextClassExtender.js — real per-window class identity,
     // not shared across instances), so prototype-level patches like the MutationObserver
     // WeakRef-GC fix only take effect on the win they're applied to. Also last so its
-    // patches (e.g. patch-happy-dom-url.js's globalThis.URLSearchParams override) are
-    // the final, authoritative values — not overwritten by the registration copy above,
-    // which only knows about happy-dom's unpatched classes.
+    // patches are the final, authoritative values — not overwritten by the registration
+    // copy above, which only knows about happy-dom's unpatched classes.
     patchHappyDom(win);
 
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM

@@ -1,4 +1,8 @@
-"""Tests for URL / URLSearchParams quirks patched in patch-happy-dom-url.js."""
+"""Pinning tests for URL / URLSearchParams behaviour.
+
+These formerly guarded patch-happy-dom-url.js; the patch is gone and deno_web's native
+00_url.js provides the same behaviour. Kept as a regression guard for the swap.
+"""
 
 import pytest
 
@@ -70,3 +74,17 @@ async def test_searchparams_mutation_propagates_to_href(runtime):
 async def test_urlsearchparams_accepts_iterable_init(runtime, setup_js, init_js, expected_str):
     result = runtime.eval(f"{setup_js}; init = {init_js}; init.toString()")
     assert result == expected_str
+
+
+# ---------------------------------------------------------------------------
+# URL.createObjectURL / revokeObjectURL — used by the hx-download extension
+# ---------------------------------------------------------------------------
+
+
+async def test_create_and_revoke_object_url(runtime):
+    result = runtime.eval("""
+        const url = URL.createObjectURL(new Blob(['hi']));
+        const ok = url.startsWith('blob:') && URL.revokeObjectURL(url) === true;
+        ok;
+    """)
+    assert result is True
