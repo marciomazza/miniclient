@@ -81,12 +81,12 @@ fn main() {
 /// Builds mini's default V8 snapshot at build time and embeds it in the `.so`.
 ///
 /// deno_core 0.410 records deno_web / deno_webidl's ESM only as build-machine disk paths,
-/// read during `create_snapshot`. A wheel that ran `create_snapshot` at runtime would try to
-/// read the build box's `/root/.cargo` and panic with EACCES. Building here -- where those
-/// files exist -- and shipping the blob means the wheel never calls `create_snapshot`.
+/// read while the snapshot is built. Doing it at runtime would try to read the build box's
+/// `/root/.cargo` and panic with EACCES -- so it happens here, where those files exist, and
+/// only the finished blob ships.
 ///
-/// The script list mirrors `get_snapshot_scripts()` in `python/miniclient/runtime.py` and
-/// `runtime_scripts()` in `src/snapshot.rs`; keep the three in sync.
+/// This script list is the canonical one. `runtime_scripts()` in `src/snapshot.rs` copies it
+/// for the crate's tests; keep the two in sync (a divergence fails those tests' boot check).
 fn build_default_snapshot(node_modules: &Path, js: &Path, out_dir: &Path) {
     let read = |p: &Path| {
         std::fs::read_to_string(p).unwrap_or_else(|e| panic!("snapshot input {p:?}: {e}"))
