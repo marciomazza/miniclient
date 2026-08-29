@@ -3,6 +3,24 @@
 - **Commit messages and code in English**
 - The project uses **pyrefly** as a type checker.
 
+## Agent skills
+
+Issues, specs, and wayfinder maps live as markdown under `.scratch/<feature-slug>/` — one
+directory per effort, never a combined tickets file. Before exploring the codebase, read
+`CONTEXT.md` and `docs/adr/` at the repo root if they exist (proceed silently if not).
+
+### Wayfinder layout
+
+- **Map**: `.scratch/<effort>/map.md` (Notes / Decisions-so-far / Fog).
+- **Ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`. Body holds the
+  question. `Type:` line = `research`/`prototype`/`grilling`/`task`; `Status:` line =
+  `claimed`/`resolved`; `Blocked by: NN, NN` line lists prerequisite tickets.
+- **Frontier** = open tickets that are unclaimed and whose blockers are all `resolved`;
+  lowest number first.
+- **Claim** before any work (`Status: claimed`). **Resolve** by appending an `## Answer`
+  section, setting `Status: resolved`, and adding a one-line pointer to the map's
+  Decisions-so-far.
+
 ## graphify
 
 This project may have a local knowledge graph at graphify-out/ (god nodes, community structure, cross-file relationships).
