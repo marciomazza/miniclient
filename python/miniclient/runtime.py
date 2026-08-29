@@ -271,7 +271,6 @@ class VirtualServer(TypedDict):
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
-    v8_snapshot: bytes | None = None,
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
     virtual_servers: list[VirtualServer] | None = None,
@@ -279,7 +278,7 @@ async def open_runtime(
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(v8_snapshot or default_snapshot(), url, json.dumps(virtual_servers or []))
+        r = Runtime(default_snapshot(), url, json.dumps(virtual_servers or []))
 
         _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
         r.install_host_ops(

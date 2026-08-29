@@ -6,7 +6,7 @@ import pytest
 from conftest import HTMX_BASE_HTML, HTMX_VIRTUAL_SERVER
 from htmx_fetch_mock import HttpxFetchMock
 
-from miniclient.runtime import Runtime, create_snapshot, get_snapshot_scripts, open_runtime
+from miniclient.runtime import Runtime, open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _HTMX_TEST = _ROOT / "vendor/htmx/test"
@@ -64,29 +64,22 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
 }
 
 
-@pytest.fixture(scope="session")
-def htmx_v8_snapshot() -> bytes:
-    scripts = [
-        *get_snapshot_scripts(),
-        (
-            "chai",
-            f"""{_CHAI_JS.read_text()}
-            globalThis.assert = globalThis.chai.assert;
-            globalThis.should = globalThis.chai.should();""",
-        ),
-        ("fetch-mock-bridge", _FETCH_MOCK_BRIDGE_JS.read_text()),
-        ("runner", _RUNNER_JS.read_text()),
-    ]
-    return create_snapshot(scripts)
+# Baking these into a V8 snapshot instead saved ~3 ms per runtime open (<1% of the suite),
+# not worth the custom-snapshot API it required.
+_TEST_HARNESS_JS = f"""
+    {_CHAI_JS.read_text()};
+    globalThis.assert = globalThis.chai.assert;
+    globalThis.should = globalThis.chai.should();
+    {_FETCH_MOCK_BRIDGE_JS.read_text()};
+    {_RUNNER_JS.read_text()};
+    """
 
 
-# todo: Perhaps make this a module scoped feature again after the tests pass.
 @pytest.fixture
-async def htmx_runtime(htmx_v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]:
+async def htmx_runtime() -> AsyncGenerator[Runtime, None]:
     fetch_mock = HttpxFetchMock()
     async with open_runtime(
         "http://localhost/",
-        v8_snapshot=htmx_v8_snapshot,
         before_fetch=fetch_mock.before_fetch,
         httpx_transport=fetch_mock.transport,
         virtual_servers=[
@@ -95,8 +88,9 @@ async def htmx_runtime(htmx_v8_snapshot: bytes) -> AsyncGenerator[Runtime, None]
         ],
     ) as r:
         await r.eval_async(f"__document_write(`{HTMX_BASE_HTML}`)")
-        # Bound after the navigation above (a real happy-dom navigation replaces
+        # Loaded after the navigation above (a real happy-dom navigation replaces
         # globalThis's contents), not before: anything bound earlier is wiped by it.
+        r.eval(_TEST_HARNESS_JS)
         fetch_mock.install(r)
         r.eval(_HELPERS_JS.read_text())
         yield r
