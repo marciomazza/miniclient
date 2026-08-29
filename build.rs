@@ -1,6 +1,11 @@
 // The wheel ships prebuilt JS: happy-dom bundled by esbuild, plus the npm files read at
 // runtime copied into the package as _vendor/. Cargo runs this on every build, and maturin
 // drives cargo -- so there is nowhere else to hook this.
+//
+// A build script that fails the build on any I/O error is the intended behaviour, so the
+// unwrap/expect lints from Cargo.toml add nothing here.
+#![allow(clippy::unwrap_used)]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

@@ -9,6 +9,12 @@ publish = false
 crate-type = ["cdylib"]
 name = "_miniclient"
 
+[lints.clippy]
+# expect_used stays off on purpose: `.expect("why")` is the recommended fix for a bare
+# `.unwrap()`, and the runtime's isolate-thread setup relies on it for real invariants.
+unwrap_used = "warn"
+todo = "warn"
+
 [dependencies]
 deno_core = "0.410.0"
 deno_error = "0.7.1"
