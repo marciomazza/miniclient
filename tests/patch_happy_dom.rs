@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{boolean, eval, eval_isolated, json, run, runtime, text};
+use common::{boolean, eval, json, run, runtime, text};
 
 #[test]
 fn innerhtml_radio_mutual_exclusion() {
@@ -207,11 +207,7 @@ fn attach_internals_set_form_value() {
             el.__internalsFormValue
         "#
         );
-        assert_eq!(
-            json(eval_isolated(&rt, &src)).as_deref(),
-            expected,
-            "{value_js}",
-        );
+        assert_eq!(json(eval(&rt, &src)).as_deref(), expected, "{value_js}",);
     }
 }
 
@@ -250,7 +246,7 @@ fn moved_form_or_select_child_parent_identity_preserved() {
             child.parentElement === dest.firstChild
         "#
         );
-        assert!(boolean(eval_isolated(&rt, &src)), "{tag}");
+        assert!(boolean(eval(&rt, &src)), "{tag}");
     }
 }
 
@@ -268,7 +264,7 @@ fn dispatch_event_sets_global_event() {
             captured === evt
         "#
         );
-        assert!(boolean(eval_isolated(&rt, &src)), "{event_type}");
+        assert!(boolean(eval(&rt, &src)), "{event_type}");
     }
 }
 
@@ -282,7 +278,7 @@ fn dispatch_event_restores_global_event_after() {
         el.dispatchEvent(new Event('click'));
         globalThis.event
     "#;
-    assert_eq!(text(eval_isolated(&rt, src)), "sentinel");
+    assert_eq!(text(eval(&rt, src)), "sentinel");
 }
 
 const HXON_XPATH: &str =
@@ -305,10 +301,7 @@ fn hxon_index_short_circuit_matches_xpath() {
         ids
     "#
     );
-    assert_eq!(
-        json(eval_isolated(&rt, &src)).as_deref(),
-        Some(r#"["hit"]"#)
-    );
+    assert_eq!(json(eval(&rt, &src)).as_deref(), Some(r#"["hit"]"#));
 }
 
 #[test]
@@ -324,7 +317,7 @@ fn hxon_index_picks_up_dynamic_attr_for_process_force() {
         iter.iterateNext()?.id
     "#
     );
-    assert_eq!(text(eval_isolated(&rt, &src)), "d");
+    assert_eq!(text(eval(&rt, &src)), "d");
 }
 
 #[test]
@@ -340,6 +333,6 @@ fn colon_attribute_setattribute_overwrites() {
             d.getAttribute('{attr}')
         "#
         );
-        assert_eq!(text(eval_isolated(&rt, &src)), "updated", "{attr}");
+        assert_eq!(text(eval(&rt, &src)), "updated", "{attr}");
     }
 }

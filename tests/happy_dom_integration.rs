@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{boolean, eval, eval_isolated, runtime};
+use common::{boolean, eval, runtime};
 
 use _miniclient::runtime::Runtime;
 
@@ -31,7 +31,7 @@ fn script_executed_on_dom_insertion() {
             window.__ran === 1
         "#
         );
-        assert!(boolean(eval_isolated(&rt, &src)), "{insertion}");
+        assert!(boolean(eval(&rt, &src)), "{insertion}");
     }
 }
 

@@ -12,21 +12,17 @@ pub fn runtime() -> Runtime {
     Runtime::new("http://localhost/", "[]")
 }
 
+/// Wraps `src` in a block so its `let`/`const`/`class` bindings don't leak into the shared
+/// global scope — lets one `Runtime` run many snippets that all declare the same names. The
+/// block's completion value is still returned, so keep the last line an expression.
 pub fn eval(rt: &Runtime, src: &str) -> EvalOutcome {
-    rt.send_eval(src.to_string(), false)
+    rt.send_eval(format!("{{ {src} }}"), false)
         .blocking_recv()
         .expect("isolate thread answered")
 }
 
-/// Like `eval` but wraps `src` in a block so its `let`/`const` bindings don't leak into the
-/// shared global scope — lets one `Runtime` run many snippets that all declare the same names.
-/// The block's completion value is still returned, so keep the last line an expression.
-pub fn eval_isolated(rt: &Runtime, src: &str) -> EvalOutcome {
-    eval(rt, &format!("{{ {src} }}"))
-}
-
 pub fn eval_async(rt: &Runtime, src: &str) -> EvalOutcome {
-    rt.send_eval(src.to_string(), true)
+    rt.send_eval(format!("{{ {src} }}"), true)
         .blocking_recv()
         .expect("isolate thread answered")
 }

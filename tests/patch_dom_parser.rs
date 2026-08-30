@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{eval, eval_isolated, json, run, runtime, text};
+use common::{eval, json, run, runtime, text};
 
 #[test]
 fn regular_html_unchanged() {
@@ -247,7 +247,7 @@ fn insert_adjacent_html_throws_dom_exception() {
         "#
         );
         assert_eq!(
-            text(eval_isolated(&rt, &src)),
+            text(eval(&rt, &src)),
             format!(r#"["{want_error}",true,0]"#),
             "{position}",
         );

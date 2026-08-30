@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{boolean, eval, eval_isolated, runtime, text};
+use common::{boolean, eval, runtime, text};
 
 #[test]
 fn searchparams_mutation_propagates_to_search() {
@@ -24,7 +24,7 @@ fn searchparams_mutation_propagates_to_search() {
         ),
     ] {
         let src = format!("const u = new URL('{start_url}'); {mutation}; u.search");
-        assert_eq!(text(eval_isolated(&rt, &src)), want, "{mutation}");
+        assert_eq!(text(eval(&rt, &src)), want, "{mutation}");
     }
 }
 
@@ -61,7 +61,7 @@ fn urlsearchparams_accepts_iterable_init() {
         ),
     ] {
         let src = format!("{setup}; const init = {init}; init.toString()");
-        assert_eq!(text(eval_isolated(&rt, &src)), want, "{init}");
+        assert_eq!(text(eval(&rt, &src)), want, "{init}");
     }
 }
 
