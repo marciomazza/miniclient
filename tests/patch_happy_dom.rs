@@ -11,7 +11,7 @@ fn innerhtml_radio_mutual_exclusion() {
     let rt = runtime();
     rt.run(
         r#"document.body.innerHTML =
-          '<input type="radio" name="g" checked><input type="radio" name="g" checked>'"#,
+  '<input type="radio" name="g" checked><input type="radio" name="g" checked>'"#,
     );
     assert_eq!(
         json(rt.eval("[...document.querySelectorAll('input[type=radio]')].map(r => r.checked)",))
@@ -23,7 +23,9 @@ fn innerhtml_radio_mutual_exclusion() {
 #[test]
 fn innerhtml_selected_reflected() {
     let rt = runtime();
-    rt.run("document.body.innerHTML = '<select><option>a</option><option selected>b</option></select>'",
+    rt.run(
+        "document.body.innerHTML =
+  '<select><option>a</option><option selected>b</option></select>'",
     );
     assert!(boolean(
         rt.eval("document.querySelectorAll('option')[1].selected",)
@@ -35,7 +37,7 @@ fn option_checked_pseudo_class_matches_selected_option() {
     let rt = runtime();
     rt.run(
         r#"document.body.innerHTML =
-          '<select><option value="a">a</option><option value="b" selected>b</option></select>'"#,
+  '<select><option value="a">a</option><option value="b" selected>b</option></select>'"#,
     );
     assert_eq!(
         json(rt.eval("document.querySelectorAll('option:checked').length")).as_deref(),
@@ -52,8 +54,8 @@ fn option_checked_pseudo_class_updates_after_value_assignment() {
     let rt = runtime();
     rt.run(
         r#"document.body.innerHTML =
-          '<select id="s"><option value="a">a</option><option value="b">b</option></select>';
-          document.getElementById('s').value = 'b';"#,
+  '<select id="s"><option value="a">a</option><option value="b">b</option></select>';
+document.getElementById('s').value = 'b';"#,
     );
     assert_eq!(
         text(rt.eval("document.querySelector('option:checked').value")),
@@ -76,7 +78,7 @@ fn select_value_setter_invalidates_stale_checked_query_cache() {
     let rt = runtime();
     rt.run(
         r#"document.body.innerHTML =
-          '<select id="s"><option value="a">a</option><option value="b">b</option></select>'"#,
+  '<select id="s"><option value="a">a</option><option value="b">b</option></select>'"#,
     );
     // Warm the querySelectorAll cache for this exact selector while nothing is selected.
     assert_eq!(
@@ -118,7 +120,7 @@ fn history_pushstate_url_parts() {
 #[test]
 fn location_hash_change_resets_history_state() {
     let rt = runtime();
-    rt.run("history.replaceState({foo: 1}, '', '/page'); location.hash = '#section';");
+    rt.run("history.replaceState({foo: 1}, '', '/page'); location.hash = '#section'");
     assert_eq!(json(rt.eval("history.state")).as_deref(), None);
     assert_eq!(text(rt.eval("location.hash")), "#section");
     assert_eq!(text(rt.eval("location.pathname")), "/page");
@@ -129,7 +131,8 @@ fn disabled_propagates_from_fieldset() {
     for tag in ["input", "button", "select", "textarea"] {
         let rt = runtime();
         rt.run(&format!(
-            r#"document.body.innerHTML = "<fieldset disabled><{tag} id='x'></{tag}></fieldset>""#
+            r#"document.body.innerHTML =
+  "<fieldset disabled><{tag} id='x'></{{tag}}></fieldset>""#
         ));
         assert!(
             boolean(rt.eval("document.querySelector('#x').matches(':disabled')")),
@@ -155,15 +158,15 @@ fn attach_internals_set_form_value() {
         ("'42'", Some(r#""42""#)),
         ("null", None),
     ] {
-        let src = format!(
+        let js = format!(
             r#"
             const el = document.createElement('div');
             const internals = el.attachInternals();
             internals.setFormValue({value_js});
-            el.__internalsFormValue
+            el.__internalsFormValue;
         "#
         );
-        assert_eq!(json(rt.eval(&src)).as_deref(), expected, "{value_js}",);
+        assert_eq!(json(rt.eval(&js)).as_deref(), expected, "{value_js}",);
     }
 }
 
@@ -190,18 +193,19 @@ fn getelementbyid_returns_first_in_tree_order() {
 fn moved_form_or_select_child_parent_identity_preserved() {
     let rt = runtime();
     for (tag, child_tag) in [("form", "input"), ("select", "option")] {
-        let src = format!(
+        let js = format!(
             r#"
             const helper = document.createElement('div');
-            helper.innerHTML = '<{tag} id="src"><{child_tag} id="x"></{child_tag}></{tag}>';
+            helper.innerHTML =
+              '<{tag} id="src"><{child_tag} id="x"></{child_tag}></{tag}>';
             const moved = helper.firstChild;
             const child = moved.firstChild;
             const dest = document.createElement('div');
             dest.appendChild(moved);
-            child.parentElement === dest.firstChild
+            child.parentElement === dest.firstChild;
         "#
         );
-        assert!(boolean(rt.eval(&src)), "{tag}");
+        assert!(boolean(rt.eval(&js)), "{tag}");
     }
 }
 
@@ -209,31 +213,33 @@ fn moved_form_or_select_child_parent_identity_preserved() {
 fn dispatch_event_sets_global_event() {
     let rt = runtime();
     for event_type in ["click", "input", "change", "custom-event"] {
-        let src = format!(
+        let js = format!(
             r#"
             const el = document.createElement('div');
             let captured = null;
-            el.addEventListener('{event_type}', () => {{ captured = globalThis.event; }});
+            el.addEventListener('{event_type}', () => {{
+              captured = globalThis.event;
+            }});
             const evt = new Event('{event_type}');
             el.dispatchEvent(evt);
-            captured === evt
+            captured === evt;
         "#
         );
-        assert!(boolean(rt.eval(&src)), "{event_type}");
+        assert!(boolean(rt.eval(&js)), "{event_type}");
     }
 }
 
 #[test]
 fn dispatch_event_restores_global_event_after() {
     let rt = runtime();
-    let src = r#"
+    let js = r#"
         const el = document.createElement('div');
         el.addEventListener('click', () => {});
         globalThis.event = 'sentinel';
         el.dispatchEvent(new Event('click'));
-        globalThis.event
+        globalThis.event;
     "#;
-    assert_eq!(text(rt.eval(src)), "sentinel");
+    assert_eq!(text(rt.eval(js)), "sentinel");
 }
 
 const HXON_XPATH: &str =
@@ -242,7 +248,7 @@ const HXON_XPATH: &str =
 #[test]
 fn hxon_index_short_circuit_matches_xpath() {
     let rt = runtime();
-    let src = format!(
+    let js = format!(
         r#"
         document.body.innerHTML =
           '<div id="root"><b id="hit" hx-on:click="x"></b><i id="plain" class="c"></i></div>' +
@@ -253,41 +259,41 @@ fn hxon_index_short_circuit_matches_xpath() {
         const iter = expr.evaluate(document.getElementById('root'));
         const ids = [];
         for (let n = iter.iterateNext(); n; n = iter.iterateNext()) ids.push(n.id);
-        ids
+        ids;
     "#
     );
-    assert_eq!(json(rt.eval(&src)).as_deref(), Some(r#"["hit"]"#));
+    assert_eq!(json(rt.eval(&js)).as_deref(), Some(r#"["hit"]"#));
 }
 
 #[test]
 fn hxon_index_picks_up_dynamic_attr_for_process_force() {
     let rt = runtime();
-    let src = format!(
+    let js = format!(
         r#"
         document.body.innerHTML = '<div id="d"></div>';
         const d = document.getElementById('d');
         d.setAttribute('hx-on:click', 'handler');
         const expr = new XPathEvaluator().createExpression({HXON_XPATH});
         const iter = expr.evaluate(document.body);
-        iter.iterateNext()?.id
+        iter.iterateNext()?.id;
     "#
     );
-    assert_eq!(text(rt.eval(&src)), "d");
+    assert_eq!(text(rt.eval(&js)), "d");
 }
 
 #[test]
 fn colon_attribute_setattribute_overwrites() {
     let rt = runtime();
     for attr in ["foo", ":foo", "foo:bar"] {
-        let src = format!(
+        let js = format!(
             r#"
             document.body.innerHTML = '<div id="a" foo="x" :foo="y"></div>';
             const d = document.getElementById('a');
             d.setAttribute('{attr}', 'first');
             d.setAttribute('{attr}', 'updated');
-            d.getAttribute('{attr}')
+            d.getAttribute('{attr}');
         "#
         );
-        assert_eq!(text(rt.eval(&src)), "updated", "{attr}");
+        assert_eq!(text(rt.eval(&js)), "updated", "{attr}");
     }
 }

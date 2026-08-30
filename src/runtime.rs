@@ -93,6 +93,7 @@ pub type EvalOutcome = Result<Option<String>, EvalError>;
 
 /// A JS `Error` keeps its own three field names all the way to Python; anything else that
 /// can go wrong in an eval is just a message.
+#[derive(Debug)]
 pub enum EvalError {
     Js(Box<JsError>),
     Other(String),

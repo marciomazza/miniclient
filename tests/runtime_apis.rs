@@ -40,7 +40,7 @@ fn deno_web_globals_wired() {
 #[test]
 fn buffer() {
     let rt = runtime();
-    for (src, want) in [
+    for (js, want) in [
         ("Buffer.from('hello', 'utf8').toString('utf8')", "hello"),
         ("Buffer.from('hello').toString('base64')", "aGVsbG8="),
         (
@@ -56,7 +56,7 @@ fn buffer() {
         ("Buffer.alloc(3).toString('hex')", "000000"),
         ("Buffer.from([0x68, 0x69]).toString()", "hi"),
     ] {
-        assert_eq!(text(rt.eval(src)), want, "{src}");
+        assert_eq!(text(rt.eval(js)), want, "{js}");
     }
     assert!(boolean(rt.eval("Buffer.isBuffer(Buffer.alloc(4))")));
     assert!(!boolean(rt.eval("Buffer.isBuffer(new Uint8Array(4))")));
@@ -91,7 +91,7 @@ fn dom_manipulation() {
 #[test]
 fn happy_dom_globals_are_functions() {
     let rt = runtime();
-    for src in [
+    for js in [
         "typeof Headers",
         "typeof Request",
         "typeof Response",
@@ -103,7 +103,7 @@ fn happy_dom_globals_are_functions() {
         "typeof window.EventTarget",
         "typeof window.DOMParser",
     ] {
-        assert_eq!(text(rt.eval(src)), "function", "{src}");
+        assert_eq!(text(rt.eval(js)), "function", "{js}");
     }
 }
 
@@ -152,9 +152,9 @@ fn performance_real_impl() {
         performance.mark('a');
         performance.measure('m', 'a');
         JSON.stringify([
-            performance.getEntriesByType('mark').length,
-            performance.getEntriesByName('m', 'measure').length,
-        ])
+          performance.getEntriesByType('mark').length,
+          performance.getEntriesByName('m', 'measure').length,
+        ]);
     "#,
     ));
     assert_eq!(entries, "[1,1]");
@@ -166,15 +166,15 @@ fn performance_observer_fires() {
     let seen = text(rt.eval_async(
         r#"
         (async () => {
-            const seen = [];
-            const po = new PerformanceObserver((list) => {
-                for (const e of list.getEntries()) seen.push(e.entryType);
-            });
-            po.observe({ entryTypes: ['mark'] });
-            performance.mark('watched');
-            await new Promise((r) => setTimeout(r, 10));
-            return seen.join(',');
-        })()
+          const seen = [];
+          const po = new PerformanceObserver(list => {
+            for (const e of list.getEntries()) seen.push(e.entryType);
+          });
+          po.observe({entryTypes: ['mark']});
+          performance.mark('watched');
+          await new Promise(r => setTimeout(r, 10));
+          return seen.join(',');
+        })();
     "#,
     ));
     assert_eq!(seen, "mark");

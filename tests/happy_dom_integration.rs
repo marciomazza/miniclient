@@ -11,7 +11,7 @@ use _miniclient::runtime::Runtime;
 #[test]
 fn script_executed_on_dom_insertion() {
     let rt = runtime();
-    for insertion in [
+    for insertion_js in [
         "host.append(script)",
         "host.prepend(script)",
         "host.replaceChildren(script)",
@@ -20,18 +20,18 @@ fn script_executed_on_dom_insertion() {
         "host.insertBefore(script, null)",
         "host.replaceWith(script)",
     ] {
-        let src = format!(
+        let src_js = format!(
             r#"
             window.__ran = 0;
             const script = document.createElement('script');
             script.textContent = 'window.__ran = 1';
             const host = document.createElement('div');
             document.body.append(host); // host must be connected
-            {insertion};
-            window.__ran === 1
+            {insertion_js};
+            window.__ran === 1;
         "#
         );
-        assert!(boolean(rt.eval(&src)), "{insertion}");
+        assert!(boolean(rt.eval(&src_js)), "{insertion_js}");
     }
 }
 
@@ -61,8 +61,9 @@ fn script_with_external_file_src_executed() {
     let rt = Runtime::new("http://localhost/", &servers);
     let ran = boolean(rt.eval(
         r#"
-        document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>';
-        window.__ran === 1
+        document.head.innerHTML =
+          '<script src="http://localhost/ext/external-script.js"></script>';
+        window.__ran === 1;
     "#,
     ));
     std::fs::remove_dir_all(&dir).ok();

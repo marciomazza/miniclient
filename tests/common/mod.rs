@@ -37,7 +37,7 @@ impl EvalExt for Runtime {
     }
 
     fn run(&self, src: &str) {
-        json(self.eval(src));
+        self.eval(src).expect("eval succeeded");
     }
 }
 
