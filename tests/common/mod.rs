@@ -12,24 +12,33 @@ pub fn runtime() -> Runtime {
     Runtime::new("http://localhost/", "[]")
 }
 
-/// Wraps `src` in a block so its `let`/`const`/`class` bindings don't leak into the shared
-/// global scope — lets one `Runtime` run many snippets that all declare the same names. The
-/// block's completion value is still returned, so keep the last line an expression.
-pub fn eval(rt: &Runtime, src: &str) -> EvalOutcome {
-    rt.send_eval(format!("{{ {src} }}"), false)
-        .blocking_recv()
-        .expect("isolate thread answered")
+/// Lets tests write `rt.eval(src)` / `rt.eval_async(src)`. Each snippet is wrapped in a block
+/// so its `let`/`const`/`class` bindings don't leak into the shared global scope — one
+/// `Runtime` can run many snippets that all declare the same names. The block's completion
+/// value is still returned, so keep the last line an expression.
+pub trait EvalExt {
+    fn eval(&self, src: &str) -> EvalOutcome;
+    fn eval_async(&self, src: &str) -> EvalOutcome;
+    /// A sync eval run only for its side effect; panics if it threw or was refused.
+    fn run(&self, src: &str);
 }
 
-pub fn eval_async(rt: &Runtime, src: &str) -> EvalOutcome {
-    rt.send_eval(format!("{{ {src} }}"), true)
-        .blocking_recv()
-        .expect("isolate thread answered")
-}
+impl EvalExt for Runtime {
+    fn eval(&self, src: &str) -> EvalOutcome {
+        self.send_eval(format!("{{ {src} }}"), false)
+            .blocking_recv()
+            .expect("isolate thread answered")
+    }
 
-/// A sync eval run only for its side effect on the isolate; panics if it threw or was refused.
-pub fn run(rt: &Runtime, src: &str) {
-    json(eval(rt, src));
+    fn eval_async(&self, src: &str) -> EvalOutcome {
+        self.send_eval(format!("{{ {src} }}"), true)
+            .blocking_recv()
+            .expect("isolate thread answered")
+    }
+
+    fn run(&self, src: &str) {
+        json(self.eval(src));
+    }
 }
 
 /// The raw JSON text a successful eval produced (`None` for `undefined`/`null`).

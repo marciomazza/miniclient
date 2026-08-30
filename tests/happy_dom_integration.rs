@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{boolean, eval, runtime};
+use common::{EvalExt, boolean, runtime};
 
 use _miniclient::runtime::Runtime;
 
@@ -31,7 +31,7 @@ fn script_executed_on_dom_insertion() {
             window.__ran === 1
         "#
         );
-        assert!(boolean(eval(&rt, &src)), "{insertion}");
+        assert!(boolean(rt.eval(&src)), "{insertion}");
     }
 }
 
@@ -40,8 +40,7 @@ fn script_with_data_uri_src_executed() {
     // Buffer.from(data, "ascii") from a data: URI must decode to real bytes, not zero-filled
     // garbage, or the fetched script source is empty/invalid.
     let rt = runtime();
-    assert!(boolean(eval(
-        &rt,
+    assert!(boolean(rt.eval(
         r#"
         const src = 'data:text/javascript,' + encodeURIComponent('window.__ran = 1;');
         document.head.innerHTML = `<script src="${src}"></script>`;
@@ -60,8 +59,7 @@ fn script_with_external_file_src_executed() {
         dir.to_str().unwrap()
     );
     let rt = Runtime::new("http://localhost/", &servers);
-    let ran = boolean(eval(
-        &rt,
+    let ran = boolean(rt.eval(
         r#"
         document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>';
         window.__ran === 1
@@ -77,8 +75,7 @@ fn window_crypto_is_available() {
     // 'crypto'`, which node-crypto.js forwards from globalThis.crypto -- unset unless
     // pre_globals.js polyfills it before happy-dom is imported.
     let rt = runtime();
-    assert!(boolean(eval(
-        &rt,
+    assert!(boolean(rt.eval(
         r#"
         const uuid = window.crypto.randomUUID();
         window.crypto === globalThis.crypto
@@ -94,8 +91,7 @@ fn inline_event_handler_attribute_is_compiled() {
     // window[PropertySymbol.evaluateScript], where `window` is read off the element as the
     // real Window instance -- a missing defaultView used to throw here.
     let rt = runtime();
-    assert!(boolean(eval(
-        &rt,
+    assert!(boolean(rt.eval(
         r#"
         document.body.innerHTML = '<button onclick="window.__ran = 1">hi</button>';
         true
