@@ -47,3 +47,5 @@ deno_webidl = "0.257.0"
 # build never pulls in [dev-dependencies]) -- `auto-initialize` and `extension-module` conflict,
 # since an extension module doesn't own the interpreter but a standalone `cargo test` binary does.
 pyo3 = { version = "0.29", features = ["auto-initialize"] }
+# Integration tests decode the JSON text `send_eval` returns back into Rust values.
+serde_json = "1"

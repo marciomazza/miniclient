@@ -1030,6 +1030,7 @@ dependencies = [
  "pyo3-async-runtimes",
  "regex",
  "serde",
+ "serde_json",
  "tokio",
  "uuid",
 ]
