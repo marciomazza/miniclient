@@ -1,12 +1,13 @@
-//! Rust port of `tests/test_url.py`: URL / URLSearchParams regression guards for the swap
-//! from patch-happy-dom-url.js to deno_web's native 00_url.js.
+//! `URL` / `URLSearchParams`: `searchParams` mutations propagate to `.search` / `.href`,
+//! iterable constructor init, and `createObjectURL` / `revokeObjectURL`.
 
 mod common;
 
-use common::{boolean, eval, runtime, text};
+use common::{boolean, eval, eval_isolated, runtime, text};
 
 #[test]
 fn searchparams_mutation_propagates_to_search() {
+    let rt = runtime();
     for (start_url, mutation, want) in [
         ("http://ex.com/", "u.searchParams.set('k', 'v')", "?k=v"),
         ("http://ex.com/", "u.searchParams.append('k', 'v')", "?k=v"),
@@ -23,7 +24,7 @@ fn searchparams_mutation_propagates_to_search() {
         ),
     ] {
         let src = format!("const u = new URL('{start_url}'); {mutation}; u.search");
-        assert_eq!(text(eval(&runtime(), &src)), want, "{mutation}");
+        assert_eq!(text(eval_isolated(&rt, &src)), want, "{mutation}");
     }
 }
 
@@ -41,6 +42,7 @@ fn searchparams_mutation_propagates_to_href() {
 
 #[test]
 fn urlsearchparams_accepts_iterable_init() {
+    let rt = runtime();
     for (setup, init, want) in [
         (
             "const fd = new FormData(); fd.append('a', '1'); fd.append('b', '2')",
@@ -58,8 +60,8 @@ fn urlsearchparams_accepts_iterable_init() {
             "a=1&b=2",
         ),
     ] {
-        let src = format!("{setup}; init = {init}; init.toString()");
-        assert_eq!(text(eval(&runtime(), &src)), want, "{init}");
+        let src = format!("{setup}; const init = {init}; init.toString()");
+        assert_eq!(text(eval_isolated(&rt, &src)), want, "{init}");
     }
 }
 
