@@ -18,69 +18,28 @@ async def test_abort_controller(runtime):
 
 
 # ---------------------------------------------------------------------------
-# URL
+# deno_web APIs — spec behaviour is deno's; we only check pre_globals.js wired
+# them onto globalThis and they survived the cold snapshot pass. Behaviour that
+# mini actually patches is guarded in test_url.py.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "js, expected",
+    "name",
     [
-        ("new URL('http://example.com/path?q=1#anchor').protocol", "http:"),
-        ("new URL('http://example.com/path?q=1#anchor').hostname", "example.com"),
-        ("new URL('http://example.com/path?q=1#anchor').pathname", "/path"),
-        ("new URL('http://example.com/path?q=1#anchor').search", "?q=1"),
-        ("new URL('http://example.com/path?q=1#anchor').hash", "#anchor"),
-        ("new URL('http://example.com/path?q=1#anchor').origin", "http://example.com"),
-        # relative URL resolved against base
-        ("new URL('/other', 'http://example.com/path').href", "http://example.com/other"),
-        # URL.canParse static method
-        ("URL.canParse('http://ok.com')", True),
-        ("URL.canParse('not a url')", False),
-        # happy-dom extends our polyfill; typeof still URL
-        ("typeof window.URL", "function"),
+        "URL",
+        "URLSearchParams",
+        "TextEncoder",
+        "TextDecoder",
+        "atob",
+        "btoa",
+        "performance",
+        "PerformanceObserver",
+        "ReadableStream",
     ],
 )
-async def test_url(runtime, js, expected):
-    assert runtime.eval(js) == expected
-
-
-# ---------------------------------------------------------------------------
-# URLSearchParams
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "js, expected",
-    [
-        # basic get
-        ("new URLSearchParams('a=1&b=2').get('a')", "1"),
-        # missing key returns null
-        ("new URLSearchParams('a=1').get('z')", None),
-        # has
-        ("new URLSearchParams('x=1').has('x')", True),
-        # append + getAll
-        (
-            """
-            const p = new URLSearchParams('k=1');
-            p.append('k', '2');
-            JSON.stringify(p.getAll('k'));""",
-            '["1","2"]',
-        ),
-        # set replaces first, removes duplicates
-        (
-            "const p = new URLSearchParams('k=1&k=2'); p.set('k', '9'); p.toString()",
-            "k=9",
-        ),
-        # + decoded as space per spec
-        ("new URLSearchParams('q=hello+world').get('q')", "hello world"),
-        # toString round-trips
-        ("new URLSearchParams({a: '1', b: '2'}).toString()", "a=1&b=2"),
-        # size property
-        ("new URLSearchParams('a=1&b=2&c=3').size", 3),
-    ],
-)
-async def test_url_search_params(runtime, js, expected):
-    assert runtime.eval(js) == expected
+async def test_deno_web_globals_wired(runtime, name):
+    assert runtime.eval(f"typeof globalThis.{name} !== 'undefined'")
 
 
 # ---------------------------------------------------------------------------
@@ -116,41 +75,6 @@ async def test_url_search_params(runtime, js, expected):
     ],
 )
 async def test_buffer(runtime, js, expected):
-    assert runtime.eval(js) == expected
-
-
-# ---------------------------------------------------------------------------
-# TextEncoder / TextDecoder
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "js, expected",
-    [
-        # encoding label
-        ("new TextEncoder().encoding", "utf-8"),
-        # round-trip ASCII
-        (
-            "new TextDecoder().decode(new TextEncoder().encode('hello'))",
-            "hello",
-        ),
-        # round-trip multi-byte (2-byte UTF-8 codepoint: é = U+00E9)
-        (
-            "new TextDecoder().decode(new TextEncoder().encode('café'))",
-            "café",
-        ),
-        # round-trip 3-byte UTF-8 codepoint: ☃ = U+2603
-        (
-            "new TextDecoder().decode(new TextEncoder().encode('☃'))",
-            "☃",
-        ),
-        # encode returns Uint8Array
-        ("new TextEncoder().encode('A') instanceof Uint8Array", True),
-        # decode empty returns empty string
-        ("new TextDecoder().decode(new Uint8Array(0))", ""),
-    ],
-)
-async def test_text_encoder_decoder(runtime, js, expected):
     assert runtime.eval(js) == expected
 
 
@@ -268,24 +192,6 @@ async def test_performance_observer_fires(runtime):
         })()
     """)
     assert result == "mark"
-
-
-# ---------------------------------------------------------------------------
-# atob / btoa
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "js, expected",
-    [
-        ("btoa('hello')", "aGVsbG8="),
-        ("atob('aGVsbG8=')", "hello"),
-        # round-trip
-        ("atob(btoa('round trip'))", "round trip"),
-    ],
-)
-async def test_atob_btoa(runtime, js, expected):
-    assert runtime.eval(js) == expected
 
 
 # ---------------------------------------------------------------------------
