@@ -1,10 +1,10 @@
-//! Shared helpers for the Rust ports of the pure-eval Python test modules. `send_eval` hands
-//! back the JSON text of the result (`None` for `undefined`/`null`); these decode it into the
-//! Rust value a test actually wants to assert on.
+//! Shared eval helpers for the integration tests. `send_eval` hands back the JSON text of the
+//! result (`None` for `undefined`/`null`); these decode it into the Rust value a test asserts on.
 
 #![allow(dead_code)]
 
-use _miniclient::runtime::{EvalError, EvalOutcome, Runtime};
+pub use _miniclient::runtime::Runtime;
+use _miniclient::runtime::{EvalError, EvalOutcome};
 
 /// No `install_host_ops()`: fetch and fs are unavailable, but the default snapshot's happy-dom
 /// `document`, `Buffer`, timers and deno_web globals are all live from construction.
@@ -16,6 +16,13 @@ pub fn eval(rt: &Runtime, src: &str) -> EvalOutcome {
     rt.send_eval(src.to_string(), false)
         .blocking_recv()
         .expect("isolate thread answered")
+}
+
+/// Like `eval` but wraps `src` in a block so its `let`/`const` bindings don't leak into the
+/// shared global scope — lets one `Runtime` run many snippets that all declare the same names.
+/// The block's completion value is still returned, so keep the last line an expression.
+pub fn eval_isolated(rt: &Runtime, src: &str) -> EvalOutcome {
+    eval(rt, &format!("{{ {src} }}"))
 }
 
 pub fn eval_async(rt: &Runtime, src: &str) -> EvalOutcome {
@@ -51,4 +58,9 @@ pub fn text(outcome: EvalOutcome) -> String {
 /// The bool a JS-boolean eval result carries.
 pub fn boolean(outcome: EvalOutcome) -> bool {
     decode(outcome, "a JS boolean")
+}
+
+/// The `(name, value)` list a JS array-of-`[name, value]`-pairs eval result carries.
+pub fn pairs(outcome: EvalOutcome) -> Vec<(String, String)> {
+    decode(outcome, "an array of [name, value] pairs")
 }
