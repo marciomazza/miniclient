@@ -44,7 +44,7 @@ fn searchparams_mutation_propagates_to_href() {
 #[test]
 fn urlsearchparams_accepts_iterable_init() {
     let rt = runtime();
-    for (setup, init, want) in [
+    for (setup_js, init_js, want) in [
         (
             "const fd = new FormData(); fd.append('a', '1'); fd.append('b', '2')",
             "new URLSearchParams(fd)",
@@ -61,8 +61,8 @@ fn urlsearchparams_accepts_iterable_init() {
             "a=1&b=2",
         ),
     ] {
-        let src = format!("{setup}; const init = {init}; init.toString()");
-        assert_eq!(text(rt.eval(&src)), want, "{init}");
+        let src = format!("{setup_js}; const init = {init_js}; init.toString()");
+        assert_eq!(text(rt.eval(&src)), want, "{init_js}");
     }
 }
 

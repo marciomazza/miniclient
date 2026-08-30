@@ -74,10 +74,13 @@ fn template_with_non_table_content() {
         ),
         ("<template></template>", ""),
     ] {
-        let src = format!(
-            "new DOMParser().parseFromString('{html}', 'text/html').querySelector('template').innerHTML"
+        let js = format!(
+            "
+            new DOMParser()
+              .parseFromString('{html}', 'text/html')
+              .querySelector('template').innerHTML"
         );
-        assert_eq!(text(rt.eval(&src)), want, "{html}");
+        assert_eq!(text(rt.eval(&js)), want, "{html}");
     }
 }
 
@@ -94,22 +97,22 @@ fn template_attributes_preserved() {
             r#"<template data-foo="bar"><p>x</p></template>"#,
         ),
     ] {
-        let src = format!("new DOMParser().parseFromString('{html}', 'text/html').body.innerHTML");
-        assert_eq!(text(rt.eval(&src)), want, "{html}");
+        let js = format!("new DOMParser().parseFromString('{html}', 'text/html').body .innerHTML");
+        assert_eq!(text(rt.eval(&js)), want, "{html}");
     }
 }
 
 #[test]
 fn multiple_templates() {
     let rt = runtime();
-    let src = r#"
+    let js = r#"
         const html =
-            '<template id="a"><tr><td>A</td></tr></template>' +
-            '<template id="b"><tr><td>B</td></tr></template>';
-        new DOMParser().parseFromString(html, 'text/html').body.innerHTML
+          '<template id="a"><tr><td>A</td></tr></template>' +
+          '<template id="b"><tr><td>B</td></tr></template>';
+        new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
     "#;
     assert_eq!(
-        text(rt.eval(src)),
+        text(rt.eval(js)),
         r#"<template id="a"><tr><td>A</td></tr></template><template id="b"><tr><td>B</td></tr></template>"#,
     );
 }
@@ -117,15 +120,15 @@ fn multiple_templates() {
 #[test]
 fn nested_template_inner_content() {
     let rt = runtime();
-    let src = r#"
+    let js = r#"
         const html =
-            '<template id="outer">' +
-            '<template id="inner"><tr><td>deep</td></tr></template>' +
-            '</template>';
-        new DOMParser().parseFromString(html, 'text/html').querySelector('#outer').innerHTML
+          '<template id="outer">' +
+          '<template id="inner"><tr><td>deep</td></tr></template>' +
+          '</template>';
+        new DOMParser().parseFromString(html, 'text/html').querySelector('#outer').innerHTML;
     "#;
     assert_eq!(
-        text(rt.eval(src)),
+        text(rt.eval(js)),
         r#"<template id="inner"><tr><td>deep</td></tr></template>"#,
     );
 }
@@ -133,17 +136,17 @@ fn nested_template_inner_content() {
 #[test]
 fn nested_template_outer_content_preserved() {
     let rt = runtime();
-    let src = r#"
+    let js = r#"
         const html =
-            '<template id="outer">' +
-            '<p>before</p>' +
-            '<template id="inner"><p>inside</p></template>' +
-            '<p>after</p>' +
-            '</template>';
-        new DOMParser().parseFromString(html, 'text/html').querySelector('#outer').innerHTML
+          '<template id="outer">' +
+          '<p>before</p>' +
+          '<template id="inner"><p>inside</p></template>' +
+          '<p>after</p>' +
+          '</template>';
+        new DOMParser().parseFromString(html, 'text/html').querySelector('#outer').innerHTML;
     "#;
     assert_eq!(
-        text(rt.eval(src)),
+        text(rt.eval(js)),
         r#"<p>before</p><template id="inner"><p>inside</p></template><p>after</p>"#,
     );
 }
@@ -172,10 +175,12 @@ fn insert_adjacent_html_table_context() {
     ] {
         let rt = runtime();
         rt.run(&format!(
-                r#"document.body.innerHTML = "{container}";
-                   document.querySelector("{selector}").insertAdjacentHTML("beforeend", "{markup}");"#
-            ),
-        );
+            r#"
+            document.body.innerHTML = '{container}';
+            document
+              .querySelector('{selector}')
+              .insertAdjacentHTML('beforeend', '{markup}');"#
+        ));
         assert_eq!(
             json(rt.eval(&format!(
                 r#"document.querySelectorAll("{expected_selector}").length"#
@@ -197,19 +202,21 @@ fn insert_adjacent_html_order() {
     ] {
         let rt = runtime();
         rt.run(&format!(
-                r#"document.body.innerHTML = "<div id='t'><i>z</i></div>";
-                   document.getElementById("t").insertAdjacentHTML("{position}", "<b>1</b><b>2</b>");"#
-            ),
-        );
+            r#"document.body.innerHTML = "<div id='t'><i>z</i></div>";
+document
+  .getElementById('t')
+  .insertAdjacentHTML('{position}', '<b>1</b><b>2</b>');"#
+        ));
         let target = if matches!(position, "afterbegin" | "beforeend") {
             "t"
         } else {
             "body"
         };
         let got = text(rt.eval(&format!(
-                r#"({{t: () => document.getElementById("t"), body: () => document.body}})["{target}"]().innerHTML"#
-            ),
-        ));
+            r#"({{t: () => document.getElementById('t'), body: () => document.body}})[
+  '{target}'
+]().innerHTML"#
+        )));
         assert_eq!(got.replace('"', "'"), expected, "{position}");
     }
 }
@@ -222,21 +229,21 @@ fn insert_adjacent_html_throws_dom_exception() {
         ("beforebegin", "NoModificationAllowedError"),
         ("nonsense", "SyntaxError"),
     ] {
-        let src = format!(
+        let js = format!(
             r#"
-            const div = document.createElement("div");
+            const div = document.createElement('div');
             let out;
             try {{
-                div.insertAdjacentHTML("{position}", "<b>x</b>");
-                out = ["no error", false, div.childNodes.length];
+              div.insertAdjacentHTML('{position}', '<b>x</b>');
+              out = ['no error', false, div.childNodes.length];
             }} catch (e) {{
-                out = [e.name, e instanceof DOMException, div.childNodes.length];
+              out = [e.name, e instanceof DOMException, div.childNodes.length];
             }}
-            JSON.stringify(out)
+            JSON.stringify(out);
         "#
         );
         assert_eq!(
-            text(rt.eval(&src)),
+            text(rt.eval(&js)),
             format!(r#"["{want_error}",true,0]"#),
             "{position}",
         );
