@@ -45,7 +45,7 @@ pub fn json(outcome: EvalOutcome) -> Option<String> {
     }
 }
 
-fn decode<T: serde::de::DeserializeOwned>(outcome: EvalOutcome, what: &str) -> T {
+pub fn decode<T: serde::de::DeserializeOwned>(outcome: EvalOutcome, what: &str) -> T {
     let raw = json(outcome).expect("eval returned undefined/null");
     serde_json::from_str(&raw).unwrap_or_else(|_| panic!("eval did not return {what}: {raw}"))
 }
@@ -58,9 +58,4 @@ pub fn text(outcome: EvalOutcome) -> String {
 /// The bool a JS-boolean eval result carries.
 pub fn boolean(outcome: EvalOutcome) -> bool {
     decode(outcome, "a JS boolean")
-}
-
-/// The `(name, value)` list a JS array-of-`[name, value]`-pairs eval result carries.
-pub fn pairs(outcome: EvalOutcome) -> Vec<(String, String)> {
-    decode(outcome, "an array of [name, value] pairs")
 }
