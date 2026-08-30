@@ -6,7 +6,8 @@ license = "MIT"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# rlib too, so `tests/*.rs` integration tests can link the crate; maturin still uses the cdylib.
+crate-type = ["cdylib", "rlib"]
 name = "_miniclient"
 
 [lints.clippy]
