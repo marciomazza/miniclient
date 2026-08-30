@@ -4,7 +4,7 @@
 mod common;
 
 use _miniclient::runtime::EvalOutcome;
-use common::{Runtime, decode, eval_isolated, runtime, text};
+use common::{Runtime, decode, eval, runtime, text};
 
 /// The `(name, value)` list a JS array-of-`[name, value]`-pairs eval result carries.
 pub fn pairs(outcome: EvalOutcome) -> Vec<(String, String)> {
@@ -22,7 +22,7 @@ fn form_pairs(rt: &Runtime, html: &str) -> Vec<(String, String)> {
           [...new FormData(form).entries()];
         "#
     );
-    pairs(eval_isolated(rt, &js))
+    pairs(eval(rt, &js))
 }
 
 /// Run `js` against a fresh FormData `fd`, return the resulting `(name, value)` entries.
@@ -34,7 +34,7 @@ fn set_pairs(rt: &Runtime, js: &str) -> Vec<(String, String)> {
           [...fd.entries()];
         "#
     );
-    pairs(eval_isolated(rt, &js))
+    pairs(eval(rt, &js))
 }
 
 /// Compare collected `(name, value)` entries against `&str` literal pairs.
@@ -164,7 +164,7 @@ fn urlsearchparams_from_formdata() {
               new URLSearchParams(new FormData(form)).toString();
             "#
         );
-        assert_eq!(text(eval_isolated(&rt, &js)), expected, "{html}");
+        assert_eq!(text(eval(&rt, &js)), expected, "{html}");
     }
 }
 
