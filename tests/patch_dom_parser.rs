@@ -3,14 +3,14 @@
 
 mod common;
 
-use common::{EvalExt, json, runtime, text};
+use common::{EvalExt, runtime};
 
 #[test]
 fn regular_html_unchanged() {
     let rt = runtime();
     assert_eq!(
-        text(rt.eval("new DOMParser().parseFromString('<div><p>hello</p></div>', 'text/html').body.innerHTML",
-        )),
+        rt.eval::<String>("new DOMParser().parseFromString('<div><p>hello</p></div>', 'text/html').body.innerHTML",
+        ),
         "<div><p>hello</p></div>",
     );
 }
@@ -19,8 +19,8 @@ fn regular_html_unchanged() {
 fn body_wrapping() {
     let rt = runtime();
     assert_eq!(
-        text(rt.eval("new DOMParser().parseFromString('<body><p>hi</p></body>', 'text/html').documentElement.outerHTML",
-        )),
+        rt.eval::<String>("new DOMParser().parseFromString('<body><p>hi</p></body>', 'text/html').documentElement.outerHTML",
+        ),
         "<html><head></head><body><p>hi</p></body></html>",
     );
 }
@@ -59,7 +59,7 @@ fn template_table_tags_in_content() {
         let src = format!(
             "new DOMParser().parseFromString('{html}', 'text/html').querySelector('template').innerHTML"
         );
-        assert_eq!(text(rt.eval(&src)), want, "{html}");
+        assert_eq!(rt.eval::<String>(&src), want, "{html}");
     }
 }
 
@@ -80,7 +80,7 @@ fn template_with_non_table_content() {
               .parseFromString('{html}', 'text/html')
               .querySelector('template').innerHTML"
         );
-        assert_eq!(text(rt.eval(&js)), want, "{html}");
+        assert_eq!(rt.eval::<String>(&js), want, "{html}");
     }
 }
 
@@ -98,7 +98,7 @@ fn template_attributes_preserved() {
         ),
     ] {
         let js = format!("new DOMParser().parseFromString('{html}', 'text/html').body .innerHTML");
-        assert_eq!(text(rt.eval(&js)), want, "{html}");
+        assert_eq!(rt.eval::<String>(&js), want, "{html}");
     }
 }
 
@@ -112,7 +112,7 @@ fn multiple_templates() {
         new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
     "#;
     assert_eq!(
-        text(rt.eval(js)),
+        rt.eval::<String>(js),
         r#"<template id="a"><tr><td>A</td></tr></template><template id="b"><tr><td>B</td></tr></template>"#,
     );
 }
@@ -128,7 +128,7 @@ fn nested_template_inner_content() {
         new DOMParser().parseFromString(html, 'text/html').querySelector('#outer').innerHTML;
     "#;
     assert_eq!(
-        text(rt.eval(js)),
+        rt.eval::<String>(js),
         r#"<template id="inner"><tr><td>deep</td></tr></template>"#,
     );
 }
@@ -146,7 +146,7 @@ fn nested_template_outer_content_preserved() {
         new DOMParser().parseFromString(html, 'text/html').querySelector('#outer').innerHTML;
     "#;
     assert_eq!(
-        text(rt.eval(js)),
+        rt.eval::<String>(js),
         r#"<p>before</p><template id="inner"><p>inside</p></template><p>after</p>"#,
     );
 }
@@ -182,10 +182,10 @@ fn insert_adjacent_html_table_context() {
               .insertAdjacentHTML('beforeend', '{markup}');"#
         ));
         assert_eq!(
-            json(rt.eval(&format!(
+            rt.eval_json(&format!(
                 r#"document.querySelectorAll("{expected_selector}").length"#
-            ),))
-            .as_deref(),
+            ),)
+                .as_deref(),
             Some("1"),
             "{container}",
         );
@@ -212,11 +212,11 @@ document
         } else {
             "body"
         };
-        let got = text(rt.eval(&format!(
+        let got = rt.eval::<String>(&format!(
             r#"({{t: () => document.getElementById('t'), body: () => document.body}})[
   '{target}'
 ]().innerHTML"#
-        )));
+        ));
         assert_eq!(got.replace('"', "'"), expected, "{position}");
     }
 }
@@ -243,7 +243,7 @@ fn insert_adjacent_html_throws_dom_exception() {
         "#
         );
         assert_eq!(
-            text(rt.eval(&js)),
+            rt.eval::<String>(&js),
             format!(r#"["{want_error}",true,0]"#),
             "{position}",
         );

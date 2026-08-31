@@ -3,17 +3,17 @@
 
 mod common;
 
-use common::{EvalExt, boolean, json, runtime, text};
+use common::{EvalExt, runtime};
 
 #[test]
 fn window_and_document_basics() {
     let rt = runtime();
-    assert_eq!(text(rt.eval("typeof window")), "object");
+    assert_eq!(rt.eval::<String>("typeof window"), "object");
     assert_eq!(
-        text(rt.eval("document.createElement('div').tagName")),
+        rt.eval::<String>("document.createElement('div').tagName"),
         "DIV"
     );
-    assert!(!boolean(rt.eval("new AbortController().signal.aborted")));
+    assert!(!rt.eval::<bool>("new AbortController().signal.aborted"));
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn deno_web_globals_wired() {
         "ReadableStream",
     ] {
         assert!(
-            boolean(rt.eval(&format!("typeof globalThis.{name} !== 'undefined'"))),
+            rt.eval::<bool>(&format!("typeof globalThis.{name} !== 'undefined'")),
             "{name}",
         );
     }
@@ -56,10 +56,10 @@ fn buffer() {
         ("Buffer.alloc(3).toString('hex')", "000000"),
         ("Buffer.from([0x68, 0x69]).toString()", "hi"),
     ] {
-        assert_eq!(text(rt.eval(js)), want, "{js}");
+        assert_eq!(rt.eval::<String>(js), want, "{js}");
     }
-    assert!(boolean(rt.eval("Buffer.isBuffer(Buffer.alloc(4))")));
-    assert!(!boolean(rt.eval("Buffer.isBuffer(new Uint8Array(4))")));
+    assert!(rt.eval::<bool>("Buffer.isBuffer(Buffer.alloc(4))"));
+    assert!(!rt.eval::<bool>("Buffer.isBuffer(new Uint8Array(4))"));
 }
 
 #[test]
@@ -67,24 +67,25 @@ fn dom_manipulation() {
     let rt = runtime();
     rt.run(r#"document.body.innerHTML = '<div id="x"><span class="y">hi</span></div>'"#);
     assert_eq!(
-        text(rt.eval("document.querySelector('#x .y').textContent")),
+        rt.eval::<String>("document.querySelector('#x .y').textContent"),
         "hi",
     );
 
     rt.run("document.body.innerHTML = '<ul><li>a</li><li>b</li><li>c</li></ul>'");
     assert_eq!(
-        json(rt.eval("document.querySelectorAll('li').length")).as_deref(),
+        rt.eval_json("document.querySelectorAll('li').length")
+            .as_deref(),
         Some("3"),
     );
 
     rt.run(r#"document.body.innerHTML = '<p id="p1">text</p>'"#);
     assert_eq!(
-        text(rt.eval("document.getElementById('p1').innerHTML")),
+        rt.eval::<String>("document.getElementById('p1').innerHTML"),
         "text",
     );
 
     let href =
-        text(rt.eval("const a = document.createElement('a'); a.href = 'http://z.com'; a.href"));
+        rt.eval::<String>("const a = document.createElement('a'); a.href = 'http://z.com'; a.href");
     assert!(href.contains("z.com"), "{href:?}");
 }
 
@@ -103,7 +104,7 @@ fn happy_dom_globals_are_functions() {
         "typeof window.EventTarget",
         "typeof window.DOMParser",
     ] {
-        assert_eq!(text(rt.eval(js)), "function", "{js}");
+        assert_eq!(rt.eval::<String>(js), "function", "{js}");
     }
 }
 
@@ -111,18 +112,18 @@ fn happy_dom_globals_are_functions() {
 fn headers_dom_parser_and_form_data() {
     let rt = runtime();
     assert_eq!(
-        text(rt.eval(
+        rt.eval::<String>(
             r#"const h = new Headers({'content-type': 'text/html'}); h.get('content-type')"#,
-        )),
+        ),
         "text/html",
     );
     assert_eq!(
-        text(rt.eval(r#"new window.DOMParser().parseFromString('<p>hi</p>', 'text/html').querySelector('p').textContent"#,
-        )),
+        rt.eval::<String>(r#"new window.DOMParser().parseFromString('<p>hi</p>', 'text/html').querySelector('p').textContent"#,
+        ),
         "hi",
     );
     assert_eq!(
-        text(rt.eval(r#"const f = new FormData(); f.append('key', 'val'); f.get('key')"#,)),
+        rt.eval::<String>(r#"const f = new FormData(); f.append('key', 'val'); f.get('key')"#,),
         "val",
     );
 }
@@ -131,11 +132,12 @@ fn headers_dom_parser_and_form_data() {
 fn mutation_observer_and_custom_event() {
     let rt = runtime();
     assert_eq!(
-        text(rt.eval("typeof new MutationObserver(() => {})")),
+        rt.eval::<String>("typeof new MutationObserver(() => {})"),
         "object",
     );
     assert_eq!(
-        json(rt.eval("new CustomEvent('myevent', {detail: 42}).detail")).as_deref(),
+        rt.eval_json("new CustomEvent('myevent', {detail: 42}).detail")
+            .as_deref(),
         Some("42"),
     );
 }
@@ -143,11 +145,9 @@ fn mutation_observer_and_custom_event() {
 #[test]
 fn performance_real_impl() {
     let rt = runtime();
-    assert!(boolean(rt.eval(
-        "performance.now() >= 0 && typeof performance.now() === 'number'",
-    )));
-    assert!(boolean(rt.eval("performance.timeOrigin > 0")));
-    let entries = text(rt.eval(
+    assert!(rt.eval::<bool>("performance.now() >= 0 && typeof performance.now() === 'number'",));
+    assert!(rt.eval::<bool>("performance.timeOrigin > 0"));
+    let entries = rt.eval::<String>(
         r#"
         performance.mark('a');
         performance.measure('m', 'a');
@@ -156,14 +156,14 @@ fn performance_real_impl() {
           performance.getEntriesByName('m', 'measure').length,
         ]);
     "#,
-    ));
+    );
     assert_eq!(entries, "[1,1]");
 }
 
 #[test]
 fn performance_observer_fires() {
     let rt = runtime();
-    let seen = text(rt.eval_async(
+    let seen = rt.eval_async::<String>(
         r#"
         (async () => {
           const seen = [];
@@ -176,7 +176,7 @@ fn performance_observer_fires() {
           return seen.join(',');
         })();
     "#,
-    ));
+    );
     assert_eq!(seen, "mark");
 }
 
@@ -184,22 +184,23 @@ fn performance_observer_fires() {
 fn set_timeout_fires_passes_args_and_keeps_order() {
     let rt = runtime();
     assert_eq!(
-        text(rt.eval_async("new Promise(resolve => setTimeout(() => resolve('ok'), 10))",)),
+        rt.eval_async::<String>("new Promise(resolve => setTimeout(() => resolve('ok'), 10))",),
         "ok",
     );
     assert_eq!(
-        json(rt.eval_async("new Promise(resolve => setTimeout(() => resolve(42), 0))",)).as_deref(),
+        rt.eval_json_async("new Promise(resolve => setTimeout(() => resolve(42), 0))",)
+            .as_deref(),
         Some("42"),
     );
     assert_eq!(
-        json(
-            rt.eval_async("new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))",)
-        )
+
+            rt.eval_json_async("new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))",)
+
         .as_deref(),
         Some("7"),
     );
     assert_eq!(
-        json(rt.eval_async(
+        rt.eval_json_async(
             r#"
             new Promise(resolve => {
               const log = [];
@@ -209,7 +210,7 @@ fn set_timeout_fires_passes_args_and_keeps_order() {
               setTimeout(() => { log.push(3); done(); }, 30);
             })
         "#,
-        ))
+        )
         .as_deref(),
         Some("[1,2,3]"),
     );
@@ -218,7 +219,7 @@ fn set_timeout_fires_passes_args_and_keeps_order() {
 #[test]
 fn clear_timeout_cancels() {
     let rt = runtime();
-    assert!(!boolean(rt.eval_async(
+    assert!(!rt.eval_async::<bool>(
         r#"
             new Promise(resolve => {
               let fired = false;
@@ -227,14 +228,14 @@ fn clear_timeout_cancels() {
               setTimeout(() => resolve(fired), 100);
             })
         "#,
-    )));
+    ));
 }
 
 #[test]
 fn set_interval_fires_repeatedly_then_clears() {
     let rt = runtime();
     assert_eq!(
-        json(rt.eval_async(
+        rt.eval_json_async(
             r#"
             new Promise(resolve => {
               let count = 0;
@@ -244,11 +245,11 @@ fn set_interval_fires_repeatedly_then_clears() {
               }, 10);
             })
         "#,
-        ))
+        )
         .as_deref(),
         Some("3"),
     );
-    assert!(boolean(rt.eval_async(
+    assert!(rt.eval_async::<bool>(
         r#"
             new Promise(resolve => {
               let count = 0;
@@ -260,5 +261,5 @@ fn set_interval_fires_repeatedly_then_clears() {
               }, 35);
             })
         "#,
-    )));
+    ));
 }
