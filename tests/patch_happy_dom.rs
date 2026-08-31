@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{EvalExt, boolean, json, runtime, text};
+use common::{EvalExt, runtime};
 
 #[test]
 fn innerhtml_radio_mutual_exclusion() {
@@ -14,7 +14,7 @@ fn innerhtml_radio_mutual_exclusion() {
   '<input type="radio" name="g" checked><input type="radio" name="g" checked>'"#,
     );
     assert_eq!(
-        json(rt.eval("[...document.querySelectorAll('input[type=radio]')].map(r => r.checked)",))
+        rt.eval_json("[...document.querySelectorAll('input[type=radio]')].map(r => r.checked)",)
             .as_deref(),
         Some("[false,true]"),
     );
@@ -27,9 +27,7 @@ fn innerhtml_selected_reflected() {
         "document.body.innerHTML =
   '<select><option>a</option><option selected>b</option></select>'",
     );
-    assert!(boolean(
-        rt.eval("document.querySelectorAll('option')[1].selected",)
-    ));
+    assert!(rt.eval::<bool>("document.querySelectorAll('option')[1].selected",));
 }
 
 #[test]
@@ -40,11 +38,12 @@ fn option_checked_pseudo_class_matches_selected_option() {
   '<select><option value="a">a</option><option value="b" selected>b</option></select>'"#,
     );
     assert_eq!(
-        json(rt.eval("document.querySelectorAll('option:checked').length")).as_deref(),
+        rt.eval_json("document.querySelectorAll('option:checked').length")
+            .as_deref(),
         Some("1"),
     );
     assert_eq!(
-        text(rt.eval("document.querySelector('option:checked').value")),
+        rt.eval::<String>("document.querySelector('option:checked').value"),
         "b",
     );
 }
@@ -58,7 +57,7 @@ fn option_checked_pseudo_class_updates_after_value_assignment() {
 document.getElementById('s').value = 'b';"#,
     );
     assert_eq!(
-        text(rt.eval("document.querySelector('option:checked').value")),
+        rt.eval::<String>("document.querySelector('option:checked').value"),
         "b",
     );
 }
@@ -68,7 +67,8 @@ fn input_checked_pseudo_class_still_works() {
     let rt = runtime();
     rt.run(r#"document.body.innerHTML = '<input type="checkbox" checked><input type="checkbox">'"#);
     assert_eq!(
-        json(rt.eval("document.querySelectorAll('input:checked').length")).as_deref(),
+        rt.eval_json("document.querySelectorAll('input:checked').length")
+            .as_deref(),
         Some("1"),
     );
 }
@@ -82,13 +82,13 @@ fn select_value_setter_invalidates_stale_checked_query_cache() {
     );
     // Warm the querySelectorAll cache for this exact selector while nothing is selected.
     assert_eq!(
-        json(rt.eval(r#"document.querySelectorAll("option[value='b']:checked").length"#,))
+        rt.eval_json(r#"document.querySelectorAll("option[value='b']:checked").length"#,)
             .as_deref(),
         Some("0"),
     );
     rt.run("document.getElementById('s').value = 'b'");
     assert_eq!(
-        json(rt.eval(r#"document.querySelectorAll("option[value='b']:checked").length"#,))
+        rt.eval_json(r#"document.querySelectorAll("option[value='b']:checked").length"#,)
             .as_deref(),
         Some("1"),
     );
@@ -99,7 +99,11 @@ fn history_state_updates_location() {
     for method in ["pushState", "replaceState"] {
         let rt = runtime();
         rt.run(&format!("history.{method}(null, '', '/new-path')"));
-        assert_eq!(text(rt.eval("location.pathname")), "/new-path", "{method}");
+        assert_eq!(
+            rt.eval::<String>("location.pathname"),
+            "/new-path",
+            "{method}"
+        );
     }
 }
 
@@ -112,8 +116,8 @@ fn history_pushstate_url_parts() {
     ] {
         let rt = runtime();
         rt.run(&format!("history.pushState(null, '', '{url}')"));
-        assert_eq!(text(rt.eval("location.pathname")), pathname, "{url}");
-        assert_eq!(text(rt.eval("location.search")), search, "{url}");
+        assert_eq!(rt.eval::<String>("location.pathname"), pathname, "{url}");
+        assert_eq!(rt.eval::<String>("location.search"), search, "{url}");
     }
 }
 
@@ -121,9 +125,9 @@ fn history_pushstate_url_parts() {
 fn location_hash_change_resets_history_state() {
     let rt = runtime();
     rt.run("history.replaceState({foo: 1}, '', '/page'); location.hash = '#section'");
-    assert_eq!(json(rt.eval("history.state")).as_deref(), None);
-    assert_eq!(text(rt.eval("location.hash")), "#section");
-    assert_eq!(text(rt.eval("location.pathname")), "/page");
+    assert_eq!(rt.eval_json("history.state").as_deref(), None);
+    assert_eq!(rt.eval::<String>("location.hash"), "#section");
+    assert_eq!(rt.eval::<String>("location.pathname"), "/page");
 }
 
 #[test]
@@ -135,7 +139,7 @@ fn disabled_propagates_from_fieldset() {
   "<fieldset disabled><{tag} id='x'></{{tag}}></fieldset>""#
         ));
         assert!(
-            boolean(rt.eval("document.querySelector('#x').matches(':disabled')")),
+            rt.eval::<bool>("document.querySelector('#x').matches(':disabled')"),
             "{tag}",
         );
     }
@@ -145,9 +149,7 @@ fn disabled_propagates_from_fieldset() {
 fn non_disabled_fieldset_does_not_disable_children() {
     let rt = runtime();
     rt.run(r#"document.body.innerHTML = "<fieldset><input id='x'></fieldset>""#);
-    assert!(!boolean(
-        rt.eval("document.querySelector('#x').matches(':disabled')",)
-    ));
+    assert!(!rt.eval::<bool>("document.querySelector('#x').matches(':disabled')",));
 }
 
 #[test]
@@ -166,7 +168,7 @@ fn attach_internals_set_form_value() {
             el.__internalsFormValue;
         "#
         );
-        assert_eq!(json(rt.eval(&js)).as_deref(), expected, "{value_js}",);
+        assert_eq!(rt.eval_json(&js).as_deref(), expected, "{value_js}",);
     }
 }
 
@@ -184,7 +186,7 @@ fn getelementbyid_returns_first_in_tree_order() {
     "#,
     );
     assert_eq!(
-        text(rt.eval("document.getElementById('x').textContent")),
+        rt.eval::<String>("document.getElementById('x').textContent"),
         "first",
     );
 }
@@ -205,7 +207,7 @@ fn moved_form_or_select_child_parent_identity_preserved() {
             child.parentElement === dest.firstChild;
         "#
         );
-        assert!(boolean(rt.eval(&js)), "{tag}");
+        assert!(rt.eval::<bool>(&js), "{tag}");
     }
 }
 
@@ -225,7 +227,7 @@ fn dispatch_event_sets_global_event() {
             captured === evt;
         "#
         );
-        assert!(boolean(rt.eval(&js)), "{event_type}");
+        assert!(rt.eval::<bool>(&js), "{event_type}");
     }
 }
 
@@ -239,7 +241,7 @@ fn dispatch_event_restores_global_event_after() {
         el.dispatchEvent(new Event('click'));
         globalThis.event;
     "#;
-    assert_eq!(text(rt.eval(js)), "sentinel");
+    assert_eq!(rt.eval::<String>(js), "sentinel");
 }
 
 const HXON_XPATH: &str =
@@ -262,7 +264,7 @@ fn hxon_index_short_circuit_matches_xpath() {
         ids;
     "#
     );
-    assert_eq!(json(rt.eval(&js)).as_deref(), Some(r#"["hit"]"#));
+    assert_eq!(rt.eval_json(&js).as_deref(), Some(r#"["hit"]"#));
 }
 
 #[test]
@@ -278,7 +280,7 @@ fn hxon_index_picks_up_dynamic_attr_for_process_force() {
         iter.iterateNext()?.id;
     "#
     );
-    assert_eq!(text(rt.eval(&js)), "d");
+    assert_eq!(rt.eval::<String>(&js), "d");
 }
 
 #[test]
@@ -294,6 +296,6 @@ fn colon_attribute_setattribute_overwrites() {
             d.getAttribute('{attr}');
         "#
         );
-        assert_eq!(text(rt.eval(&js)), "updated", "{attr}");
+        assert_eq!(rt.eval::<String>(&js), "updated", "{attr}");
     }
 }

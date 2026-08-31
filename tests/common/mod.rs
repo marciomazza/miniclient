@@ -1,5 +1,6 @@
 //! Shared eval helpers for the integration tests. `send_eval` hands back the JSON text of the
-//! result (`None` for `undefined`/`null`); these decode it into the Rust value a test asserts on.
+//! result; `eval`/`eval_async` decode that straight into the Rust value a test asserts on, and
+//! `eval_json` keeps the raw JSON text for tests that compare on JSON shape.
 
 #![allow(dead_code)]
 
@@ -12,37 +13,50 @@ pub fn runtime() -> Runtime {
     Runtime::new("http://localhost/", "[]")
 }
 
-/// Lets tests write `rt.eval(src)` / `rt.eval_async(src)`. Each snippet is wrapped in a block
-/// so its `let`/`const`/`class` bindings don't leak into the shared global scope — one
-/// `Runtime` can run many snippets that all declare the same names. The block's completion
-/// value is still returned, so keep the last line an expression.
+/// Lets tests write `rt.eval::<T>(src)` / `rt.eval_async::<T>(src)`. Each snippet is wrapped in a
+/// block so its `let`/`const`/`class` bindings don't leak into the shared global scope — one
+/// `Runtime` can run many snippets that all declare the same names. The block's completion value
+/// is still returned, so keep the last line an expression.
 pub trait EvalExt {
-    fn eval(&self, src: &str) -> EvalOutcome;
-    fn eval_async(&self, src: &str) -> EvalOutcome;
+    fn eval<T: serde::de::DeserializeOwned>(&self, src: &str) -> T;
+    fn eval_async<T: serde::de::DeserializeOwned>(&self, src: &str) -> T;
+    /// Raw JSON text of a successful eval (`None` for `undefined`/`null`).
+    fn eval_json(&self, src: &str) -> Option<String>;
+    fn eval_json_async(&self, src: &str) -> Option<String>;
     /// A sync eval run only for its side effect; panics if it threw or was refused.
     fn run(&self, src: &str);
 }
 
 impl EvalExt for Runtime {
-    fn eval(&self, src: &str) -> EvalOutcome {
-        self.send_eval(format!("{{ {src} }}"), false)
-            .blocking_recv()
-            .expect("isolate thread answered")
+    fn eval<T: serde::de::DeserializeOwned>(&self, src: &str) -> T {
+        decode(eval_blocking(self, src, false))
     }
 
-    fn eval_async(&self, src: &str) -> EvalOutcome {
-        self.send_eval(format!("{{ {src} }}"), true)
-            .blocking_recv()
-            .expect("isolate thread answered")
+    fn eval_async<T: serde::de::DeserializeOwned>(&self, src: &str) -> T {
+        decode(eval_blocking(self, src, true))
+    }
+
+    fn eval_json(&self, src: &str) -> Option<String> {
+        json(eval_blocking(self, src, false))
+    }
+
+    fn eval_json_async(&self, src: &str) -> Option<String> {
+        json(eval_blocking(self, src, true))
     }
 
     fn run(&self, src: &str) {
-        self.eval(src).expect("eval succeeded");
+        eval_blocking(self, src, false).expect("eval succeeded");
     }
 }
 
+fn eval_blocking(rt: &Runtime, src: &str, is_async: bool) -> EvalOutcome {
+    rt.send_eval(format!("{{ {src} }}"), is_async)
+        .blocking_recv()
+        .expect("isolate thread answered")
+}
+
 /// The raw JSON text a successful eval produced (`None` for `undefined`/`null`).
-pub fn json(outcome: EvalOutcome) -> Option<String> {
+fn json(outcome: EvalOutcome) -> Option<String> {
     match outcome {
         Ok(value) => value,
         Err(EvalError::Other(message)) => panic!("expected a value, got a refusal: {message}"),
@@ -50,17 +64,7 @@ pub fn json(outcome: EvalOutcome) -> Option<String> {
     }
 }
 
-pub fn decode<T: serde::de::DeserializeOwned>(outcome: EvalOutcome, what: &str) -> T {
+fn decode<T: serde::de::DeserializeOwned>(outcome: EvalOutcome) -> T {
     let raw = json(outcome).expect("eval returned undefined/null");
-    serde_json::from_str(&raw).unwrap_or_else(|_| panic!("eval did not return {what}: {raw}"))
-}
-
-/// The Rust string a JS-string eval result carries, JSON quoting removed.
-pub fn text(outcome: EvalOutcome) -> String {
-    decode(outcome, "a JS string")
-}
-
-/// The bool a JS-boolean eval result carries.
-pub fn boolean(outcome: EvalOutcome) -> bool {
-    decode(outcome, "a JS boolean")
+    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("eval result did not decode ({e}): {raw}"))
 }

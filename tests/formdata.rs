@@ -3,17 +3,13 @@
 
 mod common;
 
-use _miniclient::runtime::EvalOutcome;
-use common::{EvalExt, Runtime, decode, runtime, text};
+use common::{EvalExt, Runtime, runtime};
 
-/// The `(name, value)` list a JS array-of-`[name, value]`-pairs eval result carries.
-pub fn pairs(outcome: EvalOutcome) -> Vec<(String, String)> {
-    decode(outcome, "an array of [name, value] pairs")
-}
+type Pairs = Vec<(String, String)>;
 
 /// Build a form from `html`, collect its FormData, return the `(name, value)` entries.
 /// The case HTML only ever uses double quotes, so a single-quoted JS string is safe.
-fn form_pairs(rt: &Runtime, html: &str) -> Vec<(String, String)> {
+fn form_pairs(rt: &Runtime, html: &str) -> Pairs {
     let js = format!(
         r#"
           const wrap = document.createElement('div');
@@ -22,11 +18,11 @@ fn form_pairs(rt: &Runtime, html: &str) -> Vec<(String, String)> {
           [...new FormData(form).entries()];
         "#
     );
-    pairs(rt.eval(&js))
+    rt.eval::<Pairs>(&js)
 }
 
 /// Run `js` against a fresh FormData `fd`, return the resulting `(name, value)` entries.
-fn set_pairs(rt: &Runtime, js: &str) -> Vec<(String, String)> {
+fn set_pairs(rt: &Runtime, js: &str) -> Pairs {
     let js = format!(
         r#"
           const fd = new FormData();
@@ -34,7 +30,7 @@ fn set_pairs(rt: &Runtime, js: &str) -> Vec<(String, String)> {
           [...fd.entries()];
         "#
     );
-    pairs(rt.eval(&js))
+    rt.eval::<Pairs>(&js)
 }
 
 /// Compare collected `(name, value)` entries against `&str` literal pairs.
@@ -164,7 +160,7 @@ fn urlsearchparams_from_formdata() {
               new URLSearchParams(new FormData(form)).toString();
             "#
         );
-        assert_eq!(text(rt.eval(&js)), expected, "{html}");
+        assert_eq!(rt.eval::<String>(&js), expected, "{html}");
     }
 }
 

@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{EvalExt, boolean, runtime, text};
+use common::{EvalExt, runtime};
 
 #[test]
 fn searchparams_mutation_propagates_to_search() {
@@ -24,7 +24,7 @@ fn searchparams_mutation_propagates_to_search() {
         ),
     ] {
         let src = format!("const u = new URL('{start_url}'); {mutation}; u.search");
-        assert_eq!(text(rt.eval(&src)), want, "{mutation}");
+        assert_eq!(rt.eval::<String>(&src), want, "{mutation}");
     }
 }
 
@@ -32,10 +32,8 @@ fn searchparams_mutation_propagates_to_search() {
 fn searchparams_mutation_propagates_to_href() {
     let rt = runtime();
     assert_eq!(
-        text(
-            rt.eval(
-                "const u = new URL('http://ex.com/path'); u.searchParams.set('k', 'v'); u.href",
-            )
+        rt.eval::<String>(
+            "const u = new URL('http://ex.com/path'); u.searchParams.set('k', 'v'); u.href",
         ),
         "http://ex.com/path?k=v",
     );
@@ -62,17 +60,17 @@ fn urlsearchparams_accepts_iterable_init() {
         ),
     ] {
         let src = format!("{setup_js}; const init = {init_js}; init.toString()");
-        assert_eq!(text(rt.eval(&src)), want, "{init_js}");
+        assert_eq!(rt.eval::<String>(&src), want, "{init_js}");
     }
 }
 
 #[test]
 fn create_and_revoke_object_url() {
     let rt = runtime();
-    assert!(boolean(rt.eval(
+    assert!(rt.eval::<bool>(
         r#"
         const url = URL.createObjectURL(new Blob(['hi']));
         url.startsWith('blob:') && URL.revokeObjectURL(url) === true
     "#,
-    )));
+    ));
 }

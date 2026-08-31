@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{EvalExt, boolean, runtime};
+use common::{EvalExt, runtime};
 
 use _miniclient::runtime::Runtime;
 
@@ -31,7 +31,7 @@ fn script_executed_on_dom_insertion() {
             window.__ran === 1;
         "#
         );
-        assert!(boolean(rt.eval(&src_js)), "{insertion_js}");
+        assert!(rt.eval::<bool>(&src_js), "{insertion_js}");
     }
 }
 
@@ -40,13 +40,13 @@ fn script_with_data_uri_src_executed() {
     // Buffer.from(data, "ascii") from a data: URI must decode to real bytes, not zero-filled
     // garbage, or the fetched script source is empty/invalid.
     let rt = runtime();
-    assert!(boolean(rt.eval(
+    assert!(rt.eval::<bool>(
         r#"
         const src = 'data:text/javascript,' + encodeURIComponent('window.__ran = 1;');
         document.head.innerHTML = `<script src="${src}"></script>`;
         window.__ran === 1
     "#,
-    )));
+    ));
 }
 
 #[test]
@@ -59,13 +59,13 @@ fn script_with_external_file_src_executed() {
         dir.to_str().unwrap()
     );
     let rt = Runtime::new("http://localhost/", &servers);
-    let ran = boolean(rt.eval(
+    let ran = rt.eval::<bool>(
         r#"
         document.head.innerHTML =
           '<script src="http://localhost/ext/external-script.js"></script>';
         window.__ran === 1;
     "#,
-    ));
+    );
     std::fs::remove_dir_all(&dir).ok();
     assert!(ran);
 }
@@ -76,14 +76,14 @@ fn window_crypto_is_available() {
     // 'crypto'`, which node-crypto.js forwards from globalThis.crypto -- unset unless
     // pre_globals.js polyfills it before happy-dom is imported.
     let rt = runtime();
-    assert!(boolean(rt.eval(
+    assert!(rt.eval::<bool>(
         r#"
         const uuid = window.crypto.randomUUID();
         window.crypto === globalThis.crypto
             && window.crypto.getRandomValues(new Uint8Array(4)).length === 4
             && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid)
     "#,
-    )));
+    ));
 }
 
 #[test]
@@ -92,10 +92,10 @@ fn inline_event_handler_attribute_is_compiled() {
     // window[PropertySymbol.evaluateScript], where `window` is read off the element as the
     // real Window instance -- a missing defaultView used to throw here.
     let rt = runtime();
-    assert!(boolean(rt.eval(
+    assert!(rt.eval::<bool>(
         r#"
         document.body.innerHTML = '<button onclick="window.__ran = 1">hi</button>';
         true
     "#,
-    )));
+    ));
 }
