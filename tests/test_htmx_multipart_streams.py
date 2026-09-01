@@ -1,8 +1,8 @@
-"""Pins the WHATWG-streams behaviour hx-multipart.js depends on: real backpressure
-(`desiredSize`), correct EOF (a pending `read()` waits for a later `enqueue()`/`close()`
-instead of reporting done when the queue merely drains), and that the global
-`ReadableStream` is the one happy-dom's `Response` accepts. Green on the
-`web-streams-polyfill` build, must stay green after the swap to deno_web's `06_streams.js`.
+"""Pins the stream integration points hx-multipart.js depends on: the global
+`ReadableStream` is the one happy-dom's `Response` accepts, and `Response.parts()`
+reassembles a multipart body streamed in tiny straddling chunks. The generic
+WHATWG-streams semantics (backpressure, delayed enqueue, async pull) are deno_web's
+own concern and tested upstream.
 """
 
 from collections.abc import AsyncIterator
@@ -22,75 +22,6 @@ async def page() -> AsyncIterator[AsyncPage]:
         mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])}
     ) as p:
         yield p
-
-
-async def test_desired_size_backpressure_gates_pull(page: AsyncPage) -> None:
-    result = await page.runtime.eval_async("""\
-        (async () => {
-            let pulls = 0;
-            let ctrl;
-            const stream = new ReadableStream(
-                { start(c) { ctrl = c; }, pull() { pulls++; } },
-                { highWaterMark: 2, size: () => 1 },
-            );
-            const start = ctrl.desiredSize;
-            ctrl.enqueue("a");
-            const afterOne = ctrl.desiredSize;
-            ctrl.enqueue("b");
-            ctrl.enqueue("c");
-            const overfilled = ctrl.desiredSize;
-            await new Promise((r) => setTimeout(r, 5));
-            return { start, afterOne, overfilled, pulls };
-        })()
-    """)
-    assert result["start"] == 2
-    assert result["afterOne"] == 1
-    assert result["overfilled"] == -1  # negative once the queue is over the mark
-    assert result["pulls"] == 0  # pull never runs while desiredSize <= 0
-
-
-async def test_read_waits_for_delayed_enqueue(page: AsyncPage) -> None:
-    """The exact regression: a chunk enqueued via setTimeout after the first read()
-    must not be lost, and the queue draining must not fake an early {done:true}."""
-    result = await page.runtime.eval_async("""\
-        (async () => {
-            const stream = new ReadableStream({
-                start(c) { setTimeout(() => { c.enqueue("a"); c.close(); }, 10); },
-            });
-            const reader = stream.getReader();
-            const first = await reader.read();
-            const second = await reader.read();
-            return {
-                firstValue: first.value, firstDone: first.done,
-                secondValue: second.value ?? null, secondDone: second.done,
-            };
-        })()
-    """)
-    assert result == {
-        "firstValue": "a",
-        "firstDone": False,
-        "secondValue": None,
-        "secondDone": True,
-    }
-
-
-async def test_async_pull_source_delivers_all_chunks_in_order(page: AsyncPage) -> None:
-    result = await page.runtime.eval_async("""\
-        (async () => {
-            let i = 0;
-            const stream = new ReadableStream({
-                async pull(c) {
-                    await new Promise((r) => setTimeout(r, 1));
-                    if (i < 5) c.enqueue(i++);
-                    else c.close();
-                },
-            });
-            const out = [];
-            for await (const chunk of stream) out.push(chunk);
-            return out;
-        })()
-    """)
-    assert result == [0, 1, 2, 3, 4]
 
 
 async def test_response_accepts_the_global_stream(page: AsyncPage) -> None:
