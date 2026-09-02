@@ -1,7 +1,7 @@
 {
   "name": "miniclient",
   "dependencies": {
-    "happy-dom": "20.11.8",
+    "happy-dom": "20.13.0",
     "xpath": "^0.0.34"
   },
   "devDependencies": {
