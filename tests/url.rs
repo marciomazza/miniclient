@@ -8,7 +8,7 @@ use common::{EvalExt, runtime};
 #[test]
 fn searchparams_mutation_propagates_to_search() {
     let rt = runtime();
-    for (start_url, mutation, want) in [
+    for (start_url, mutation_js, want) in [
         ("http://ex.com/", "u.searchParams.set('k', 'v')", "?k=v"),
         ("http://ex.com/", "u.searchParams.append('k', 'v')", "?k=v"),
         ("http://ex.com/?k=v", "u.searchParams.delete('k')", ""),
@@ -23,8 +23,8 @@ fn searchparams_mutation_propagates_to_search() {
             "?a=1&b=2",
         ),
     ] {
-        let src = format!("const u = new URL('{start_url}'); {mutation}; u.search");
-        assert_eq!(rt.eval::<String>(&src), want, "{mutation}");
+        let js = format!("const u = new URL('{start_url}'); {mutation_js}; u.search");
+        assert_eq!(rt.eval::<String>(&js), want, "{mutation_js}");
     }
 }
 
@@ -59,8 +59,8 @@ fn urlsearchparams_accepts_iterable_init() {
             "a=1&b=2",
         ),
     ] {
-        let src = format!("{setup_js}; const init = {init_js}; init.toString()");
-        assert_eq!(rt.eval::<String>(&src), want, "{init_js}");
+        let js = format!("{setup_js}; const init = {init_js}; init.toString()");
+        assert_eq!(rt.eval::<String>(&js), want, "{init_js}");
     }
 }
 

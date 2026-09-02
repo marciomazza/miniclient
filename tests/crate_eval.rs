@@ -9,17 +9,17 @@ use common::{EvalExt, js_error, refusal, runtime};
 #[test]
 fn eval_marshals_json_values() {
     let rt = runtime();
-    for (src, want) in [
+    for (js, want) in [
         ("1 + 1", "2"),
         ("'hi'", "\"hi\""),
         ("true", "true"),
         ("[1, 'two', null]", "[1,\"two\",null]"),
         ("({a: {b: [1]}})", "{\"a\":{\"b\":[1]}}"),
     ] {
-        assert_eq!(rt.eval_json(src).as_deref(), Some(want), "{src}");
+        assert_eq!(rt.eval_json(js).as_deref(), Some(want), "{js}");
     }
-    for src in ["undefined", "null", "void 0"] {
-        assert_eq!(rt.eval_json(src), None, "{src}");
+    for js in ["undefined", "null", "void 0"] {
+        assert_eq!(rt.eval_json(js), None, "{js}");
     }
 }
 
@@ -95,7 +95,7 @@ fn a_syntax_error_becomes_a_javascript_error() {
 #[test]
 fn a_value_json_cannot_carry_raises_and_says_why() {
     let rt = runtime();
-    for (src, want) in [
+    for (js, want) in [
         ("() => 1", "a function"),
         ("Symbol('s')", "a Symbol"),
         ("10n", "a BigInt"),
@@ -131,21 +131,21 @@ fn a_value_json_cannot_carry_raises_and_says_why() {
         ("({[Symbol('k')]: 1})", "a Symbol key (k)"),
         ("({a: 1, [Symbol('k')]: 2})", "a Symbol key (k)"),
     ] {
-        let message = refusal(rt.try_eval(src));
-        assert!(message.contains(want), "{src}: {message:?} lacks {want:?}");
+        let message = refusal(rt.try_eval(js));
+        assert!(message.contains(want), "{js}: {message:?} lacks {want:?}");
     }
 }
 
 #[test]
 fn a_throw_while_marshaling_stays_a_javascript_error() {
     let rt = runtime();
-    for src in [
+    for js in [
         "(() => { const o = {}; o.self = o; return o; })()",
         "({get a() { throw new TypeError('from a getter') }})",
         "({toJSON() { throw new TypeError('from toJSON') }})",
     ] {
-        let (name, ..) = js_error(rt.try_eval(src));
-        assert_eq!(name, "TypeError", "{src}");
+        let (name, ..) = js_error(rt.try_eval(js));
+        assert_eq!(name, "TypeError", "{js}");
     }
 }
 
