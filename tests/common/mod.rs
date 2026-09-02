@@ -25,6 +25,9 @@ pub trait EvalExt {
     fn eval_json_async(&self, src: &str) -> Option<String>;
     /// A sync eval run only for its side effect; panics if it threw or was refused.
     fn run(&self, src: &str);
+    /// The raw outcome, for tests that assert on the error variant.
+    fn try_eval(&self, src: &str) -> EvalOutcome;
+    fn try_eval_async(&self, src: &str) -> EvalOutcome;
 }
 
 impl EvalExt for Runtime {
@@ -46,6 +49,36 @@ impl EvalExt for Runtime {
 
     fn run(&self, src: &str) {
         eval_blocking(self, src, false).expect("eval succeeded");
+    }
+
+    fn try_eval(&self, src: &str) -> EvalOutcome {
+        eval_blocking(self, src, false)
+    }
+
+    fn try_eval_async(&self, src: &str) -> EvalOutcome {
+        eval_blocking(self, src, true)
+    }
+}
+
+/// `(name, message, stack)` of the JS `Error` an eval surfaced.
+pub fn js_error(outcome: EvalOutcome) -> (String, String, String) {
+    match outcome {
+        Err(EvalError::Js(error)) => (
+            error.name.clone().unwrap_or_default(),
+            error.message.clone().unwrap_or_default(),
+            error.stack.clone().unwrap_or_default(),
+        ),
+        Err(EvalError::Other(message)) => panic!("expected a JS error, got a refusal: {message}"),
+        Ok(value) => panic!("expected a JS error, got {value:?}"),
+    }
+}
+
+/// The message of a marshal refusal -- what the `#[pyclass]` wrapper turns into `RuntimeError`.
+pub fn refusal(outcome: EvalOutcome) -> String {
+    match outcome {
+        Err(EvalError::Other(message)) => message,
+        Err(EvalError::Js(error)) => panic!("expected a refusal, got a JS {:?}", error.name),
+        Ok(value) => panic!("expected a refusal, got {value:?}"),
     }
 }
 
