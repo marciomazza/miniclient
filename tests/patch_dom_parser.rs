@@ -8,19 +8,19 @@ use common::{EvalExt, runtime};
 #[test]
 fn regular_html_unchanged() {
     let rt = runtime();
-    assert_eq!(
-        rt.eval::<String>("new DOMParser().parseFromString('<div><p>hello</p></div>', 'text/html').body.innerHTML",
-        ),
-        "<div><p>hello</p></div>",
-    );
+    let js = "
+      new DOMParser().parseFromString('<div><p>hello</p></div>', 'text/html').body.innerHTML";
+    assert_eq!(rt.eval::<String>(js,), "<div><p>hello</p></div>",);
 }
 
 #[test]
 fn body_wrapping() {
     let rt = runtime();
+    let js = "
+      new DOMParser().parseFromString('<body><p>hi</p></body>', 'text/html').documentElement
+        .outerHTML";
     assert_eq!(
-        rt.eval::<String>("new DOMParser().parseFromString('<body><p>hi</p></body>', 'text/html').documentElement.outerHTML",
-        ),
+        rt.eval::<String>(js),
         "<html><head></head><body><p>hi</p></body></html>",
     );
 }
@@ -57,7 +57,9 @@ fn template_table_tags_in_content() {
         ),
     ] {
         let js = format!(
-            "new DOMParser().parseFromString('{html}', 'text/html').querySelector('template').innerHTML"
+            "new DOMParser()
+  .parseFromString('{html}', 'text/html')
+  .querySelector('template').innerHTML"
         );
         assert_eq!(rt.eval::<String>(&js), want, "{html}");
     }
@@ -97,7 +99,10 @@ fn template_attributes_preserved() {
             r#"<template data-foo="bar"><p>x</p></template>"#,
         ),
     ] {
-        let js = format!("new DOMParser().parseFromString('{html}', 'text/html').body .innerHTML");
+        let js = format!(
+            "new DOMParser().parseFromString('{html}', 'text/html').body
+  .innerHTML"
+        );
         assert_eq!(rt.eval::<String>(&js), want, "{html}");
     }
 }

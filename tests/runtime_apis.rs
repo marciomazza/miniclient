@@ -117,11 +117,10 @@ fn headers_dom_parser_and_form_data() {
         ),
         "text/html",
     );
-    assert_eq!(
-        rt.eval::<String>(r#"new window.DOMParser().parseFromString('<p>hi</p>', 'text/html').querySelector('p').textContent"#,
-        ),
-        "hi",
-    );
+    let js = "
+      new window.DOMParser().parseFromString('<p>hi</p>', 'text/html').querySelector('p')
+        .textContent";
+    assert_eq!(rt.eval::<String>(js), "hi");
     assert_eq!(
         rt.eval::<String>(r#"const f = new FormData(); f.append('key', 'val'); f.get('key')"#,),
         "val",
@@ -192,13 +191,8 @@ fn set_timeout_fires_passes_args_and_keeps_order() {
             .as_deref(),
         Some("42"),
     );
-    assert_eq!(
-
-            rt.eval_json_async("new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))",)
-
-        .as_deref(),
-        Some("7"),
-    );
+    let js = "new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))";
+    assert_eq!(rt.eval_json_async(js).as_deref(), Some("7"));
     assert_eq!(
         rt.eval_json_async(
             r#"
