@@ -20,7 +20,7 @@ fn script_executed_on_dom_insertion() {
         "host.insertBefore(script, null)",
         "host.replaceWith(script)",
     ] {
-        let src_js = format!(
+        let js = format!(
             r#"
             window.__ran = 0;
             const script = document.createElement('script');
@@ -31,7 +31,7 @@ fn script_executed_on_dom_insertion() {
             window.__ran === 1;
         "#
         );
-        assert!(rt.eval::<bool>(&src_js), "{insertion_js}");
+        assert!(rt.eval::<bool>(&js), "{insertion_js}");
     }
 }
 

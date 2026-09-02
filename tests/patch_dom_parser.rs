@@ -56,10 +56,10 @@ fn template_table_tags_in_content() {
             "<tfoot><tr><td>x</td></tr></tfoot>",
         ),
     ] {
-        let src = format!(
+        let js = format!(
             "new DOMParser().parseFromString('{html}', 'text/html').querySelector('template').innerHTML"
         );
-        assert_eq!(rt.eval::<String>(&src), want, "{html}");
+        assert_eq!(rt.eval::<String>(&js), want, "{html}");
     }
 }
 
