@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+pub mod fetch_mock;
+
 pub use _miniclient::runtime::Runtime;
 use _miniclient::runtime::{EvalError, EvalOutcome};
 

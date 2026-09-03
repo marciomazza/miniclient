@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 
@@ -104,8 +105,8 @@ enum Command {
         callable: Py<PyAny>,
         reply: oneshot::Sender<EvalOutcome>,
     },
-    InstallHostOps {
-        host_ops: ops::HostOps,
+    InstallFetchBackend {
+        backend: Box<dyn ops::FetchBackend>,
         reply: oneshot::Sender<()>,
     },
 }
@@ -291,8 +292,9 @@ async fn handle_command(
                 .send(eval(js, marshal, binding_js, false, rx, stop).await)
                 .ok();
         }
-        Command::InstallHostOps { host_ops, reply } => {
-            js.op_state().borrow_mut().put(host_ops);
+        Command::InstallFetchBackend { backend, reply } => {
+            let backend: Rc<dyn ops::FetchBackend> = Rc::from(backend);
+            js.op_state().borrow_mut().put(backend);
             reply.send(()).ok();
         }
     }
@@ -401,15 +403,17 @@ impl Runtime {
         rx
     }
 
-    /// Installs the Python callables `op_fetch`/`op_fetch_abort`/`op_fetch_sync` read from
-    /// `OpState`. Safe to call any time before JS first reaches one of
-    /// those ops -- `bootstrap.js`'s own top-level execution never does, only functions it
-    /// defines for later, so this can run after construction rather than needing to land before
-    /// `bootstrap.js` loads.
-    pub fn send_install_host_ops(&self, host_ops: ops::HostOps) -> oneshot::Receiver<()> {
+    /// Installs the backend `op_fetch`/`op_fetch_abort`/`op_fetch_sync` read from `OpState`.
+    /// Safe to call any time before JS first reaches one of those ops -- `bootstrap.js`'s own
+    /// top-level execution never does, only functions it defines for later, so this can run
+    /// after construction rather than needing to land before `bootstrap.js` loads.
+    pub fn send_install_fetch_backend(
+        &self,
+        backend: Box<dyn ops::FetchBackend>,
+    ) -> oneshot::Receiver<()> {
         let (reply, rx) = oneshot::channel();
         self.commands
-            .send(Command::InstallHostOps { host_ops, reply })
+            .send(Command::InstallFetchBackend { backend, reply })
             .ok();
         rx
     }

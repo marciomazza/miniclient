@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use deno_core::JsBuffer;
 use deno_core::OpState;
 use deno_core::ToJsBuffer;
@@ -63,15 +64,56 @@ pub struct FsStatResult {
     pub is_directory: bool,
 }
 
-/// The 3 Python callables these ops bridge to, plus the `TaskLocals` (event loop + context)
-/// `op_fetch` needs to await a Python coroutine from the isolate thread. Installed into
-/// `OpState` once, before any of these ops can be called from JS. (The fs ops hit the real
-/// filesystem natively and need nothing here.)
-pub struct HostOps {
+/// The transport `op_fetch`/`op_fetch_abort`/`op_fetch_sync` dispatch to, stored in `OpState`
+/// as `Rc<dyn FetchBackend>` before JS first reaches one of those ops. Production installs
+/// `PythonFetchBackend` (bridges to `httpx` in `runtime.py`); tests install an in-memory mock,
+/// so the JS-observable fetch suites need no Python. (The fs ops hit the real filesystem
+/// natively and need nothing here.)
+#[async_trait(?Send)]
+pub trait FetchBackend: Send {
+    async fn fetch(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox>;
+    fn fetch_sync(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox>;
+    fn abort(&self, request_id: &str) -> Result<(), JsErrorBox>;
+}
+
+/// The 3 Python callables plus the `TaskLocals` (event loop + context) `fetch` needs to await a
+/// Python coroutine from the isolate thread.
+pub struct PythonFetchBackend {
     pub fetch: Py<PyAny>,
     pub fetch_locals: TaskLocals,
     pub fetch_abort: Py<PyAny>,
     pub fetch_sync: Py<PyAny>,
+}
+
+#[async_trait(?Send)]
+impl FetchBackend for PythonFetchBackend {
+    /// Bridges to a Python coroutine via `pyo3_async_runtimes::into_future_with_locals` -- the
+    /// mechanism the seam calls for, not a hand-rolled channel.
+    async fn fetch(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
+        let future = Python::attach(|py| -> PyResult<_> {
+            let dict = fetch_request_to_pydict(py, &req)?;
+            let coro = self.fetch.bind(py).call1((dict,))?;
+            pyo3_async_runtimes::into_future_with_locals(&self.fetch_locals, coro)
+        })
+        .map_err(py_err_to_js)?;
+        let result = future.await.map_err(py_err_to_js)?;
+        Python::attach(|py| pyobj_to_fetch_response(result.bind(py))).map_err(py_err_to_js)
+    }
+
+    fn fetch_sync(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
+        Python::attach(|py| {
+            let dict = fetch_request_to_pydict(py, &req)?;
+            let result = self.fetch_sync.bind(py).call1((dict,))?;
+            pyobj_to_fetch_response(&result)
+        })
+        .map_err(py_err_to_js)
+    }
+
+    fn abort(&self, request_id: &str) -> Result<(), JsErrorBox> {
+        Python::attach(|py| self.fetch_abort.call1(py, (request_id.to_string(),)))
+            .map_err(py_err_to_js)?;
+        Ok(())
+    }
 }
 
 fn py_err_to_js(err: PyErr) -> JsErrorBox {
@@ -117,53 +159,33 @@ fn pyobj_to_fetch_response(obj: &Bound<'_, PyAny>) -> PyResult<FetchResponse> {
     })
 }
 
-/// Bridges to a Python coroutine via `pyo3_async_runtimes::into_future_with_locals` -- the
-/// mechanism spec §1 calls for, not a hand-rolled channel.
+fn fetch_backend(state: &OpState) -> Rc<dyn FetchBackend> {
+    state.borrow::<Rc<dyn FetchBackend>>().clone()
+}
+
 #[op2]
 #[serde]
 pub async fn op_fetch(
     state: Rc<RefCell<OpState>>,
     #[serde] req: FetchRequest,
 ) -> Result<FetchResponse, JsErrorBox> {
-    let (fetch, locals) = Python::attach(|py| {
-        let state = state.borrow();
-        let ops = state.borrow::<HostOps>();
-        (ops.fetch.clone_ref(py), ops.fetch_locals.clone())
-    });
-    let future = Python::attach(|py| -> PyResult<_> {
-        let dict = fetch_request_to_pydict(py, &req)?;
-        let coro = fetch.bind(py).call1((dict,))?;
-        pyo3_async_runtimes::into_future_with_locals(&locals, coro)
-    })
-    .map_err(py_err_to_js)?;
-    let result = future.await.map_err(py_err_to_js)?;
-    Python::attach(|py| pyobj_to_fetch_response(result.bind(py))).map_err(py_err_to_js)
+    let backend = fetch_backend(&state.borrow());
+    backend.fetch(req).await
 }
 
 #[op2(fast)]
 pub fn op_fetch_abort(state: &mut OpState, #[string] request_id: String) -> Result<(), JsErrorBox> {
-    Python::attach(|py| {
-        let fetch_abort = state.borrow::<HostOps>().fetch_abort.clone_ref(py);
-        fetch_abort.call1(py, (request_id,))
-    })
-    .map_err(py_err_to_js)?;
-    Ok(())
+    fetch_backend(state).abort(&request_id)
 }
 
-/// Plain, not fast: this blocks on `future.result()` on the Python side (spec §4).
+/// Plain, not fast: `PythonFetchBackend` blocks on `future.result()` on the Python side.
 #[op2]
 #[serde]
 pub fn op_fetch_sync(
     state: &mut OpState,
     #[serde] req: FetchRequest,
 ) -> Result<FetchResponse, JsErrorBox> {
-    Python::attach(|py| {
-        let fetch_sync = state.borrow::<HostOps>().fetch_sync.clone_ref(py);
-        let dict = fetch_request_to_pydict(py, &req)?;
-        let result = fetch_sync.bind(py).call1((dict,))?;
-        pyobj_to_fetch_response(&result)
-    })
-    .map_err(py_err_to_js)
+    fetch_backend(state).fetch_sync(req)
 }
 
 // Not `fast`: V8's fast-call ABI only accepts primitive returns, not this and `op_fs_read`'s
@@ -324,14 +346,18 @@ async def fetch_impl(req):
         .unwrap()
     }
 
-    fn host_ops(_py: Python<'_>, fixtures: &Bound<'_, PyModule>, locals: TaskLocals) -> HostOps {
+    fn host_ops(
+        _py: Python<'_>,
+        fixtures: &Bound<'_, PyModule>,
+        locals: TaskLocals,
+    ) -> Rc<dyn FetchBackend> {
         let get = |name: &str| fixtures.getattr(name).unwrap().into();
-        HostOps {
+        Rc::new(PythonFetchBackend {
             fetch: get("fetch_impl"),
             fetch_locals: locals,
             fetch_abort: get("fetch_abort_impl"),
             fetch_sync: get("fetch_sync_impl"),
-        }
+        })
     }
 
     /// A `TaskLocals` pointing at a real asyncio loop, run to completion on its own thread --
