@@ -75,3 +75,9 @@ When you make a variable that contains a string with javascript code, name it ei
 
 See [docs/release.md](docs/release.md) — read it before building, bumping the version,
 tagging, or releasing.
+
+- The wheel ships only vendored licences, not vendored source. This is fine because every
+  vendored dep is permissive (MIT/BSD/ISC/Apache) and the source is already inlined in the
+  bundle and snapshot. When adding a new vendored dep, confirm its licence is MIT/BSD/ISC/
+  Apache before treating it the same way — a copyleft licence (GPL/LGPL/MPL/EPL) would
+  require shipping the source.
