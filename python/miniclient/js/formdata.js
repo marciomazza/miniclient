@@ -1,4 +1,4 @@
-// Pure JS FormData — does not rely on win.FormData (which has multiple happy-dom bugs).
+// Pure JS FormData — does not rely on win.FormData
 // Implements: https://xhr.spec.whatwg.org/#interface-formdata
 (function () {
     const _SUBMIT_TYPES = new Set(["submit", "image", "reset", "button"]);
