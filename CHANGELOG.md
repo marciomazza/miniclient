@@ -4,12 +4,51 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.4]
+
+### Changed
+
+- Web platform APIs now come from `deno_web` (WHATWG implementations) instead of
+  hand-rolled or vendored polyfills: `URL`/`URLSearchParams`, `TextEncoder`/`TextDecoder`,
+  `atob`/`btoa`, `performance` (real monotonic clock, working marks/measures/observers) and
+  `ReadableStream`/`WritableStream`/`TransformStream`. Better spec conformance — `URL` now
+  propagates `searchParams` mutations back to `href` and serialises spaces as `+`.
+- happy-dom updated to 20.13.0.
+- The wheel now ships only the vendored licences, not the vendored source (the bundle and
+  the snapshot already inline it).
+
+### Removed
+
+- The custom V8 snapshot API: `Runtime.default_snapshot()`, the `v8_snapshot=` parameter on
+  `Page`/`AsyncPage`/`open_runtime()`, and `snapshot=` on `Runtime.new`. The default
+  snapshot is now fixed; editing a bundled JS file requires a maturin rebuild.
+
+### Fixed
+
+- `crypto.getRandomValues()` and `crypto.randomUUID()` were backed by `Math.random()` — not
+  cryptographically random. They now use OS CSPRNG native ops (`getrandom`, uuid v4).
+
+### Performance
+
+- htmx / hx-live `hx-on` scan: the per-`process()` XPath walk over every element and
+  attribute name is replaced by a DOM-layer attribute-name index (~1.2s / ~10% of a sample suite).
+- happy-dom's parsed-selector cache is now process-wide instead of discarded on every
+  navigation, so `goto()` / form submit / `hx-boost` no longer re-parse every selector and
+  CSS rule.
+- The `innerHTML` post-parse fixup (`<option selected>` and radio-group bugs) is skipped
+  unless the fragment actually contains those elements.
+
+### Added
+
+- `MINICLIENT_V8_FLAGS` env var to pass flags to V8 for opt-in profiling.
+- `HAPPYDOM_BUNDLE_SOURCEMAP` env var for sourcemap-enabled bundle builds.
+
 ## [0.2.3]
 
 ### Fixed
 
 - Constructing a `Runtime` from an installed wheel panicked (`failed to read
-  .../python/miniclient/js/bootstrap.js: No such file or directory`): the crate read
+.../python/miniclient/js/bootstrap.js: No such file or directory`): the crate read
   `bootstrap.js` at runtime from the build machine's `CARGO_MANIFEST_DIR`. It is now embedded
   at compile time.
 
@@ -28,7 +67,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `goto()` hung for 30s on any page linking an external `<script type="module">` or
   `<script defer src>`: `__zzz_finish_load()` waited on the script's `load` event, which now
-  fires *during* navigation, before the listener is attached. It drains the scripts' in-flight
+  fires _during_ navigation, before the listener is attached. It drains the scripts' in-flight
   tasks via `window.happyDOM.waitUntilComplete()` instead.
 - The default V8 snapshot is now built at compile time and embedded in the extension, instead
   of being assembled on first use. An installed wheel previously called `create_snapshot` at
