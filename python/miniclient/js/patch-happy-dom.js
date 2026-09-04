@@ -332,6 +332,8 @@ export default function patch(win) {
     // EventTarget.dispatchEvent — set globalThis.event during dispatch
     // Required for hx-vals="js:{...}" that reference the triggering event.
     // Public EventTarget differs from the internal prototype used by DOM nodes.
+    // Fixed-arity replacement instead of patchMethod's ...args trampoline: htmx.process()
+    // alone fires several lifecycle CustomEvents per call, so this runs on the hot path.
     // -----------------------------------------------------------------------------------
     {
         const _probe = win.document.createElement("div");
@@ -339,7 +341,8 @@ export default function patch(win) {
         while (_etProto && !Object.getOwnPropertyDescriptor(_etProto, "dispatchEvent"))
             _etProto = Object.getPrototypeOf(_etProto);
         if (_etProto) {
-            patchMethod(_etProto, "dispatchEvent", function (_origDispatch, evt) {
+            const _origDispatch = _etProto.dispatchEvent;
+            _etProto.dispatchEvent = function dispatchEvent(evt) {
                 const prev = globalThis.event;
                 globalThis.event = evt;
                 try {
@@ -347,7 +350,7 @@ export default function patch(win) {
                 } finally {
                     globalThis.event = prev;
                 }
-            });
+            };
         }
     }
     // -----------------------------------------------------------------------------------
