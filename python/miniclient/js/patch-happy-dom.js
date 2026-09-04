@@ -4,6 +4,8 @@ import patchHxOnIndex from "./patch-happy-dom-hxon-index.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
 import SelectorItem from "happy-dom/lib/query-selector/SelectorItem.js";
 import SelectorParser from "happy-dom/lib/query-selector/SelectorParser.js";
+import CSSStyleSheet from "happy-dom/lib/css/CSSStyleSheet.js";
+import CSSParser from "happy-dom/lib/css/utilities/CSSParser.js";
 import * as PropertySymbol from "happy-dom/lib/PropertySymbol.js";
 
 function patchMethod(proto, method, wrapper) {
@@ -29,6 +31,45 @@ function patchMethod(proto, method, wrapper) {
         if (CACHE.size > 5000) CACHE.clear();
         CACHE.set(selector, groups);
         return groups;
+    };
+}
+
+// Parsed CSSRule trees depend only on the stylesheet text, but each CSSRule bakes in the
+// window/stylesheet/parser that created it (PropertySymbol.window/parentStyleSheet/cssParser),
+// and replaceSync's own text-equality check only dedupes repeat calls on the *same* instance --
+// never true across navigations, since every navigation gets a fresh Window and stylesheet.
+// Cache by CSS text globally and rebind the stale window/stylesheet/parser refs on every cache
+// hit, so a later insertRule/appendRule or `.parentStyleSheet` read sees the current navigation.
+{
+    const CACHE = new Map();
+    function rebind(rules, window, styleSheet) {
+        for (const rule of rules) {
+            rule[PropertySymbol.window] = window;
+            // ponytail: two identical <link> stylesheets alive at once in the same window will
+            // share these rule objects and fight over parentStyleSheet/cssParser (last one to
+            // read from cache wins); harmless in practice since the content is identical and
+            // nothing outside css/ reads these fields. Clone the tree per stylesheet if that
+            // ever matters.
+            rule[PropertySymbol.parentStyleSheet] = styleSheet;
+            rule[PropertySymbol.cssParser] = new CSSParser(styleSheet);
+            if (Array.isArray(rule.cssRules)) rebind(rule.cssRules, window, styleSheet);
+        }
+    }
+    CSSStyleSheet.prototype.replaceSync = function (text) {
+        if (arguments.length === 0) {
+            throw new this[PropertySymbol.window].TypeError(
+                "Failed to execute 'replaceSync' on 'CSSStyleSheet': 1 argument required, but only 0 present.",
+            );
+        }
+        let rules = CACHE.get(text);
+        if (rules) {
+            rebind(rules, this[PropertySymbol.window], this);
+        } else {
+            rules = new CSSParser(this).parseFromString(text);
+            if (CACHE.size > 5000) CACHE.clear();
+            CACHE.set(text, rules);
+        }
+        this.cssRules = rules;
     };
 }
 
