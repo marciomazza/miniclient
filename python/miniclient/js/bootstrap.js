@@ -67,25 +67,22 @@ win.IntersectionObserver ??= class {
 // new Window instance, so this registration must be re-run after every navigation —
 // exposed as a global (submit.js, a plain script, has no `import` access to the
 // bundle this module scope destructured above) and re-entrant:
-// - First deletes every current globalThis own-key that isn't in the pre-Window
-//   baseline. This wipes both the previous window's registered properties *and* any
+// - Deletes only the globalThis own-keys that are stale: not in the pre-Window
+//   baseline and not among the new win's own keys either. This still wipes an
 //   arbitrary global a loaded page's own <script> set directly on globalThis (e.g.
 //   `window.foo = 1`) — indirect eval means such scripts write straight to
-//   globalThis, never to the underlying Window instance object, so there is nothing
-//   to diff against; a full reset-to-baseline is the only way to know what's stale.
+//   globalThis, never to the underlying Window instance object — while every key the
+//   new win does provide is overwritten in place below instead of deleted first.
+//   Deleting everything unconditionally (the previous approach) forced globalThis
+//   into V8 dictionary mode every navigation, since a fresh define-from-scratch on
+//   hundreds of properties never lets a stable hidden class form; overwriting in
+//   place lets repeat navigations hit plain, monomorphic property stores.
 // - Then copies the new win's own properties (+ prototype-chain symbols) on top.
 function registerWindowGlobals(win) {
-    for (const key of Reflect.ownKeys(globalThis)) {
-        if (_preExistingGlobals.has(key)) continue;
-        delete globalThis[key];
-    }
-
     // BrowserFrameNavigator's internal window class (used for every navigation past
     // the very first) doesn't auto-attach `.happyDOM` the way the top-level `Window`
-    // convenience class does — reattach explicitly, and before the own-property copy
-    // loop below so that loop actually picks it up onto globalThis too (setting it
-    // only on `win` after the loop had already run left `globalThis.happyDOM`
-    // undefined, since globalThis is a separate mirror object, not `win` itself).
+    // convenience class does — reattach explicitly, and before the key list below is
+    // built so that list actually includes it.
     win.happyDOM = new DetachedWindowAPI(new WindowBrowserContext(win).getBrowserFrame());
 
     const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis"]);
@@ -93,6 +90,12 @@ function registerWindowGlobals(win) {
         ...Object.keys(Object.getOwnPropertyDescriptors(win)),
         ...Object.getOwnPropertySymbols(win),
     ];
+    const newKeys = new Set(keys);
+    for (const key of Reflect.ownKeys(globalThis)) {
+        if (_preExistingGlobals.has(key) || newKeys.has(key)) continue;
+        delete globalThis[key];
+    }
+
     for (const key of keys) {
         if (_ignored.has(key) || _preExistingGlobals.has(key)) continue;
         const winDescriptor = Object.getOwnPropertyDescriptor(win, key);
@@ -103,7 +106,22 @@ function registerWindowGlobals(win) {
             win[key] = globalThis;
             winDescriptor.value = globalThis;
         }
-        Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
+        // A plain assignment on an existing, matching-shape property is a monomorphic
+        // store that keeps globalThis's hidden class stable; defineProperty always
+        // reconfigures the property and is only needed the first time a key shows up
+        // (new navigation-only globals) or when its attributes actually differ.
+        if (
+            globalDescriptor &&
+            "value" in globalDescriptor &&
+            "value" in winDescriptor &&
+            globalDescriptor.writable &&
+            globalDescriptor.enumerable === winDescriptor.enumerable &&
+            globalDescriptor.configurable
+        ) {
+            globalThis[key] = winDescriptor.value;
+        } else {
+            Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
+        }
     }
     // document.defaultView is left at happy-dom's own default (win, set by BrowserWindow's
     // constructor) rather than redirected to globalThis: HTMLFormElement's native submit
