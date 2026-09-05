@@ -7,7 +7,7 @@
 # silently change what CI builds against.
 set -euo pipefail
 
-REF="6a02cec7b97a9ebb198dad16bdb94c86628dd5e6"  # join 2026-09-05
+REF="f111bc58bcd5556cff29ba1fdc5d516864022f8c"  # join 2026-09-05, not yet pushed to origin
 REPO="git@github.com:marciomazza/happy-dom.git"
 DEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/vendor/happy-dom"
 
