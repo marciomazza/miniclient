@@ -1,14 +1,13 @@
 // Runs after a fresh document has been written into the page (by document.write(),
 // or internally by happy-dom's own navigation machinery via browserFrame.goto()/
-// frame.content=): fixes up the parsed DOM, processes htmx on it, and synthesizes
-// DOMContentLoaded. happy-dom never dispatches DOMContentLoaded natively (no
+// frame.content=): processes htmx on it and synthesizes DOMContentLoaded.
+// happy-dom never dispatches DOMContentLoaded natively (no
 // "loading" readyState, and its one native `load` event fires once for the whole
 // Window's lifetime, not once per navigation). Synthesize it once this write's own
 // deferred/module scripts have actually finished running, mirroring the real-browser
 // rule that plain `async` scripts don't delay DOMContentLoaded but `defer`/
 // `type=module` do.
 globalThis.__zzz_finish_load = function () {
-    __zzz_fixup_parsed_dom(document.body);
     if (typeof htmx !== "undefined") {
         htmx.process(document.body);
     }

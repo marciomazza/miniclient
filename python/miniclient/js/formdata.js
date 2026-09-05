@@ -43,11 +43,12 @@
             } else if (el.selectedIndex >= 0) {
                 data.push([name, el.options[el.selectedIndex].value]);
             }
-        } else if (
-            typeof el.__internalsFormValue !== "undefined" &&
-            el.__internalsFormValue != null
-        ) {
-            data.push([name, el.__internalsFormValue]);
+        } else {
+            const PropertySymbol = globalThis.__happyDomBundle?.PropertySymbol;
+            if (PropertySymbol && el[PropertySymbol.formAssociated]) {
+                const value = el[PropertySymbol.internalsFormValue];
+                if (value != null) data.push([name, value]);
+            }
         }
     }
 

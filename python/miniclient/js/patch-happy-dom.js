@@ -1,19 +1,10 @@
 import patchDomParser from "./patch-happy-dom-parser.js";
-import patchAttr from "./patch-happy-dom-attr.js";
 import patchHxOnIndex from "./patch-happy-dom-hxon-index.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
-import SelectorItem from "happy-dom/lib/query-selector/SelectorItem.js";
 import SelectorParser from "happy-dom/lib/query-selector/SelectorParser.js";
 import CSSStyleSheet from "happy-dom/lib/css/CSSStyleSheet.js";
-import CSSParser from "happy-dom/lib/css/utilities/CSSParser.js";
+import CSSParser from "happy-dom/lib/css/utilities/CSSRuleParser.js";
 import * as PropertySymbol from "happy-dom/lib/PropertySymbol.js";
-
-function patchMethod(proto, method, wrapper) {
-    const orig = proto[method];
-    proto[method] = function (...args) {
-        return wrapper.call(this, orig, ...args);
-    };
-}
 
 // Parsed SelectorItem groups depend only on the selector string, but happy-dom keys its cache
 // on window[querySelectorCache], which navigation discards along with the Window — so every
@@ -75,265 +66,9 @@ function patchMethod(proto, method, wrapper) {
 
 export default function patch(win) {
     // -----------------------------------------------------------------------------------
-    // Location.hash setter — happy-dom's own setter pushes a new history entry but carries
-    // the *previous* entry's state forward instead of nulling it. Per spec, a script-driven
-    // hash-only navigation always gets a fresh entry with state: null (only explicit
-    // pushState/replaceState calls carry a state object). Delegate to history.pushState,
-    // which already creates a fresh entry with an explicit state and updates the URL
-    // (including firing hashchange) the same way the original setter did.
-    // -----------------------------------------------------------------------------------
-    {
-        const locProto = Object.getPrototypeOf(win.location);
-        const desc = Object.getOwnPropertyDescriptor(locProto, "hash");
-        Object.defineProperty(locProto, "hash", {
-            get: desc.get,
-            set(hash) {
-                const url = new URL(this.href);
-                url.hash = hash;
-                if (url.hash !== this.hash) win.history.pushState(null, "", url.href);
-            },
-            configurable: true,
-        });
-    }
-
-    // -----------------------------------------------------------------------------------
-    // SelectorItem.matchPseudoItem — happy-dom gaps in constraint/disabled pseudo-classes:
-    // - :disabled doesn't propagate from an ancestor <fieldset disabled>
-    // - :required/:invalid/:valid have no case in the switch at all
-    // Patched here (not Element.matches) so :has(), :is(), :not(), and querySelectorAll()
-    // see the fix too, not just direct .matches() calls.
-    // -----------------------------------------------------------------------------------
-    patchMethod(
-        SelectorItem.prototype,
-        "matchPseudoItem",
-        function (_orig, scope, element, parentChildren, pseudo, ignoreErrors) {
-            const result = _orig.call(this, scope, element, parentChildren, pseudo, ignoreErrors);
-            if (result) return result;
-            if (pseudo.name === "disabled") {
-                let p = element.parentElement;
-                while (p) {
-                    if (p.tagName === "FIELDSET" && p.disabled) return { priorityWeight: 10 };
-                    p = p.parentElement;
-                }
-                return null;
-            }
-            if (pseudo.name === "required") {
-                return element.hasAttribute?.("required") ? { priorityWeight: 10 } : null;
-            }
-            if (pseudo.name === "invalid" || pseudo.name === "valid") {
-                if (typeof element.checkValidity !== "function") return null;
-                const valid = element.checkValidity();
-                return (pseudo.name === "invalid" ? !valid : valid) ? { priorityWeight: 10 } : null;
-            }
-            return null;
-        },
-    );
-
-    // -----------------------------------------------------------------------------------
-    // :checked pseudo-class — only matches <input>, but per spec it also applies to a
-    // selected <option> within a <select>. Unlike :disabled above, querySelectorAll
-    // reaches this through SelectorItem.matchPseudoItem directly (QuerySelector.findAll
-    // calls selectorItem.match()), bypassing the patchable public Element.prototype.matches.
-    // -----------------------------------------------------------------------------------
-    patchMethod(
-        SelectorItem.prototype,
-        "matchPseudoItem",
-        function (_origMatchPseudoItem, scope, element, parentChildren, pseudo, ignoreErrors) {
-            if (pseudo.name === "checked" && element.tagName === "OPTION") {
-                return element.selected ? { priorityWeight: 10 } : null;
-            }
-            return _origMatchPseudoItem.call(
-                this,
-                scope,
-                element,
-                parentChildren,
-                pseudo,
-                ignoreErrors,
-            );
-        },
-    );
-
-    // -----------------------------------------------------------------------------------
-    // HTMLSelectElement.value setter — sets each <option>'s internal selectedness symbol
-    // directly, bypassing HTMLOptionElement's own `selected` setter entirely. Unlike
-    // HTMLInputElement's #setChecked (which does call [clearCache]() after flipping
-    // `checked`), this leaves any previously-cached querySelectorAll/matches/querySelector
-    // result that depends on `:checked` (e.g. `option:checked`) stale forever, since the
-    // cache is keyed by selector string and invalidated per-node via [clearCache](), which
-    // nothing here ever calls.
-    // -----------------------------------------------------------------------------------
-    {
-        const selectProto = Object.getPrototypeOf(win.document.createElement("select"));
-        const desc = Object.getOwnPropertyDescriptor(selectProto, "value");
-        Object.defineProperty(selectProto, "value", {
-            get: desc.get,
-            set(value) {
-                desc.set.call(this, value);
-                for (const option of this.querySelectorAll("option")) {
-                    option[PropertySymbol.clearCache]();
-                }
-            },
-            configurable: true,
-        });
-    }
-
-    // -----------------------------------------------------------------------------------
-    // HTMLFormElement.reset — SELECT handling ignores `element.multiple` entirely: per
-    // spec, "if no option has a `selected` attribute, auto-select the first option" only
-    // applies to single-selects. A `<select multiple>` with no selected-attribute options
-    // must end up with nothing selected, but happy-dom force-selects options[0] regardless.
-    // Also fixes a latent bug in the same branch: it only honors the *first* selected-
-    // attribute option, so a multi-select with several pre-selected options lost all but
-    // one. Runs the original reset() first (TEXTAREA/INPUT/OUTPUT handling stays correct),
-    // then overwrites SELECT selectedness with the spec-correct logic.
-    // -----------------------------------------------------------------------------------
-    patchMethod(win.HTMLFormElement.prototype, "reset", function (_orig) {
-        _orig.call(this);
-        for (const element of this[PropertySymbol.getFormControlItems]()) {
-            if (element.tagName !== "SELECT") continue;
-            const options = [...element.options];
-            if (element.multiple) {
-                for (const option of options) option.selected = option.hasAttribute("selected");
-            } else {
-                const selectedOptions = options.filter((o) => o.hasAttribute("selected"));
-                const toSelect =
-                    selectedOptions.length > 0
-                        ? selectedOptions[selectedOptions.length - 1]
-                        : options[0];
-                for (const option of options) option.selected = option === toSelect;
-            }
-        }
-    });
-
-    // -----------------------------------------------------------------------------------
-    // HTMLElement.attachInternals — missing polyfill for form-associated custom elements
-    // -----------------------------------------------------------------------------------
-    patchMethod(win.HTMLElement.prototype, "attachInternals", function (_orig) {
-        if (_orig) {
-            return _orig.call(this);
-        }
-        const host = this;
-        return {
-            setFormValue(val) {
-                host.__internalsFormValue = val != null ? String(val) : null;
-            },
-        };
-    });
-
-    // -----------------------------------------------------------------------------------
-    // HTMLFormElement[getFormControlItems] — form-associated custom elements are "listed"
-    // per spec and belong in form.elements, but happy-dom's query only covers
-    // input/select/textarea/button/fieldset/object/output. Without this, form.elements
-    // (and anything built from it, e.g. htmx's __collectFormData dedup set) treats such
-    // elements as absent from the form.
-    // -----------------------------------------------------------------------------------
-    {
-        const _probe = win.document.createElement("form");
-        let _formProto = Object.getPrototypeOf(_probe);
-        while (
-            _formProto &&
-            !Object.getOwnPropertyDescriptor(_formProto, PropertySymbol.getFormControlItems)
-        )
-            _formProto = Object.getPrototypeOf(_formProto);
-        if (_formProto) {
-            patchMethod(_formProto, PropertySymbol.getFormControlItems, function (_orig) {
-                const items = _orig.call(this);
-                for (const el of this.querySelectorAll("*")) {
-                    if (typeof el.__internalsFormValue !== "undefined" && !items.includes(el)) {
-                        items.push(el);
-                    }
-                }
-                return items;
-            });
-        }
-    }
-
-    // -----------------------------------------------------------------------------------
-    // document.getElementById — doesn't respect tree order with duplicate IDs
-    // (e.g. when htmx stores a preserved element in a pantry node after <body>)
-    // -----------------------------------------------------------------------------------
-    {
-        let _docProto = Object.getPrototypeOf(win.document);
-        while (_docProto && !Object.getOwnPropertyDescriptor(_docProto, "getElementById"))
-            _docProto = Object.getPrototypeOf(_docProto);
-        if (_docProto) {
-            patchMethod(_docProto, "getElementById", function (_origGetById, id) {
-                if (!id) return _origGetById.call(this, id);
-                const results = this.querySelectorAll("#" + CSS.escape(String(id)));
-                return results.length > 0 ? results[0] : null;
-            });
-        }
-    }
-
-    // -----------------------------------------------------------------------------------
-    // Post-parse fixups — two bugs after happy-dom parses HTML (via innerHTML setter or
-    // document.write):
-    // (1) `selected` attr not reflected onto .selected IDL property
-    // (2) radio mutual exclusion not enforced within a name group
-    // The innerHTML setter skips this entirely unless the markup could contain either
-    // element — most htmx swaps carry neither, so the tree walk would be a waste.
-    // -----------------------------------------------------------------------------------
-    globalThis.__zzz_fixup_parsed_dom = function (root) {
-        const groups = {};
-        root.querySelectorAll("option[selected], input[type=radio]").forEach((el) => {
-            if (el.tagName === "OPTION") el.selected = true;
-            else (groups[el.name] ??= []).push(el);
-        });
-        for (const group of Object.values(groups)) {
-            const checked = group.filter((r) => r.checked);
-            if (checked.length > 1)
-                checked.slice(0, -1).forEach((r) => {
-                    r.checked = false;
-                });
-        }
-    };
-    {
-        const _probe = win.document.createElement("div");
-        let _elProto = Object.getPrototypeOf(_probe);
-        while (_elProto && !Object.getOwnPropertyDescriptor(_elProto, "innerHTML"))
-            _elProto = Object.getPrototypeOf(_elProto);
-        if (_elProto) {
-            const _desc = Object.getOwnPropertyDescriptor(_elProto, "innerHTML");
-            Object.defineProperty(_elProto, "innerHTML", {
-                get: _desc.get,
-                set(value) {
-                    _desc.set.call(this, value);
-                    if (/option|radio/i.test(value)) globalThis.__zzz_fixup_parsed_dom(this);
-                },
-                configurable: true,
-            });
-        }
-    }
-
-    // -----------------------------------------------------------------------------------
-    // HTMLTextAreaElement.value getter — when not dirty, must return the "child text
-    // content" (direct Text-node children only), but happy-dom returns the full
-    // recursive textContent instead. This matters because htmx can insert element
-    // children into a textarea via DOM APIs (bypassing the HTML parser's RCDATA
-    // restriction), in which case only direct text children should count.
-    // -----------------------------------------------------------------------------------
-    {
-        const _desc = Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, "value");
-        Object.defineProperty(win.HTMLTextAreaElement.prototype, "value", {
-            get() {
-                const value = _desc.get.call(this);
-                if (value !== this.textContent) return value;
-                let text = "";
-                for (const child of this.childNodes)
-                    if (child.nodeType === Node.TEXT_NODE) text += child.data;
-                return text;
-            },
-            set: _desc.set,
-            configurable: true,
-        });
-    }
-
-    // -----------------------------------------------------------------------------------
     // EventTarget.dispatchEvent — set globalThis.event during dispatch
     // Required for hx-vals="js:{...}" that reference the triggering event.
     // Public EventTarget differs from the internal prototype used by DOM nodes.
-    // Fixed-arity replacement instead of patchMethod's ...args trampoline: htmx.process()
-    // alone fires several lifecycle CustomEvents per call, so this runs on the hot path.
     // -----------------------------------------------------------------------------------
     {
         const _probe = win.document.createElement("div");
@@ -360,7 +95,7 @@ export default function patch(win) {
     // in-heap object, so no serialization is needed here (unlike the real subprocess
     // this used to emulate, which had to shuttle everything through a text pipe).
     // -----------------------------------------------------------------------------------
-    patchMethod(SyncFetchScriptBuilder, "getScript", function (_orig, request) {
+    SyncFetchScriptBuilder.getScript = function getScript(request) {
         return {
             __sync_fetch__: true,
             url: request.url.href,
@@ -368,23 +103,7 @@ export default function patch(win) {
             headers: request.headers ?? {},
             body: request.body ?? null,
         };
-    });
-
-    // -----------------------------------------------------------------------------------
-    // Node[connectedToNode] — for node types whose constructor returns a Proxy standing in
-    // for `this` (HTMLFormElement, HTMLSelectElement — needed for named-item access like
-    // form.username), the proxy's `get` trap permanently binds every symbol-keyed method to
-    // the raw target the first time it's read. connectedToNode then stamps
-    // `childNodes[i][parentNode] = this` using that raw target instead of the canonical
-    // proxy, so a child's `.parentElement` and the parent's own `.querySelector()`/
-    // `.firstChild` end up disagreeing about node identity after any move (appendChild/
-    // insertBefore). Force `this` back to the proxy (if any) before delegating, mirroring
-    // how appendChild/insertBefore/removeChild already resolve
-    // `self = this[PropertySymbol.proxy] || this` elsewhere in happy-dom's own Node.js.
-    // -----------------------------------------------------------------------------------
-    patchMethod(win.Node.prototype, PropertySymbol.connectedToNode, function (_orig) {
-        return _orig.call(this[PropertySymbol.proxy] || this);
-    });
+    };
 
     // -----------------------------------------------------------------------------------
     // Event.timeStamp — happy-dom's Event class sets `this[timeStamp] = performance.now()`
@@ -428,7 +147,6 @@ export default function patch(win) {
     }
 
     patchDomParser(win);
-    patchAttr(win);
     patchHxOnIndex(win);
 
     // -----------------------------------------------------------------------------------

@@ -154,6 +154,9 @@ fn non_disabled_fieldset_does_not_disable_children() {
 
 #[test]
 fn attach_internals_set_form_value() {
+    // attachInternals()/setFormValue() come from the happy-dom fork (fix/element-internals),
+    // not a mini wrapper -- this only exercises that form-associated custom elements show up
+    // in FormData, the thing mini's own htmx form handling relies on.
     let rt = runtime();
     for (value_js, expected) in [
         ("'hello'", Some(r#""hello""#)),
@@ -162,11 +165,21 @@ fn attach_internals_set_form_value() {
     ] {
         let js = format!(
             r#"
-            const el = document.createElement('div');
-            const internals = el.attachInternals();
-            internals.setFormValue({value_js});
-            el.__internalsFormValue;
-        "#
+            const tag = 'mini-test-fa-{value_js_id}';
+            class FA extends HTMLElement {{
+                static formAssociated = true;
+                #internals = this.attachInternals();
+                setValue(value) {{ this.#internals.setFormValue(value); }}
+            }}
+            customElements.define(tag, FA);
+            const form = document.createElement('form');
+            const el = document.createElement(tag);
+            el.setAttribute('name', 'field');
+            el.setValue({value_js});
+            form.appendChild(el);
+            new FormData(form).get('field');
+        "#,
+            value_js_id = value_js.chars().filter(|c| c.is_alphanumeric()).collect::<String>(),
         );
         assert_eq!(rt.eval_json(&js).as_deref(), expected, "{value_js}",);
     }

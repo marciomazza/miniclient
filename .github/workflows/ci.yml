@@ -37,6 +37,16 @@ jobs:
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           bash scripts/setup-vendor-htmx.sh
+      - name: Cache vendor/happy-dom build
+        uses: actions/cache@v4
+        with:
+          path: vendor/happy-dom/packages/happy-dom/lib
+          # Keyed on the script itself: bumping the pinned REF inside it busts the cache.
+          key: happy-dom-lib-${{ hashFiles('scripts/setup-vendor-happy-dom.sh') }}
+      - name: Clone and build vendor/happy-dom fork (via HTTPS, no SSH key in CI)
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          bash scripts/setup-vendor-happy-dom.sh
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
