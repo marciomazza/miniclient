@@ -179,7 +179,10 @@ fn attach_internals_set_form_value() {
             form.appendChild(el);
             new FormData(form).get('field');
         "#,
-            value_js_id = value_js.chars().filter(|c| c.is_alphanumeric()).collect::<String>(),
+            value_js_id = value_js
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>(),
         );
         assert_eq!(rt.eval_json(&js).as_deref(), expected, "{value_js}",);
     }
@@ -245,16 +248,22 @@ fn dispatch_event_sets_global_event() {
 }
 
 #[test]
-fn dispatch_event_restores_global_event_after() {
+fn global_event_is_idle_undefined_and_restores_across_nested_dispatch() {
     let rt = runtime();
     let js = r#"
         const el = document.createElement('div');
-        el.addEventListener('click', () => {});
-        globalThis.event = 'sentinel';
+        let outerType = null;
+        el.addEventListener('click', () => {
+            const inner = document.createElement('div');
+            inner.addEventListener('x', () => {});
+            inner.dispatchEvent(new Event('x'));
+            outerType = globalThis.event.type;   // outer event restored after the nested one
+        });
+        const idleBefore = globalThis.event === undefined;
         el.dispatchEvent(new Event('click'));
-        globalThis.event;
+        JSON.stringify([idleBefore, outerType, globalThis.event === undefined]);
     "#;
-    assert_eq!(rt.eval::<String>(js), "sentinel");
+    assert_eq!(rt.eval::<String>(js), r#"[true,"click",true]"#);
 }
 
 const HXON_XPATH: &str =

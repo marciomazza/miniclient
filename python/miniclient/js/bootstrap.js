@@ -85,7 +85,9 @@ function registerWindowGlobals(win) {
     // built so that list actually includes it.
     win.happyDOM = new DetachedWindowAPI(new WindowBrowserContext(win).getBrowserFrame());
 
-    const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis"]);
+    // `event` is re-installed as a live accessor below; skip the plain-value copy so it
+    // isn't churned accessor->value->accessor on every navigation.
+    const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis", "event"]);
     const keys = [
         ...Object.keys(Object.getOwnPropertyDescriptors(win)),
         ...Object.getOwnPropertySymbols(win),
@@ -148,6 +150,19 @@ function registerWindowGlobals(win) {
             if (typeof value === "function") globalThis[key] = value.bind(win);
         }
     }
+
+    // Legacy `window.event` current-event global: happy-dom's fork maintains `win.event`
+    // natively for the duration of each dispatch. Bridge bare `event` references (and the
+    // fork's own `window.event = event` write, which lands on globalThis here because
+    // self-references are redirected above) straight through to `win.event`, so there's no
+    // separate mirror to keep in sync and no dispatch-time wrapper re-entering per phase.
+    Object.defineProperty(globalThis, "event", {
+        get: () => win.event,
+        set: (value) => {
+            win.event = value;
+        },
+        configurable: true,
+    });
 
     // Runs last, and on every navigation, not just the first: happy-dom hands each
     // window its own fresh MutationObserver/HTMLFormElement/HTMLElement/.../Response

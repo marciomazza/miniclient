@@ -66,29 +66,6 @@ import * as PropertySymbol from "happy-dom/lib/PropertySymbol.js";
 
 export default function patch(win) {
     // -----------------------------------------------------------------------------------
-    // EventTarget.dispatchEvent — set globalThis.event during dispatch
-    // Required for hx-vals="js:{...}" that reference the triggering event.
-    // Public EventTarget differs from the internal prototype used by DOM nodes.
-    // -----------------------------------------------------------------------------------
-    {
-        const _probe = win.document.createElement("div");
-        let _etProto = Object.getPrototypeOf(_probe);
-        while (_etProto && !Object.getOwnPropertyDescriptor(_etProto, "dispatchEvent"))
-            _etProto = Object.getPrototypeOf(_etProto);
-        if (_etProto) {
-            const _origDispatch = _etProto.dispatchEvent;
-            _etProto.dispatchEvent = function dispatchEvent(evt) {
-                const prev = globalThis.event;
-                globalThis.event = evt;
-                try {
-                    return _origDispatch.call(this, evt);
-                } finally {
-                    globalThis.event = prev;
-                }
-            };
-        }
-    }
-    // -----------------------------------------------------------------------------------
     // SyncFetchScriptBuilder.getScript — replace the "spawn node -e <script>" script
     // generation with a plain envelope object for our node:child_process polyfill's
     // execFileSync (see node-child-process.js). Both ends are our own code passing an
