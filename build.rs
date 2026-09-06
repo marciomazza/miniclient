@@ -47,6 +47,29 @@ fn watch_js_sources(js: &Path) {
     }
 }
 
+/// Rebuild the vendored happy-dom fork's `lib/` from its TS sources, and watch those sources
+/// so an edit there re-triggers this script. Skipped when the fork has no `node_modules`
+/// (CI restores a prebuilt `lib/` from cache and never installs turbo).
+fn build_happy_dom(root: &Path) {
+    let pkg = root.join("vendor/happy-dom/packages/happy-dom");
+    if !pkg.is_dir() {
+        return;
+    }
+    println!("cargo::rerun-if-changed={}", pkg.join("src").display());
+    println!(
+        "cargo::rerun-if-changed={}",
+        pkg.join("package.json").display()
+    );
+    let fork = root.join("vendor/happy-dom");
+    if fork.join("node_modules").is_dir() {
+        run(
+            "npx",
+            &["turbo", "run", "compile", "--filter=happy-dom"],
+            &fork,
+        );
+    }
+}
+
 fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let js = root.join("python/miniclient/js");
@@ -54,6 +77,7 @@ fn main() {
 
     println!("cargo::rerun-if-changed=package-lock.json");
     watch_js_sources(&js);
+    build_happy_dom(&root);
 
     if !node_modules.join(".package-lock.json").exists() {
         run("npm", &["ci"], &root);
