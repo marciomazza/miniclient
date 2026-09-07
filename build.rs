@@ -61,6 +61,12 @@ fn build_happy_dom(root: &Path) {
         pkg.join("package.json").display()
     );
     let fork = root.join("vendor/happy-dom");
+    // The bundle is built from `lib/`, i.e. `tsc`'s output -- a toolchain bump in the fork
+    // changes that output without touching `src/`, so watch the fork's lockfile too.
+    println!(
+        "cargo::rerun-if-changed={}",
+        fork.join("package-lock.json").display()
+    );
     if fork.join("node_modules").is_dir() {
         run(
             "npx",
