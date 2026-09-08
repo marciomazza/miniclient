@@ -67,6 +67,8 @@ await build({
   platform: "browser",
   target: "es2022",
   minify: !debug,
+  // Keep original happy-dom identifiers in stack traces; costs ~3% bundle size.
+  keepNames: true,
   sourcemap: debug ? "inline" : false,
   outfile: _JS + "_generated/happy-dom-bundle.js",
   plugins: [polyfillResolverPlugin()],
