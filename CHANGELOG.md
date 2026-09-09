@@ -4,6 +4,32 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.5]
+
+### Changed
+
+- happy-dom now comes from our new fork (<https://github.com/marciomazza/happy-dom/tree/join>),
+  based on happy-dom 20.14.0. Most fixes and improvements previously applied as monkeypatches
+  were moved there.
+
+### Performance
+
+Cumulative ~44% fewer V8-isolate ticks than 0.2.4, from the changes below.
+
+- The generic method-wrapping trampoline (variadic receiver + `...args` spread) that
+  patched happy-dom methods is gone — it was the single largest JS hotspot. Fixes now live
+  in the fork, and the few remaining mini-specific wrappers are fixed-arity.
+- `dispatchEvent`'s `globalThis.event` mirror was the next-largest hotspot — the per-dispatch
+  wrapper re-entered itself once per propagation phase. `globalThis.event` is now a plain
+  get/set accessor onto the value the happy-dom fork keeps set during dispatch.
+- Parsed CSS stylesheets are cached by text across navigations, instead of being re-parsed
+  for every fresh `Window`.
+- On navigation, `globalThis` keys are overwritten in place instead of deleted and
+  redefined, which had forced V8 into dictionary mode.
+- `fetch()` response bodies now reach JS as an `ArrayBuffer` instead of being unpacked into a
+  JavaScript `Array`. The bytes are moved in directly, so a full per-byte copy is dropped on
+  every page load and htmx swap.
+
 ## [0.2.4]
 
 ### Changed
