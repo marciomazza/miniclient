@@ -2,7 +2,7 @@
 # Clones bigskysoftware/htmx at a branch into vendor/htmx for local dev/testing.
 set -euo pipefail
 
-REF="a689089e"  # four-dev 2026-08-21
+REF="4195bc0dc26b"  # v4.0.0 2026-08-28
 REPO="git@github.com:bigskysoftware/htmx.git"
 DEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/vendor/htmx"
 
