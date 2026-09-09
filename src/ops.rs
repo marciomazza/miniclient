@@ -43,13 +43,16 @@ pub struct FetchRequest {
 /// Matches the dict shape `_fetch_op`/`_fetch_sync_op` already return. `headers` is a list of
 /// pairs, not an object, because a response can carry the same header name twice (e.g.
 /// `Set-Cookie`).
-#[derive(Serialize, Deserialize)]
+///
+/// `body` is `ToJsBuffer` so `serde_v8` hands the bytes to V8 as an `ArrayBuffer` instead of
+/// materialising one JS number per byte -- every page load and htmx swap goes through here.
+#[derive(Serialize)]
 pub struct FetchResponse {
     pub status: u16,
     #[serde(rename = "statusText")]
     pub status_text: String,
     pub headers: Vec<(String, String)>,
-    pub body: Option<Vec<u8>>,
+    pub body: Option<ToJsBuffer>,
     pub url: String,
 }
 
@@ -106,7 +109,10 @@ fn pyobj_to_fetch_response(obj: &Bound<'_, PyAny>) -> PyResult<FetchResponse> {
             .get_item("headers")
             .and_then(|v| v.extract())
             .unwrap_or_default(),
-        body: obj.get_item("body")?.extract()?,
+        body: obj
+            .get_item("body")?
+            .extract::<Option<Vec<u8>>>()?
+            .map(ToJsBuffer::from),
         url: obj.get_item("url")?.extract()?,
     })
 }
