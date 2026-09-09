@@ -56,6 +56,9 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
         ("Deep Review Fixes", "cleans up expired pending requests on message receive"),
         # Scaled clock lets the send fire before the async js: hx-vals resolves.
         ("Message Sending", "includes async hx-vals (js:) in sent message"),
+        # Scaled clock's 1ms timer floor collapses the connect-vs-wait races.
+        ("Message Sending", "queues a message until the initial connection opens"),
+        ("Error Handling and Reconnection", "reconnects after every default close code"),
     },
     "morph": {
         ("htmx processing during morph", "processes new htmx attributes added during innerMorph"),
