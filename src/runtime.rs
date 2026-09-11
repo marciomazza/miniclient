@@ -1,4 +1,4 @@
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::thread::JoinHandle;
 
 use deno_core::error::{CoreErrorKind, JsError};
@@ -16,16 +16,6 @@ const BOOTSTRAP_JS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/python/miniclient/js/bootstrap.js"
 ));
-
-/// Safety net only: the platform init below is the actual fix for deno_core#952. Held
-/// across isolate construction and destruction, never while a live runtime is in use.
-static ISOLATE_LIFECYCLE: Mutex<()> = Mutex::new(());
-
-pub(crate) fn lifecycle_lock() -> MutexGuard<'static, ()> {
-    ISOLATE_LIFECYCLE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 /// Initializes V8 once per process, before any isolate exists. Snapshot builders must call
 /// this too -- their isolates are bound by the same rule.
@@ -333,14 +323,11 @@ impl Runtime {
                 .build()
                 .expect("failed to build the isolate thread's tokio runtime");
             tokio.block_on(async move {
-                let mut js = {
-                    let _lock = lifecycle_lock();
-                    JsRuntime::new(RuntimeOptions {
-                        startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
-                        extensions: extensions(),
-                        ..Default::default()
-                    })
-                };
+                let mut js = JsRuntime::new(RuntimeOptions {
+                    startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
+                    extensions: extensions(),
+                    ..Default::default()
+                });
                 let marshal = js
                     .execute_script("<marshal>", MARSHAL_JS)
                     .expect("the marshaling helper must compile");
@@ -370,7 +357,6 @@ impl Runtime {
                     };
                     handle_command(&mut js, &marshal, command, &mut rx, &mut stop).await;
                 }
-                let _lock = lifecycle_lock();
                 drop(js);
             });
         });
@@ -447,11 +433,9 @@ impl Drop for Runtime {
 #[cfg(test)]
 mod tests {
     use super::Runtime;
-    use crate::snapshot::support;
 
     #[test]
     fn constructs_and_closes_concurrently() {
-        let _guard = support::v8_test_lock();
         let threads: Vec<_> = (0..8)
             .map(|_| {
                 std::thread::spawn(|| {

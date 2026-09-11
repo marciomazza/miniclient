@@ -5,7 +5,7 @@ pub static DEFAULT_SNAPSHOT: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/DEFAULT_SNAPSHOT.bin"));
 
 #[cfg(test)]
-use crate::runtime::{extensions, init_platform, lifecycle_lock};
+use crate::runtime::{extensions, init_platform};
 #[cfg(test)]
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
 
@@ -16,11 +16,6 @@ pub(crate) fn create_snapshot(
     scripts: Vec<(String, String)>,
 ) -> Result<Box<[u8]>, deno_core::error::CoreError> {
     init_platform();
-    // deno_core is explicit that a process is either snapshotting or not, and V8 in
-    // snapshot mode is single-threaded: building here while another thread constructs a
-    // runtime kills the process inside V8's own init. The lifecycle lock already serializes
-    // exactly those two moments against each other.
-    let _lock = lifecycle_lock();
     // Not `Extension::js_files`: those must be 7-bit ASCII, and the happy-dom bundle is not.
     let output = deno_create_snapshot(
         CreateSnapshotOptions {
@@ -46,15 +41,6 @@ pub(crate) fn create_snapshot(
 #[cfg(test)]
 pub(crate) mod support {
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard};
-
-    /// `cargo test`'s default parallelism segfaults V8 when `create_snapshot` overlaps with
-    /// concurrent isolate construction elsewhere -- test-only, since production never builds a
-    /// snapshot concurrently with itself the way this binary's parallel test threads do.
-    pub(crate) fn v8_test_lock() -> MutexGuard<'static, ()> {
-        static LOCK: Mutex<()> = Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
 
     pub(crate) fn root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -101,7 +87,7 @@ mod tests {
     use deno_core::{JsRuntime, RuntimeOptions};
 
     use super::create_snapshot;
-    use super::support::{runtime_scripts, v8_test_lock};
+    use super::support::runtime_scripts;
     use crate::runtime::extensions;
 
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
@@ -119,7 +105,6 @@ mod tests {
 
     #[test]
     fn runtime_scripts_and_warmup_produce_a_bootable_snapshot() {
-        let _guard = v8_test_lock();
         let blob = create_snapshot(runtime_scripts()).unwrap();
         assert_eq!(
             eval_in_snapshot(blob, "[typeof FormData, typeof __happyDomBundle].join()"),
@@ -130,7 +115,6 @@ mod tests {
     /// Extra scripts appended to the list still produce a bootable, distinct snapshot.
     #[test]
     fn appended_scripts_produce_a_distinct_bootable_snapshot() {
-        let _guard = v8_test_lock();
         let mut scripts = runtime_scripts();
         scripts.push(("marker".into(), "globalThis.__marker = 'chai';".into()));
         let blob = create_snapshot(scripts).unwrap();

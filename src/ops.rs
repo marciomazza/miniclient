@@ -266,8 +266,6 @@ mod tests {
     use pyo3::types::PyModule;
 
     use super::*;
-    use crate::runtime::miniclient_extension;
-    use crate::snapshot::support::v8_test_lock;
 
     /// Runs `script`, reads one expression back out as a string -- same trick as
     /// `snapshot.rs`'s `eval_in_snapshot`, but against a live (non-snapshot) runtime.
@@ -280,7 +278,8 @@ mod tests {
     fn bare_runtime() -> JsRuntime {
         crate::runtime::init_platform();
         JsRuntime::new(RuntimeOptions {
-            extensions: vec![miniclient_extension()],
+            startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
+            extensions: crate::runtime::extensions(),
             ..Default::default()
         })
     }
@@ -355,7 +354,6 @@ async def fetch_impl(req):
 
     #[test]
     fn fs_stat_and_fs_read_hit_the_real_filesystem() {
-        let _guard = v8_test_lock();
         let mut js = bare_runtime();
         let dir = std::env::temp_dir();
         let file = dir.join(format!("miniclient-fs-op-{}.txt", std::process::id()));
@@ -386,7 +384,6 @@ async def fetch_impl(req):
 
     #[test]
     fn fetch_sync_and_fetch_abort_round_trip_to_python() {
-        let _guard = v8_test_lock();
         let mut js = bare_runtime();
         let fixtures_module: Py<PyModule> = Python::attach(|py| {
             let fixtures = fixtures(py);
@@ -422,7 +419,6 @@ async def fetch_impl(req):
 
     #[test]
     fn fetch_bridges_to_a_python_coroutine() {
-        let _guard = v8_test_lock();
         let mut js = bare_runtime();
         Python::attach(|py| {
             let fixtures = fixtures(py);
@@ -463,7 +459,6 @@ async def fetch_impl(req):
 
     #[test]
     fn op_sleep_actually_delays() {
-        let _guard = v8_test_lock();
         let mut js = bare_runtime();
         let start = std::time::Instant::now();
         let tokio = tokio::runtime::Builder::new_current_thread()
@@ -482,7 +477,6 @@ async def fetch_impl(req):
 
     #[test]
     fn crypto_ops_produce_random_bytes_and_a_uuid() {
-        let _guard = v8_test_lock();
         let mut js = bare_runtime();
 
         assert_eq!(

@@ -168,7 +168,6 @@ mod tests {
     use pyo3::types::PyModule;
 
     use super::*;
-    use crate::snapshot::support;
 
     fn fixtures(py: Python<'_>) -> Bound<'_, PyModule> {
         PyModule::from_code(
@@ -206,7 +205,6 @@ async_instance = AsyncCallable()
 
     #[test]
     fn register_function_binds_a_sync_callable_reachable_from_js() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
@@ -223,7 +221,6 @@ async_instance = AsyncCallable()
     /// would panic across the V8 FFI boundary instead of raising a clean Python-visible error.
     #[test]
     fn register_function_raises_cleanly_on_a_non_json_return_value() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         Python::attach(|py| {
             let not_json = fixtures(py).getattr("not_json").unwrap().unbind();
@@ -237,7 +234,6 @@ async_instance = AsyncCallable()
 
     #[test]
     fn registering_many_names_still_costs_exactly_one_op() {
-        let _guard = support::v8_test_lock();
         // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python, sleep,
         // crypto_random_bytes, crypto_random_uuid.
         assert_eq!(crate::runtime::miniclient_extension().ops.len(), 9);
@@ -264,7 +260,6 @@ async_instance = AsyncCallable()
 
     #[test]
     fn register_function_refuses_a_name_that_is_not_a_js_identifier() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
@@ -280,7 +275,6 @@ async_instance = AsyncCallable()
 
     #[test]
     fn register_function_refuses_proto() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let add = fixtures(py).getattr("add").unwrap().unbind();
@@ -293,7 +287,6 @@ async_instance = AsyncCallable()
 
     #[test]
     fn register_function_refuses_an_async_callable() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let async_fn = fixtures(py).getattr("async_fn").unwrap().unbind();
@@ -310,7 +303,6 @@ async_instance = AsyncCallable()
     /// is not a coroutine function even though calling it returns an (unmarshalable) generator.
     #[test]
     fn register_function_refuses_an_async_generator_function() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let async_gen_fn = fixtures(py).getattr("async_gen_fn").unwrap().unbind();
@@ -325,7 +317,6 @@ async_instance = AsyncCallable()
     /// coroutine function even though calling it returns one.
     #[test]
     fn register_function_refuses_an_object_with_an_async_call() {
-        let _guard = support::v8_test_lock();
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         let err = Python::attach(|py| {
             let async_instance = fixtures(py).getattr("async_instance").unwrap().unbind();
