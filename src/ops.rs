@@ -231,6 +231,40 @@ impl PythonFunctions {
     }
 }
 
+/// Callables `op_call_rust` dispatches to, letting a `cargo test` suite bind a JS global
+/// straight to a Rust closure.
+#[derive(Default)]
+pub struct RustFunctions(Vec<Box<dyn Fn(Vec<serde_json::Value>) -> serde_json::Value + Send>>);
+
+impl RustFunctions {
+    /// Registers `callable` and returns the id `op_call_rust` will look it up by.
+    pub fn push(
+        &mut self,
+        callable: Box<dyn Fn(Vec<serde_json::Value>) -> serde_json::Value + Send>,
+    ) -> usize {
+        self.0.push(callable);
+        self.0.len() - 1
+    }
+}
+
+/// Dispatches to a callable registered via `register_rust_function` -- the Rust-native analog of
+/// `op_call_python`, minus the JSON round-trip through Python's `json` module.
+#[op2]
+#[serde]
+pub fn op_call_rust(
+    state: &mut OpState,
+    call_id: u32,
+    #[serde] args: Vec<serde_json::Value>,
+) -> Result<serde_json::Value, JsErrorBox> {
+    let funcs = state.borrow::<RustFunctions>();
+    let callable = funcs.0.get(call_id as usize).ok_or_else(|| {
+        JsErrorBox::generic(format!(
+            "op_call_rust: no callable registered at id {call_id}"
+        ))
+    })?;
+    Ok(callable(args))
+}
+
 /// Dispatches to a callable registered via `register_function`. Args and the return value cross
 /// through Python's own `json` module rather than a second hand-rolled JSON<->PyAny conversion --
 /// the same technique `to_python`/`MARSHAL_JS` already use for `eval`'s JSON-only contract.

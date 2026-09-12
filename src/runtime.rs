@@ -70,6 +70,7 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_fs_stat(),
             ops::op_fs_read(),
             ops::op_call_python(),
+            ops::op_call_rust(),
             ops::op_sleep(),
             ops::op_crypto_random_bytes(),
             ops::op_crypto_random_uuid(),
@@ -103,6 +104,12 @@ enum Command {
     RegisterFunction {
         name: String,
         callable: Py<PyAny>,
+        reply: oneshot::Sender<EvalOutcome>,
+    },
+    RegisterRustFunction {
+        name: String,
+        callable:
+            Box<dyn Fn(Vec<deno_core::serde_json::Value>) -> deno_core::serde_json::Value + Send>,
         reply: oneshot::Sender<EvalOutcome>,
     },
     InstallFetchBackend {
@@ -292,6 +299,23 @@ async fn handle_command(
                 .send(eval(js, marshal, binding_js, false, rx, stop).await)
                 .ok();
         }
+        Command::RegisterRustFunction {
+            name,
+            callable,
+            reply,
+        } => {
+            let index = {
+                let state = js.op_state();
+                let mut state = state.borrow_mut();
+                state.borrow_mut::<ops::RustFunctions>().push(callable)
+            };
+            let binding_js = format!(
+                "globalThis.{name} = (...args) => Deno.core.ops.op_call_rust({index}, args); void 0;"
+            );
+            reply
+                .send(eval(js, marshal, binding_js, false, rx, stop).await)
+                .ok();
+        }
         Command::InstallFetchBackend { backend, reply } => {
             let backend: Rc<dyn ops::FetchBackend> = Rc::from(backend);
             js.op_state().borrow_mut().put(backend);
@@ -348,6 +372,9 @@ impl Runtime {
                 js.op_state()
                     .borrow_mut()
                     .put(ops::PythonFunctions::default());
+                js.op_state()
+                    .borrow_mut()
+                    .put(ops::RustFunctions::default());
                 js.execute_script("bootstrap.js", BOOTSTRAP_JS)
                     .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
                 ready_tx.send(()).ok();
@@ -395,6 +422,26 @@ impl Runtime {
         let (reply, rx) = oneshot::channel();
         self.commands
             .send(Command::RegisterFunction {
+                name,
+                callable,
+                reply,
+            })
+            .ok();
+        rx
+    }
+
+    /// Binds `name` to a Rust closure via `op_call_rust`, queuing the binding on the isolate
+    /// thread and handing back the channel its outcome will arrive on.
+    pub fn send_register_rust_function(
+        &self,
+        name: String,
+        callable: Box<
+            dyn Fn(Vec<deno_core::serde_json::Value>) -> deno_core::serde_json::Value + Send,
+        >,
+    ) -> oneshot::Receiver<EvalOutcome> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::RegisterRustFunction {
                 name,
                 callable,
                 reply,

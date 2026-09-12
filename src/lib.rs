@@ -234,9 +234,9 @@ async_instance = AsyncCallable()
 
     #[test]
     fn registering_many_names_still_costs_exactly_one_op() {
-        // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python, sleep,
+        // fetch, fetch_abort, fetch_sync, fs_stat, fs_read, call_python, call_rust, sleep,
         // crypto_random_bytes, crypto_random_uuid.
-        assert_eq!(crate::runtime::miniclient_extension().ops.len(), 9);
+        assert_eq!(crate::runtime::miniclient_extension().ops.len(), 10);
         let runtime = Runtime(runtime::Runtime::new("http://localhost/", "[]"));
         Python::attach(|py| {
             let fixtures = fixtures(py);
@@ -255,7 +255,7 @@ async_instance = AsyncCallable()
         Python::attach(|py| {
             assert_eq!(result.extract::<Vec<i64>>(py).unwrap(), vec![1, 2, 3]);
         });
-        assert_eq!(crate::runtime::miniclient_extension().ops.len(), 9);
+        assert_eq!(crate::runtime::miniclient_extension().ops.len(), 10);
     }
 
     #[test]

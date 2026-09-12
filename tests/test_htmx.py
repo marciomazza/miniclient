@@ -16,12 +16,10 @@ _RUNNER_JS = Path(__file__).parent / "runner.js"
 _FETCH_MOCK_BRIDGE_JS = Path(__file__).parent / "htmx_fetch_mock_bridge.js"
 
 # ---------------------------------------------------------------------------
-# htmx vendor unit tests — one pytest case per JS file in tests/unit/
+# htmx vendor tests (attributes/end2end/ext) — one pytest case per JS file.
+# tests/unit/ moved to tests/htmx_vendor.rs (ticket 10); this file keeps the rest
+# until ticket 11 ports them too.
 # ---------------------------------------------------------------------------
-
-_SKIP = {
-    "package.js",  # asserts htmx has no dependencies — not relevant to this runtime
-}
 
 # Individual JS tests to skip, keyed by file stem → set of (suite, test-name).
 # Rewritten to it.skip(...) before the file runs — not just filtered from results —
@@ -40,11 +38,6 @@ _SKIP_TESTS: dict[str, set[tuple[str, str]]] = {
 # outright, since unlike _SKIP_TESTS these are meaningful, just incompatible with a
 # scaled clock.
 _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
-    "timeout": {
-        ("timeout() unit tests", "returns promise that resolves after milliseconds"),
-        ("timeout() unit tests", "accepts string time format"),
-        ("timeout() unit tests", "accepts seconds format"),
-    },
     "hx-swap": {
         ("hx-swap modifiers", "main swap with delay respects blocking behavior"),
     },
@@ -59,10 +52,6 @@ _UNSCALED_TESTS: dict[str, set[tuple[str, str]]] = {
         # Scaled clock's 1ms timer floor collapses the connect-vs-wait races.
         ("Message Sending", "queues a message until the initial connection opens"),
         ("Error Handling and Reconnection", "reconnects after every default close code"),
-    },
-    "morph": {
-        ("htmx processing during morph", "processes new htmx attributes added during innerMorph"),
-        ("htmx processing during morph", "processes new htmx attributes added during outerMorph"),
     },
 }
 
@@ -127,15 +116,9 @@ async def _run_js_tests(r: Runtime, js_file: Path) -> None:
         pytest.fail(f"{len(failures)} JS test(s) failed in {js_file.name}:\n" + "\n".join(lines))
 
 
-_unit_files = [f for f in sorted((_HTMX_TEST / "tests/unit").glob("*.js")) if f.name not in _SKIP]
 _attributes_files = sorted((_HTMX_TEST / "tests/attributes").glob("*.js"))
 _end2end_files = sorted((_HTMX_TEST / "tests/end2end").glob("*.js"))
-_ext_files = [f for f in sorted((_HTMX_TEST / "tests/ext").glob("*.js")) if f.name not in _SKIP]
-
-
-@pytest.mark.parametrize("js_file", _unit_files, ids=lambda f: f.stem)
-async def test_htmx_unit(js_file: Path, htmx_runtime: Runtime) -> None:
-    await _run_js_tests(htmx_runtime, js_file)
+_ext_files = sorted((_HTMX_TEST / "tests/ext").glob("*.js"))
 
 
 @pytest.mark.parametrize("js_file", _attributes_files, ids=lambda f: f.stem)

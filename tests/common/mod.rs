@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 pub mod fetch_mock;
+pub mod htmx_fetch_mock;
 
 pub use _miniclient::runtime::Runtime;
 use _miniclient::runtime::{EvalError, EvalOutcome};
