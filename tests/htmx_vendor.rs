@@ -13,7 +13,7 @@ const SKIP_FILES: &[&str] = &["package.js"];
 
 /// (file stem, suite, test name) exempted from `runner.js`'s timer scaling -- real
 /// elapsed-time assertions or a guard racing unscaled async work. Ported from
-/// `test_htmx.py`'s `_UNSCALED_TESTS`, trimmed to entries whose file lives in `tests/unit/`.
+/// `test_htmx.py`'s `_UNSCALED_TESTS`.
 const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
     (
         "timeout",
@@ -36,7 +36,51 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "htmx processing during morph",
         "processes new htmx attributes added during outerMorph",
     ),
+    (
+        "hx-swap",
+        "hx-swap modifiers",
+        "main swap with delay respects blocking behavior",
+    ),
+    (
+        "hx-live",
+        "hx-live extension",
+        "debounce(ms) supersedes prior calls",
+    ),
+    (
+        "hx-live",
+        "hx-live extension",
+        "debounce(ms, fn) runs the closure after the delay",
+    ),
+    (
+        "hx-ws",
+        "Deep Review Fixes",
+        "cleans up expired pending requests on message receive",
+    ),
+    (
+        "hx-ws",
+        "Message Sending",
+        "includes async hx-vals (js:) in sent message",
+    ),
+    (
+        "hx-ws",
+        "Message Sending",
+        "queues a message until the initial connection opens",
+    ),
+    (
+        "hx-ws",
+        "Error Handling and Reconnection",
+        "reconnects after every default close code",
+    ),
 ];
+
+/// (file stem, suite, test name) rewritten to `it.skip(...)` before the file runs -- not just
+/// filtered from results, since some failures are fatal to the whole `eval_async` call and
+/// never produce a result to filter. Ported from `test_htmx.py`'s `_SKIP_TESTS`.
+const SKIP_TESTS: &[(&str, &str, &str)] = &[(
+    "hx-swap",
+    "hx-swap modifiers",
+    "swap with scroll:bottom modifier scrolls to bottom",
+)];
 
 struct TestFailure {
     file: String,
@@ -107,6 +151,9 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
     // ext-style relative <script src> rewrites -- harmless no-ops for files that never use them.
     js = js.replace("'../src/ext/", "'http://localhost/vendor/ext/");
     js = js.replace("'../test/lib/", "'http://localhost/test/lib/");
+    for (_, _, name) in SKIP_TESTS.iter().filter(|(file, _, _)| *file == stem) {
+        js = js.replace(&format!("it('{name}'"), &format!("it.skip('{name}'"));
+    }
     js.push_str("\nvoid 0;");
 
     let unscaled: Vec<String> = UNSCALED_TESTS
@@ -134,9 +181,8 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
         .collect()
 }
 
-#[test]
-fn htmx_vendor_unit_suite() {
-    let dir = Path::new(HTMX_TEST_ROOT).join("tests/unit");
+fn run_dir(subdir: &str) {
+    let dir = Path::new(HTMX_TEST_ROOT).join("tests").join(subdir);
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{dir:?}: {e}"))
         .filter_map(|e| e.ok())
@@ -152,7 +198,7 @@ fn htmx_vendor_unit_suite() {
         })
         .collect();
     files.sort();
-    assert!(!files.is_empty(), "no unit test files found under {dir:?}");
+    assert!(!files.is_empty(), "no test files found under {dir:?}");
 
     let mut failures = Vec::new();
     for file in &files {
@@ -165,9 +211,29 @@ fn htmx_vendor_unit_suite() {
             .map(|f| format!("  [{}] {} :: {}: {}", f.file, f.suite, f.name, f.error))
             .collect();
         panic!(
-            "{} htmx unit JS test(s) failed:\n{}",
+            "{} htmx {subdir} JS test(s) failed:\n{}",
             failures.len(),
             lines.join("\n")
         );
     }
+}
+
+#[test]
+fn htmx_vendor_unit_suite() {
+    run_dir("unit");
+}
+
+#[test]
+fn htmx_vendor_attributes_suite() {
+    run_dir("attributes");
+}
+
+#[test]
+fn htmx_vendor_end2end_suite() {
+    run_dir("end2end");
+}
+
+#[test]
+fn htmx_vendor_ext_suite() {
+    run_dir("ext");
 }

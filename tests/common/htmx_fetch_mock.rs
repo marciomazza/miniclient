@@ -82,6 +82,24 @@ struct Inner {
 #[derive(Clone, Default)]
 pub struct HtmxFetchMock(Arc<Inner>);
 
+/// Ported from `HttpxFetchMock._url_matches`: a pattern like `/^$/` is meant to match the bare
+/// base URL and `/\/test$/` both the full URL and the path, so a miss against the full URL is
+/// retried against the URL with its `scheme://host` prefix stripped (and again with any leading
+/// `/` trimmed).
+fn url_matches(pattern: &Regex, url: &str) -> bool {
+    if pattern.is_match(url) {
+        return true;
+    }
+    let relative = match url.split_once("://").and_then(|(_, rest)| {
+        let host_end = rest.find('/').unwrap_or(rest.len());
+        rest.get(host_end..)
+    }) {
+        Some(relative) => relative,
+        None => return false,
+    };
+    pattern.is_match(relative) || pattern.is_match(relative.trim_start_matches('/'))
+}
+
 impl HtmxFetchMock {
     pub fn new() -> Self {
         Self::default()
@@ -93,7 +111,7 @@ impl HtmxFetchMock {
             .lock()
             .expect("lock poisoned")
             .values()
-            .find(|e| e.method == method && e.pattern.is_match(url))
+            .find(|e| e.method == method && url_matches(&e.pattern, url))
             .cloned()
     }
 
@@ -113,7 +131,7 @@ impl HtmxFetchMock {
         }
         let mut entries = self.0.entries.lock().expect("lock poisoned");
         for entry in entries.iter_mut().rev() {
-            if entry.method != method || !entry.pattern.is_match(url) {
+            if entry.method != method || !url_matches(&entry.pattern, url) {
                 continue;
             }
             if entry.once {
