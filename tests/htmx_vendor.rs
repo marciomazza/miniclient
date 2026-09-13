@@ -52,6 +52,11 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "debounce(ms, fn) runs the closure after the delay",
     ),
     (
+        "hx-live",
+        "hx-live extension",
+        "debounce(ms, fn) supersedes across separate hx-on events on the same element",
+    ),
+    (
         "hx-ws",
         "Deep Review Fixes",
         "cleans up expired pending requests on message receive",
@@ -70,6 +75,11 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "hx-ws",
         "Error Handling and Reconnection",
         "reconnects after every default close code",
+    ),
+    (
+        "hx-sse",
+        "hx-sse SSE extension",
+        "reconnectMaxAttempts configuration works",
     ),
 ];
 
