@@ -44,6 +44,10 @@ Vendored upstream code, untracked. Treat as read-only:
 
 # Architecture
 
+This project is an integration-testing tool that simulates a browser environment with
+JavaScript. htmx (vendored) is one of the workloads validated inside that simulated
+environment.
+
 ## Runtime stack
 
 - A JavaScript runtime provide by deno_core. It is NOT Node.js and NOT QuickJS.
