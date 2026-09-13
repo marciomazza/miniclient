@@ -4,7 +4,6 @@ use std::thread::JoinHandle;
 
 use deno_core::error::{CoreErrorKind, JsError};
 use deno_core::{Extension, JsRuntime, PollEventLoopOptions, RuntimeOptions, v8};
-use pyo3::{Py, PyAny};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::ops;
@@ -69,7 +68,6 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_fetch_sync(),
             ops::op_fs_stat(),
             ops::op_fs_read(),
-            ops::op_call_python(),
             ops::op_call_rust(),
             ops::op_sleep(),
             ops::op_crypto_random_bytes(),
@@ -99,11 +97,6 @@ enum Command {
         source: String,
         /// Resolve the result and pump the event loop before answering.
         is_async: bool,
-        reply: oneshot::Sender<EvalOutcome>,
-    },
-    RegisterFunction {
-        name: String,
-        callable: Py<PyAny>,
         reply: oneshot::Sender<EvalOutcome>,
     },
     RegisterRustFunction {
@@ -280,25 +273,6 @@ async fn handle_command(
                 .send(eval(js, marshal, source, is_async, rx, stop).await)
                 .ok();
         }
-        Command::RegisterFunction {
-            name,
-            callable,
-            reply,
-        } => {
-            let index = {
-                let state = js.op_state();
-                let mut state = state.borrow_mut();
-                state.borrow_mut::<ops::PythonFunctions>().push(callable)
-            };
-            // Trailing `void 0`: an assignment expression evaluates to the assigned value, and
-            // MARSHAL_JS refuses to marshal the function itself back to Python.
-            let binding_js = format!(
-                "globalThis.{name} = (...args) => Deno.core.ops.op_call_python({index}, args); void 0;"
-            );
-            reply
-                .send(eval(js, marshal, binding_js, false, rx, stop).await)
-                .ok();
-        }
         Command::RegisterRustFunction {
             name,
             callable,
@@ -371,9 +345,6 @@ impl Runtime {
                 .expect("failed to install __VIRTUAL_SERVERS__");
                 js.op_state()
                     .borrow_mut()
-                    .put(ops::PythonFunctions::default());
-                js.op_state()
-                    .borrow_mut()
                     .put(ops::RustFunctions::default());
                 js.execute_script("bootstrap.js", BOOTSTRAP_JS)
                     .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
@@ -406,24 +377,6 @@ impl Runtime {
             .send(Command::Eval {
                 source,
                 is_async,
-                reply,
-            })
-            .ok();
-        rx
-    }
-
-    /// Queues a callable registration and hands back the channel its outcome will arrive on --
-    /// same shape as `send_eval`, since binding is just one more eval under the hood.
-    pub fn send_register_function(
-        &self,
-        name: String,
-        callable: Py<PyAny>,
-    ) -> oneshot::Receiver<EvalOutcome> {
-        let (reply, rx) = oneshot::channel();
-        self.commands
-            .send(Command::RegisterFunction {
-                name,
-                callable,
                 reply,
             })
             .ok();

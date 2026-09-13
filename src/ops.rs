@@ -11,9 +11,8 @@ use deno_core::op2;
 use deno_core::serde_json;
 use deno_error::JsErrorBox;
 use pyo3::Bound;
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict};
 use pyo3_async_runtimes::TaskLocals;
 use serde::{Deserialize, Serialize};
 
@@ -206,31 +205,6 @@ pub fn op_fs_read(#[string] path: String) -> Result<ToJsBuffer, JsErrorBox> {
         .map_err(|e| JsErrorBox::generic(format!("{path}: {e}")))
 }
 
-/// Callables bound by `Runtime::register_function`, indexed by the id baked into each
-/// binding's generated JS (spec §4) -- `op_call_python`'s only job is to look one up and call
-/// it, so binding any number of names still costs exactly this one op.
-#[derive(Default)]
-pub struct PythonFunctions(Vec<Py<PyAny>>);
-
-impl PythonFunctions {
-    /// Registers `callable` and returns the id `op_call_python` will look it up by.
-    pub fn push(&mut self, callable: Py<PyAny>) -> usize {
-        self.0.push(callable);
-        self.0.len() - 1
-    }
-
-    fn get(&self, call_id: u32, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        self.0
-            .get(call_id as usize)
-            .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
-                    "op_call_python: no callable registered at id {call_id}"
-                ))
-            })
-            .map(|callable| callable.clone_ref(py))
-    }
-}
-
 /// Callables `op_call_rust` dispatches to, letting a `cargo test` suite bind a JS global
 /// straight to a Rust closure.
 #[derive(Default)]
@@ -263,34 +237,6 @@ pub fn op_call_rust(
         ))
     })?;
     Ok(callable(args))
-}
-
-/// Dispatches to a callable registered via `register_function`. Args and the return value cross
-/// through Python's own `json` module rather than a second hand-rolled JSON<->PyAny conversion --
-/// the same technique `to_python`/`MARSHAL_JS` already use for `eval`'s JSON-only contract.
-#[op2]
-#[serde]
-pub fn op_call_python(
-    state: &mut OpState,
-    call_id: u32,
-    #[serde] args: Vec<serde_json::Value>,
-) -> Result<serde_json::Value, JsErrorBox> {
-    Python::attach(|py| -> PyResult<serde_json::Value> {
-        let callable = state.borrow::<PythonFunctions>().get(call_id, py)?;
-        let json = py.import("json")?;
-        let args_json = serde_json::to_string(&args).expect("args is always JSON-safe");
-        let py_args: Bound<'_, PyList> = json.call_method1("loads", (args_json,))?.extract()?;
-        let result = callable.bind(py).call1(py_args.to_tuple())?;
-        // `allow_nan=False`: dumps's default lets NaN/Infinity through as bare (non-JSON)
-        // tokens, which would make the `expect` below panic instead of raising cleanly.
-        let dumps_kwargs = PyDict::new(py);
-        dumps_kwargs.set_item("allow_nan", false)?;
-        let result_json: String = json
-            .call_method("dumps", (result,), Some(&dumps_kwargs))?
-            .extract()?;
-        Ok(serde_json::from_str(&result_json).expect("json module output is valid JSON"))
-    })
-    .map_err(py_err_to_js)
 }
 
 #[op2]
