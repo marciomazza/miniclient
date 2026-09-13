@@ -27,7 +27,9 @@ fn st_ascii_text(max_len: usize) -> impl Strategy<Value = String> {
 }
 
 fn st_url_safe_segment() -> impl Strategy<Value = String> {
-    "[a-zA-Z0-9_.~-]{1,50}"
+    // "." and ".." are dot-segments the URL parser resolves away, so the request never hits
+    // the literal path the mock was registered under.
+    "[a-zA-Z0-9_.~-]{1,50}".prop_filter("not a dot-segment", |s| s != "." && s != "..")
 }
 
 fn st_letters_and_numbers(max_len: usize) -> impl Strategy<Value = String> {
