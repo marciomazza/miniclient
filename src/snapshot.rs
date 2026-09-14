@@ -71,8 +71,8 @@ pub(crate) mod support {
             ),
             ("submit".into(), read("python/miniclient/js/submit.js")),
             (
-                "happy-dom-bundle".into(),
-                read("python/miniclient/js/_generated/happy-dom-bundle.js"),
+                "jsdom-bundle".into(),
+                read("python/miniclient/js/_generated/jsdom-bundle.js"),
             ),
             (
                 "warmup".into(),
@@ -107,8 +107,8 @@ mod tests {
     fn runtime_scripts_and_warmup_produce_a_bootable_snapshot() {
         let blob = create_snapshot(runtime_scripts()).unwrap();
         assert_eq!(
-            eval_in_snapshot(blob, "[typeof FormData, typeof __happyDomBundle].join()"),
-            "function,object"
+            eval_in_snapshot(blob, "[typeof FormData, typeof JSDOM].join()"),
+            "function,function"
         );
     }
 

@@ -1,4 +1,4 @@
-// The wheel ships prebuilt JS: happy-dom bundled by esbuild, plus the licence files of the
+// The wheel ships prebuilt JS: jsdom bundled by esbuild, plus the licence files of the
 // npm code that bundle/snapshot redistributes, copied into the package as _vendor/. Cargo
 // runs this on every build, and maturin drives cargo -- so there is nowhere else to hook this.
 //
@@ -12,7 +12,7 @@ use std::process::Command;
 // maturin's `include` cannot remap paths, so the copy into the package happens here and
 // maturin picks the package dir up as-is. Only licences: the wheel embeds the bundle and the
 // snapshot, so it redistributes this code but never reads these files at runtime.
-const VENDORED: &[&str] = &["happy-dom/LICENSE", "xpath/LICENSE", "entities/LICENSE"];
+const VENDORED: &[&str] = &["jsdom/LICENSE.txt", "xpath/LICENSE", "entities/LICENSE"];
 
 fn run(program: &str, args: &[&str], cwd: &Path) {
     let status = Command::new(program)
@@ -47,35 +47,6 @@ fn watch_js_sources(js: &Path) {
     }
 }
 
-/// Rebuild the vendored happy-dom fork's `lib/` from its TS sources, and watch those sources
-/// so an edit there re-triggers this script. Skipped when the fork has no `node_modules`
-/// (CI restores a prebuilt `lib/` from cache and never installs turbo).
-fn build_happy_dom(root: &Path) {
-    let pkg = root.join("vendor/happy-dom/packages/happy-dom");
-    if !pkg.is_dir() {
-        return;
-    }
-    println!("cargo::rerun-if-changed={}", pkg.join("src").display());
-    println!(
-        "cargo::rerun-if-changed={}",
-        pkg.join("package.json").display()
-    );
-    let fork = root.join("vendor/happy-dom");
-    // The bundle is built from `lib/`, i.e. `tsc`'s output -- a toolchain bump in the fork
-    // changes that output without touching `src/`, so watch the fork's lockfile too.
-    println!(
-        "cargo::rerun-if-changed={}",
-        fork.join("package-lock.json").display()
-    );
-    if fork.join("node_modules").is_dir() {
-        run(
-            "npx",
-            &["turbo", "run", "compile", "--filter=happy-dom"],
-            &fork,
-        );
-    }
-}
-
 fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let js = root.join("python/miniclient/js");
@@ -83,14 +54,13 @@ fn main() {
 
     println!("cargo::rerun-if-changed=package-lock.json");
     watch_js_sources(&js);
-    build_happy_dom(&root);
 
     if !node_modules.join(".package-lock.json").exists() {
         run("npm", &["ci"], &root);
     }
     run(
         "node",
-        &[js.join("build-happydom-bundle.mjs").to_str().unwrap()],
+        &[js.join("build-jsdom-bundle.mjs").to_str().unwrap()],
         &root,
     );
 
@@ -137,8 +107,8 @@ fn build_default_snapshot(node_modules: &Path, js: &Path, out_dir: &Path) {
         ),
         ("submit".into(), read(&js.join("submit.js"))),
         (
-            "happy-dom-bundle".into(),
-            read(&js.join("_generated/happy-dom-bundle.js")),
+            "jsdom-bundle".into(),
+            read(&js.join("_generated/jsdom-bundle.js")),
         ),
         ("warmup".into(), read(&js.join("snapshot_warmup.js"))),
     ];

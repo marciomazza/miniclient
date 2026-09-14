@@ -1,3 +1,10 @@
+// esbuild inlines this as a string at bundle time (`.css` loader configured as "text" in
+// build-jsdom-bundle.mjs) -- jsdom's computed-style.js reads its default UA stylesheet via
+// `fs.readFileSync(path.resolve(__dirname, ...))` at module scope, a real disk read that
+// would otherwise need op_fs_read registered during the snapshot build (it isn't) for a
+// file whose content never changes at runtime anyway.
+import jsdomDefaultStylesheet from "../../../../node_modules/jsdom/lib/jsdom/browser/default-stylesheet.css";
+
 function statSync(path) {
     const info = Deno.core.ops.op_fs_stat(path);
     return {
@@ -7,6 +14,9 @@ function statSync(path) {
 }
 
 function readFileSync(path, encoding) {
+    if (path.endsWith("/default-stylesheet.css")) {
+        return encoding ? jsdomDefaultStylesheet : Buffer.from(jsdomDefaultStylesheet);
+    }
     const buf = Buffer.from(new Uint8Array(Deno.core.ops.op_fs_read(path)));
     return encoding ? buf.toString(encoding) : buf;
 }

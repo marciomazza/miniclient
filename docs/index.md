@@ -17,7 +17,7 @@ We've got a lot of tests but things might break._
 - **[httpx2](https://httpx2.pydantic.dev/)** for a fully featured HTTP client, with special support
   for testing WSGI/ASGI apps (Django, Flask, FastAPI).
 - **[V8](https://v8.dev/)** via **[deno_core](https://github.com/denoland/deno)** for the JavaScript runtime. No Node.js. No browser.
-- **[happy-dom](https://github.com/capricorn86/happy-dom)** for a fast DOM implementation in pure JavaScript.
+- **[jsdom](https://github.com/jsdom/jsdom)** for a full DOM implementation in pure JavaScript.
 
 ## htmx
 

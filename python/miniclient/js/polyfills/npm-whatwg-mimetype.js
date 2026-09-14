@@ -19,4 +19,5 @@ class MIMEType {
         return this.subtype === "xml" || this.subtype.endsWith("+xml");
     }
 }
+export { MIMEType };
 export default MIMEType;

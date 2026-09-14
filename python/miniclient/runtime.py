@@ -22,8 +22,8 @@ def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
     # into an empty Vec (via `.unwrap_or_default()`) if given a 2-element list.
     # Set-Cookie set on an intermediate redirect hop (e.g. a login/session rotation that
     # answers 302 + Set-Cookie) lands only in httpx's jar, never in the final response --
-    # replay each hop's Set-Cookie ahead of the final headers so happy-dom's jar (bootstrap.js)
-    # applies them in order, the final response still winning on any name clash.
+    # replay each hop's Set-Cookie ahead of the final headers so consumers (e.g. a future
+    # cookie jar) apply them in order, the final response still winning on any name clash.
     hop_cookies = [
         ("set-cookie", v) for hop in r.history for v in hop.headers.get_list("set-cookie")
     ]
@@ -39,10 +39,10 @@ def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
 def _sync_client_cookies(httpx_client: httpx.AsyncClient, headers: dict) -> None:
     # httpx follows redirects internally and, on each hop, rebuilds the Cookie header
     # from `httpx_client.cookies` -- it discards whatever Cookie header the request was
-    # sent with (httpx2/_client.py:_redirect_headers). happy-dom's own cookie jar
-    # (bootstrap.js) is the real source of truth and only attaches a Cookie header to
-    # the outgoing request itself, not to any redirect hop -- reseed httpx's jar from
-    # that header before every request so a redirect chain still carries it.
+    # sent with (httpx2/_client.py:_redirect_headers). The runtime only attaches a
+    # Cookie header to the outgoing request itself, not to any redirect hop -- reseed
+    # httpx's jar from that header before every request so a redirect chain still
+    # carries it.
     httpx_client.cookies.jar.clear()
     if cookie_header := next((v for k, v in headers.items() if k.lower() == "cookie"), None):
         for pair in cookie_header.split(";"):

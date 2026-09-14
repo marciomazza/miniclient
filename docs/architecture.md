@@ -6,7 +6,7 @@ icon: lucide/layers
 
 ## Comparison to other tools
 
-Browser automation tools — [Playwright](https://playwright.dev/), [Selenium](https://www.selenium.dev/), [Puppeteer](https://pptr.dev/) — drive a real browser (Chromium, Firefox, WebKit) over a devtools/wire protocol: real rendering, real JS engine, maximum fidelity, but you pay for browser process startup, IPC round-trips, and often GPU/rendering work your test might not need. This project instead runs actual JavaScript code against a real DOM implementation ([happy-dom](https://happy-dom.dev/)) inside an embedded V8 isolate, in-process — no browser process, no protocol, no rendering. That makes the common case (assert a request/DOM-swap/event loop happened correctly) dramatically faster, at the cost of not being a full browser: no layout/paint, no CSS cascade beyond what happy-dom implements, and behavior can diverge anywhere happy-dom or this project's polyfills differ from a real engine (see _Known limitations_).
+Browser automation tools — [Playwright](https://playwright.dev/), [Selenium](https://www.selenium.dev/), [Puppeteer](https://pptr.dev/) — drive a real browser (Chromium, Firefox, WebKit) over a devtools/wire protocol: real rendering, real JS engine, maximum fidelity, but you pay for browser process startup, IPC round-trips, and often GPU/rendering work your test might not need. This project instead runs actual JavaScript code against a real DOM implementation ([jsdom](https://github.com/jsdom/jsdom)) inside an embedded V8 isolate, in-process — no browser process, no protocol, no rendering. That makes the common case (assert a request/DOM-swap/event loop happened correctly) dramatically faster, at the cost of not being a full browser: no layout/paint, no CSS cascade beyond what jsdom implements, and behavior can diverge anywhere jsdom or this project's polyfills differ from a real engine (see _Known limitations_).
 
 ## How this was made
 
@@ -14,7 +14,7 @@ Browser automation tools — [Playwright](https://playwright.dev/), [Selenium](h
 
 Correctness is checked at three layers:
 
-- **happy-dom integration** — regression tests cover local patches applied to happy-dom and the Node polyfills it depends on.
+- **jsdom integration** — regression tests cover local patches applied to jsdom (via `patch-package`) and the Node polyfills it depends on.
 - **htmx compat** — we test specifically for htmx's correct functioning in this environment,
   and further guarantee the correctness of the setup as a whole.
 - **Crosscheck against a real browser** — stateful fuzzing exercises randomly generated pages and interactions, checking that DOM and request/response behave the same as in an actual browser.
@@ -27,15 +27,15 @@ htmx's own original test suite — including its extensions — runs directly in
 
 We use [Hypothesis](https://hypothesis.readthedocs.io) for property based testing.
 
-Hypothesis drives stateful fuzzing that goes further than any hand-written tests. It generates random HTML — form controls, htmx-attributed elements, whole "rich pages" mixing both, wired to a test app — and draws random sequences of interactions (fill, click, dispatch_event) against those generated pages. After every step, a `CrossCheck` harness replays the same interaction against both this project's `Page` (V8/happy-dom) and a real Chromium page via Playwright, asserting identical DOM snapshots and HTTP request/response parameters. Any divergence, however deep in a randomly generated interaction sequence, fails the test and Hypothesis shrinks it to a minimal reproduction. This process catches subtle DOM/protocol fidelity gaps between happy-dom-in-V8 and a real browser that no simple test suite would think to check.
+Hypothesis drives stateful fuzzing that goes further than any hand-written tests. It generates random HTML — form controls, htmx-attributed elements, whole "rich pages" mixing both, wired to a test app — and draws random sequences of interactions (fill, click, dispatch_event) against those generated pages. After every step, a `CrossCheck` harness replays the same interaction against both this project's `Page` (V8/jsdom) and a real Chromium page via Playwright, asserting identical DOM snapshots and HTTP request/response parameters. Any divergence, however deep in a randomly generated interaction sequence, fails the test and Hypothesis shrinks it to a minimal reproduction. This process catches subtle DOM/protocol fidelity gaps between jsdom-in-V8 and a real browser that no simple test suite would think to check.
 
 ## Known limitations
 
 **No real Node.js.** The JavaScript code runs inside a V8 Isolate, not Node.
 There's no node_modules resolution, no require(), and no _package.json_ lookup — only ESM import against a closed allowlist of pre-vendored packages; anything else fails to resolve. In practice this means arbitrary npm packages that depend on the Node APIs won't run as-is.
 
-But notice that _happy-dom_ itself is a Node package and depends on many parts of the Node API.
-It works because this project's esbuild polyfill resolver (`build-happydom-bundle.mjs`) maps `node:*` specifiers to _polyfills_ (that we made) covering the Node API surface that it touches, baking the result into the V8 snapshot at build time.
+But notice that _jsdom_ itself is a Node package and depends on many parts of the Node API.
+It works because this project's esbuild polyfill resolver (`build-jsdom-bundle.mjs`) maps `node:*` specifiers to _polyfills_ (that we made) covering the Node API surface that it touches, baking the result into the V8 snapshot at build time.
 Follow the same approach — a resolver plus hand-written polyfills — for any other Node-dependent package you need to run.
 
 A [Vite](https://vite.dev/) production bundle sidesteps this almost entirely: bundling resolves the whole import graph at build time, so nothing needs runtime `require()` or bare-specifier resolution — a standard browser-targeted build just works. The exception is Node-targeted output (SSR, `target: 'node'`) that still calls real `fs`/`child_process`/`os` at runtime — bundling flattens imports, not the runtime APIs, so that code hits the same missing-Node-API wall as unbundled code.

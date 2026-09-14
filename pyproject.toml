@@ -51,33 +51,26 @@ exclude_also = []
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "miniclient._miniclient"
-python-source = "python"
 # build.rs generates these, so they are gitignored and maturin would otherwise skip them.
 include = [
-  { path = "python/miniclient/js/_generated/happy-dom-bundle.js", format = ["sdist", "wheel"] },
+  { path = "python/miniclient/js/_generated/jsdom-bundle.js", format = ["sdist", "wheel"] },
   { path = "python/miniclient/_vendor/**/LICENSE*", format = ["sdist", "wheel"] },
   # The npm sources the bundle embeds, plus their licences, so the sdist carries what it
   # redistributes. Wider than build.rs's VENDORED list, which ships licences only.
   # It is not an offline build: build.rs still runs `npm ci`.
-  { path = "node_modules/happy-dom/lib/**/*", format = "sdist" },
-  { path = "node_modules/happy-dom/LICENSE", format = "sdist" },
   { path = "node_modules/xpath/xpath.js", format = "sdist" },
   { path = "node_modules/xpath/LICENSE", format = "sdist" },
   { path = "node_modules/entities/dist/esm/**/*", format = "sdist" },
   { path = "node_modules/entities/LICENSE", format = "sdist" },
 ]
+module-name = "miniclient._miniclient"
+python-source = "python"
 
 [tool.pyrefly]
 search_path = ["python", "tests"]
 
 [tool.pytest]
-addopts = [
-  "--cov-report=html",
-  "--cov-report=xml",
-  "--cov=python/miniclient",
-  "-mnot cross and not hypo"
-]
+addopts = ["--cov-report=html", "--cov-report=xml", "--cov=python/miniclient", "-mnot cross and not hypo"]
 filterwarnings = [
   "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]

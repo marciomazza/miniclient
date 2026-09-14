@@ -1,26 +1,24 @@
 // Second pass of deno_core's two-pass snapshot: this runs against the cold snapshot, and the
 // context it exercises is what ships, so whatever it compiles is already compiled at Page
-// load. It warms what every Page pays for first -- window construction, happy-dom's HTML
-// parser, DOM manipulation and traversal, xpath and FormData. It ships in production, so it
-// must never touch anything from tests/.
+// load. It warms what every Page pays for first -- window construction, jsdom's HTML parser,
+// DOM manipulation and traversal, xpath and FormData. It ships in production, so it must
+// never touch anything from tests/.
 //
 // `Event` (and friends) come off `win`, not `globalThis`: bootstrap.js's global registration
 // -- the step that normally copies window properties onto globalThis -- never runs during a
 // snapshot build, only scripts.
 //
 // What it leaves out is dictated by V8's snapshot serializer, which segfaults on a warmed
-// context that ever constructed a `WeakRef` -- that rules out happy-dom's live collections
-// (getElementsByTagName) and its CSS selector engine (querySelector/querySelectorAll), and
-// reading `document.body` trips the serializer too. htmx is out for a different reason: it is
-// not in the snapshot at all, a page loads it from a <script> tag. The hx-* attributes below
-// still warm the parser path htmx's own scan walks.
+// context that ever constructed a `WeakRef`. htmx is out for a different reason: it is not in
+// the snapshot at all, a page loads it from a <script> tag. The hx-* attributes below still
+// warm the parser path htmx's own scan walks.
 //
 // The Rust tests `runtime_scripts_and_warmup_produce_a_bootable_snapshot` and
 // `appended_scripts_produce_a_distinct_bootable_snapshot` are the guard: they fail if
 // anything added here stops the warmed context from serializing.
 (() => {
-    const page = new globalThis.__happyDomBundle.Browser().newPage();
-    const win = page.mainFrame.window;
+    const dom = new JSDOM("", { url: "about:blank" });
+    const win = dom.window;
     const doc = win.document;
 
     const root = doc.createElement("div");
@@ -55,5 +53,5 @@
     form.append("a", "1");
     [...form.entries()];
 
-    page.close();
+    dom.window.close();
 })();

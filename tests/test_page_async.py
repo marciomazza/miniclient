@@ -349,9 +349,7 @@ async def test_element_find_returns_form_element(page: AsyncPage) -> None:
 
 
 async def test_click_awaits_plain_fetch_settle(page: AsyncPage, httpx_mock: HTTPXMock) -> None:
-    """click()/trigger()/fill() wait for the page to settle by tracking pending timers and
-    in-flight fetches via happy-dom's AsyncTaskManager, so this works even when the page has
-    no htmx loaded at all."""
+    """click()/trigger()/fill() wait for the page to settle"""
     httpx_mock.add_response(url="http://localhost/data", text="done")
     await page.load("""
         <button id="btn">go</button>
@@ -437,11 +435,15 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
     """JS that appends a <script src=url>, applying attr_setup_js first, awaits its load/error."""
     return f"""
         new Promise((resolve, reject) => {{
-          const script = document.createElement('script');
+          const script =
+            document.createElement('script');
           {attr_setup_js};
           script.src = {url!r};
           script.onload = () => resolve();
-          script.onerror = () => reject(new Error('script failed to load'));
+          script.onerror = () =>
+            reject(
+              new Error('script failed to load'),
+            );
           document.head.appendChild(script);
         }});
     """

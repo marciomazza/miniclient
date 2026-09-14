@@ -1,19 +1,14 @@
-// Browser, PropertySymbol, CookieStringUtility, FetchCORSUtility, WindowBrowserContext and
-// patchHappyDom all come from globalThis.__happyDomBundle instead of `import`, because that
-// bundle (built by build-happydom-bundle.mjs) is baked into the V8 snapshot: importing
-// happy-dom's ~500-file module graph fresh on every Runtime() startup cost ~100ms of a
-// ~110ms open_runtime() call, almost all of it V8 parsing/compiling that graph rather than
-// running it.
-const {
-    Browser,
-    PropertySymbol,
-    CookieStringUtility,
-    FetchCORSUtility,
-    WindowBrowserContext,
-    DetachedWindowAPI,
-    BrowserFrameNavigator,
-    patchHappyDom,
-} = globalThis.__happyDomBundle;
+// JSDOM comes from globalThis.JSDOM instead of `import`, because that class (bundled by
+// build-jsdom-bundle.mjs) is baked into the V8 snapshot: importing jsdom's module graph
+// fresh on every Runtime() startup would cost the same kind of parse/compile time that
+// happy-dom's graph used to. Measured (release build, steady-state): Runtime() construction
+// from the snapshot is ~33ms with jsdom, vs. ~10ms on the same machine with happy-dom's
+// snapshot -- still well inside the deserialize-a-blob budget, but jsdom's larger bundle
+// (~6x happy-dom's minified size) does cost real snapshot-restore time, not just disk space.
+//
+// No patches applied to this Window yet: XPath's ANY_TYPE default, the hx-on attribute
+// index, cookie-jar/CORS handling in the fetch override, and real navigation
+// (__zzz_navigate/__zzz_get_browser_frame) are all still unported below.
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
@@ -23,30 +18,16 @@ const {
 // below must not let its blanket copy overwrite something that was already there.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
-// Uses the full Browser/Page API rather than the bare `new Window()` convenience
-// class: happy-dom's BrowserFrameValidator.validateFrameNavigation() explicitly
-// refuses real navigation (goto()/form submission) for the main frame of a window
-// built the `new Window()` way — DetachedBrowser is the only browser class with a
-// `windowClass` property, and validateFrameNavigation treats that as "this is a bare
-// detached Window being driven directly, not via the Browser API" and blocks it,
-// falling back to a location-only, no-fetch pseudo-navigation. Browser has no
-// windowClass property, so that guard never trips here, and goto() does what it says.
-const browser = new Browser({
-    settings: {
-        enableJavaScriptEvaluation: true,
-        fetch: { virtualServers: globalThis.__VIRTUAL_SERVERS__ ?? [] },
-        // mini runs local page JS, not untrusted multi-tenant JS -- happy-dom's own
-        // insecure-VM-context warning doesn't apply here, and printing it now that
-        // console.warn actually reaches stdout/stderr breaks callers matching output.
-        suppressInsecureJavaScriptEnvironmentWarning: true,
-    },
+// `runScripts: "dangerously"` matches happy-dom's default of executing inline/loaded
+// <script> tags; `pretendToBeVisual` turns on requestAnimationFrame/getComputedStyle/etc.
+// jsdom takes the initial URL directly at construction, unlike happy-dom's Browser/Page
+// API, which needed a Window built first and its location patched in separately.
+const dom = new JSDOM("", {
+    url: globalThis.__BASE_URL__,
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
 });
-const page = browser.newPage();
-// newPage() has no way to pass an initial URL; page.mainFrame starts at about:blank.
-// Set it directly (no fetch — same as what `new Window({url})` used to do) rather
-// than through goto(), which would perform a real (and here pointless) navigation.
-page.mainFrame.window.location[PropertySymbol.setURL](page.mainFrame, globalThis.__BASE_URL__);
-const win = page.mainFrame.window;
+const win = dom.window;
 
 // IntersectionObserver: happy-dom doesn't implement it, polyfill as a no-op.
 win.IntersectionObserver ??= class {
@@ -79,12 +60,6 @@ win.IntersectionObserver ??= class {
 //   place lets repeat navigations hit plain, monomorphic property stores.
 // - Then copies the new win's own properties (+ prototype-chain symbols) on top.
 function registerWindowGlobals(win) {
-    // BrowserFrameNavigator's internal window class (used for every navigation past
-    // the very first) doesn't auto-attach `.happyDOM` the way the top-level `Window`
-    // convenience class does — reattach explicitly, and before the key list below is
-    // built so that list actually includes it.
-    win.happyDOM = new DetachedWindowAPI(new WindowBrowserContext(win).getBrowserFrame());
-
     // `event` is re-installed as a live accessor below; skip the plain-value copy so it
     // isn't churned accessor->value->accessor on every navigation.
     const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis", "event"]);
@@ -125,11 +100,10 @@ function registerWindowGlobals(win) {
             Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
         }
     }
-    // document.defaultView is left at happy-dom's own default (win, set by BrowserWindow's
-    // constructor) rather than redirected to globalThis: HTMLFormElement's native submit
-    // handling derives the window class to construct for real navigation from
-    // `document.defaultView.constructor`, which only resolves correctly against the real
-    // win instance.
+    // document.defaultView is left at its own default (win) rather than redirected to
+    // globalThis: HTMLFormElement's native submit handling derives the window class to
+    // construct for real navigation from `document.defaultView.constructor`, which only
+    // resolves correctly against the real win instance.
 
     // Copy prototype-chain Symbol-keyed methods: a couple of internal happy-dom code
     // paths (dispatchError, evaluateScript) call pseudo-private Symbol methods directly
@@ -164,14 +138,8 @@ function registerWindowGlobals(win) {
         configurable: true,
     });
 
-    // Runs last, and on every navigation, not just the first: happy-dom hands each
-    // window its own fresh MutationObserver/HTMLFormElement/HTMLElement/.../Response
-    // classes (see WindowContextClassExtender.js — real per-window class identity,
-    // not shared across instances), so prototype-level patches like the MutationObserver
-    // WeakRef-GC fix only take effect on the win they're applied to. Also last so its
-    // patches are the final, authoritative values — not overwritten by the registration
-    // copy above, which only knows about happy-dom's unpatched classes.
-    patchHappyDom(win);
+    // No per-window patches applied yet (MutationObserver WeakRef-GC fix, shared
+    // SelectorParser/CSS cache, hx-on index, DOMParser <template>/table repair).
 
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM
     // node as a short collapsed tag, never eagerly walking its full property graph. Deno's
@@ -181,8 +149,8 @@ function registerWindowGlobals(win) {
     // matter: htmx logs `*:error` events via console.error(..., {elt, detail}) by default,
     // and elt is the live element — each such call was costing ~150ms, enough by itself to
     // blow through a reconnect-loop test's real-time assertion window (see hx-sse.js's
-    // "reconnectMaxAttempts"/"reconnectMaxDelay" tests). Set per-window like patchHappyDom
-    // above, for the same reason: each new Window gets its own fresh Node class.
+    // "reconnectMaxAttempts"/"reconnectMaxDelay" tests). Set per-window, not once globally:
+    // each new Window gets its own fresh Node class.
     {
         const customInspect = Symbol.for("Deno.customInspect");
         win.Node.prototype[customInspect] = function () {
@@ -194,24 +162,20 @@ function registerWindowGlobals(win) {
         };
     }
 }
-// Protected from registerWindowGlobals' own reset-to-baseline sweep below: these two
-// are bootstrap-level helpers, not per-window state, and must survive every
-// navigation (they're how submit.js — a plain script with no `import` of its own —
-// reaches this module's WindowBrowserContext/registerWindowGlobals at all).
+// Protected from registerWindowGlobals' own reset-to-baseline sweep below: this is a
+// bootstrap-level helper, not per-window state, and must survive every navigation
+// (it's how submit.js — a plain script with no `import` of its own — reaches this
+// module's registerWindowGlobals at all).
 globalThis.__zzz_register_window_globals = registerWindowGlobals;
-globalThis.__zzz_get_browser_frame = () => new WindowBrowserContext(window).getBrowserFrame();
-// load()'s about:blank navigation (submit.js's __document_write) needs to restore the
-// pre-navigation URL before writing content, so relative URLs in the loaded fragment
-// (hx-get="/path", form action="/path", ...) still resolve against the real base URL
-// instead of about:blank. Content.set/frame.goto() have no non-navigating URL-set of
-// their own to call from outside this module, hence exposing the primitive here.
-globalThis.__zzz_set_url = (win, browserFrame, url) => {
-    win.location[PropertySymbol.setURL](browserFrame, url);
+// Real navigation (browserFrame.goto(), a non-navigating URL set, and the
+// multipart-bypassing submit primitive) has no jsdom equivalent yet. submit.js calls
+// these; throw instead of silently doing the wrong thing.
+const _notPorted = (name) => () => {
+    throw new Error(`${name}: navigation is not implemented for jsdom yet`);
 };
-// Exposes happy-dom's own navigation primitive: submit.js uses it to bypass
-// HTMLFormElement's native #submit(), which always sends POST bodies as
-// multipart/form-data regardless of the form's actual enctype.
-globalThis.__zzz_navigate = (options) => BrowserFrameNavigator.navigate(options);
+globalThis.__zzz_get_browser_frame = _notPorted("__zzz_get_browser_frame");
+globalThis.__zzz_set_url = _notPorted("__zzz_set_url");
+globalThis.__zzz_navigate = _notPorted("__zzz_navigate");
 _preExistingGlobals.add("__zzz_register_window_globals");
 _preExistingGlobals.add("__zzz_get_browser_frame");
 _preExistingGlobals.add("__zzz_set_url");
@@ -219,23 +183,11 @@ _preExistingGlobals.add("__zzz_navigate");
 
 registerWindowGlobals(win);
 
-// Reconnects the real happy-dom AsyncTaskManager to setTimeout and fetch, so
-// window.happyDOM.waitUntilComplete() (used by submit.js's __zzz_await_settle) tracks
-// every pending timer and in-flight fetch. Resolved fresh on every call, same pattern as
-// the fetch override's cookie-jar lookup below, so it stays correct across navigations.
-//
-// setInterval/clearInterval are deliberately NOT wrapped: happy-dom's own native
-// Window.setInterval calls startTimer() once at creation with no matching endTimer() until
-// clearInterval() is called, so tracking polling intervals the same way (e.g. a
-// hx-trigger="every 2s" element) would make waitUntilComplete() hang for the interval's
-// lifetime.
-//
-// Returns null (rather than throwing) when there's no browserFrame yet -- same case the
-// fetch override's cookie-jar lookup below already treats as expected: e.g. this fires
-// mid-navigation, for goto()'s own internal request-timeout guard, before the new
-// window/browserFrame pairing is fully wired up.
+// window.happyDOM.waitUntilComplete() (used by submit.js's __zzz_await_settle to track
+// pending timers/fetches) has no jsdom equivalent yet. Every call site already treats a
+// null return as an expected "no tracker" case, so this is a harmless no-op stub.
 function __zzz_atm() {
-    return new WindowBrowserContext(window).getBrowserFrame()?.[PropertySymbol.asyncTaskManager];
+    return null;
 }
 const _zzzRawSetTimeout = globalThis.setTimeout;
 const _zzzRawClearTimeout = globalThis.clearTimeout;
@@ -299,24 +251,9 @@ globalThis.fetch = async (input, init = {}) => {
         headers = Object.fromEntries(req.headers.entries());
     }
 
-    // Attach the outgoing Cookie header from happy-dom's own cookie jar and store any
-    // Set-Cookie response headers back into it, mirroring what happy-dom's native Fetch
-    // does internally  -- otherwise this hand-rolled fetch() never touches that jar at all.
-    const credentials =
-        (input instanceof Request ? input.credentials : init.credentials) ?? "same-origin";
-    const targetURL = new URL(url);
-    const browserFrame = new WindowBrowserContext(window).getBrowserFrame();
-    const hasCookieHeader = Object.keys(headers).some((k) => k.toLowerCase() === "cookie");
-    if (browserFrame && !hasCookieHeader) {
-        const isCORS = FetchCORSUtility.isCORS(new URL(location.href), targetURL);
-        if (credentials === "include" || (credentials === "same-origin" && !isCORS)) {
-            // false => include HttpOnly cookies (only document.cookie hides those, not the wire header)
-            const cookies = browserFrame.page.context.cookieContainer.getCookies(targetURL, false);
-            if (cookies.length > 0) headers.cookie = CookieStringUtility.cookiesToString(cookies);
-        }
-    }
-
-    const atm = browserFrame?.[PropertySymbol.asyncTaskManager];
+    // No cookie jar or CORS-aware credentials handling yet: outgoing requests carry no
+    // Cookie header, and Set-Cookie responses are dropped rather than stored (below).
+    const atm = __zzz_atm();
     const _taskID = atm?.startTask();
     const requestId = crypto.randomUUID();
     const onAbort = () => Deno.core.ops.op_fetch_abort(requestId);
@@ -334,16 +271,9 @@ globalThis.fetch = async (input, init = {}) => {
         signal?.removeEventListener("abort", onAbort);
     }
 
-    // Set-Cookie is a forbidden response header per spec: store it in the cookie jar,
-    // don't let it reach Response.headers.
+    // Set-Cookie is a forbidden response header per spec: strip it from Response.headers
+    // even though nothing stores it in a cookie jar yet.
     const responseHeaders = res.headers.filter(([k]) => !/^set-cookie2?$/i.test(k));
-    if (browserFrame) {
-        for (const [k, v] of res.headers) {
-            if (!/^set-cookie2?$/i.test(k)) continue;
-            const cookie = CookieStringUtility.stringToCookie(targetURL, v);
-            if (cookie) browserFrame.page.context.cookieContainer.addCookies([cookie]);
-        }
-    }
     const response = new Response(res.body != null ? new Uint8Array(res.body) : null, {
         status: res.status,
         statusText: res.statusText ?? "",

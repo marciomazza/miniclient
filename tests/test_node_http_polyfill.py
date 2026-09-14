@@ -183,11 +183,11 @@ async def test_async_xhr_status_and_body(runtime, httpx_mock):
 
 
 async def test_async_xhr_response_headers_including_duplicates(runtime, httpx_mock):
-    # A header repeated in the raw response must survive end-to-end: happy-dom's
-    # Headers.append() collects repeats and getResponseHeader() joins them with ", "
-    # (per the Fetch spec) — if our rawHeaders plumbing silently collapsed/dropped a
-    # duplicate (e.g. by going through a Python dict keyed by header name), only one
-    # value would show up here instead of both.
+    # A header repeated in the raw response must survive end-to-end: the underlying
+    # impl's Headers.append() collects repeats and getResponseHeader() joins them
+    # with ", " (per the Fetch spec) — if our rawHeaders plumbing silently
+    # collapsed/dropped a duplicate (e.g. by going through a Python dict keyed by
+    # header name), only one value would show up here instead of both.
     httpx_mock.add_response(
         url="http://localhost/data",
         text="ok",
@@ -243,15 +243,16 @@ async def test_async_xhr_network_error_fires_onerror(runtime, httpx_mock):
 # ---------------------------------------------------------------------------
 # Sync XMLHttpRequest — same SyncFetch path as classic <script src>
 #
-# No request-body test here (unlike the async XHR suite above): happy-dom itself
-# has a bug where `SyncFetch`'s constructor rewraps `XMLHttpRequest#sendSync`'s
-# freshly-built Request as `new Request(url, {init: previousRequest})` instead of
-# spreading it, so `Request`'s constructor reads `init.body` (a ReadableStream,
-# since the `body` getter always returns a stream) and drops `bodyBuffer`. This
-# makes `SyncFetch.sendRequest()` throw "Streams are not supported..." for any
-# sync XHR body — reproducible in real Node too, entirely above our patch
-# boundary (`XMLHttpRequest`/`SyncFetch` both use private fields, unpatchable
-# per this project's established rule), so out of scope here.
+# No request-body test here (unlike the async XHR suite above): the underlying
+# impl has a bug where `SyncFetch`'s constructor rewraps
+# `XMLHttpRequest#sendSync`'s freshly-built Request as
+# `new Request(url, {init: previousRequest})` instead of spreading it, so
+# `Request`'s constructor reads `init.body` (a ReadableStream, since the `body`
+# getter always returns a stream) and drops `bodyBuffer`. This makes
+# `SyncFetch.sendRequest()` throw "Streams are not supported..." for any sync
+# XHR body — reproducible in real Node too, entirely above our patch boundary
+# (`XMLHttpRequest`/`SyncFetch` both use private fields, unpatchable per this
+# project's established rule), so out of scope here.
 # ---------------------------------------------------------------------------
 
 

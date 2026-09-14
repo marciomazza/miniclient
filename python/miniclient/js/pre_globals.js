@@ -47,6 +47,13 @@
         version: "",
         versions: {},
         argv: ["node"],
+        // jsdom schedules internal microtasks (e.g. event dispatch) through this; a plain
+        // microtask queue is a faithful enough stand-in since nothing here needs macrotask
+        // ordering relative to I/O. `queueMicrotask` itself is out: deno_core's own
+        // implementation calls back into a bootstrap-time internal helper that never runs
+        // during a cold snapshot pass, so it throws here -- `Promise.resolve().then()` reaches
+        // the same native V8 microtask queue without going through that helper.
+        nextTick: (fn, ...args) => Promise.resolve().then(() => fn(...args)),
     };
 
     // performance — deno_web's real implementation: monotonic now() (op_now), working
@@ -85,6 +92,30 @@
         randomUUID() {
             return Deno.core.ops.op_crypto_random_uuid();
         },
+    };
+
+    // V8 hides the SharedArrayBuffer constructor unless the embedder marks the context as
+    // cross-origin isolated (post-Spectre mitigation, normally driven by COOP/COEP headers);
+    // this runtime never does that, so the global is simply absent (WeakRef and Atomics are
+    // both present, just not this one) -- must exist before jsdom is imported: both jsdom's
+    // generated/idl/utils.js and its webidl-conversions dependency read own
+    // "byteLength"/"growable" descriptors off `SharedArrayBuffer.prototype` at module top
+    // level, and jsdom never constructs one for anything mini actually exercises (no real
+    // network resource loading, no native XHR/WebSocket).
+    globalThis.SharedArrayBuffer ??= class SharedArrayBuffer {
+        #buf;
+        constructor(length = 0) {
+            this.#buf = new ArrayBuffer(length);
+        }
+        get byteLength() {
+            return this.#buf.byteLength;
+        }
+        get growable() {
+            return false;
+        }
+        slice(...args) {
+            return this.#buf.slice(...args);
+        }
     };
 
     // Must exist before happy-dom is imported: its modules do
@@ -232,14 +263,6 @@
                 },
             };
         }
-    };
-
-    // Minimal Buffer stub — the real polyfill (node-buffer.js) replaces this when loaded
-    globalThis.Buffer ??= {
-        from: () => new Uint8Array(),
-        isBuffer: () => false,
-        alloc: (n) => new Uint8Array(n),
-        concat: () => new Uint8Array(),
     };
 
     globalThis.CSS = {

@@ -5,7 +5,7 @@ icon: lucide/book-open
 # Usage
 
 The `Page` class simulates a browser page for testing.
-It runs a real V8 engine (via `deno_core`) with happy-dom providing the DOM,
+It runs a real V8 engine (via `deno_core`) with jsdom providing the DOM,
 and lets you drive it from Python — load pages, query and interact with DOM elements, fill forms,
 click and trigger events.
 If the page includes htmx, it runs normally and htmx requests are awaited automatically.

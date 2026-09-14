@@ -17,9 +17,10 @@
     function serializeNode(node) {
         const nodeType = _nodeType.call(node);
         if (nodeType === Node.TEXT_NODE) {
-            // node.data is the reliable property for text nodes
-            //   in both happy-dom and real browsers;
-            // Node.prototype.textContent getter returns '' for Text nodes in happy-dom.
+            // node.data is the reliable property for text nodes in both mini's
+            //   runtime and real browsers;
+            // Node.prototype.textContent getter returns '' for Text nodes in mini's
+            //   runtime.
             const data = node.data.trim();
             return data ? { type: "text", data } : null;
         }
