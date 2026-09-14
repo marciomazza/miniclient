@@ -1,6 +1,6 @@
 [package]
 name = "miniclient"
-version = "0.2.5"
+version = "0.3.0-dev"
 edition = "2024"
 license = "MIT"
 publish = false
@@ -9,12 +9,6 @@ publish = false
 # rlib too, so `tests/*.rs` integration tests can link the crate; maturin still uses the cdylib.
 crate-type = ["cdylib", "rlib"]
 name = "_miniclient"
-
-[lints.clippy]
-# expect_used stays off on purpose: `.expect("why")` is the recommended fix for a bare
-# `.unwrap()`, and the runtime's isolate-thread setup relies on it for real invariants.
-unwrap_used = "warn"
-todo = "warn"
 
 [dependencies]
 async-trait = "0.1"
@@ -25,7 +19,6 @@ deno_web = "0.288.0"
 deno_webidl = "0.257.0"
 # Real CSPRNG for `crypto` (see pre_globals.js): fills getRandomValues, backs randomUUID.
 getrandom = "0.4"
-uuid = { version = "1", features = ["v4"] }
 # `extension-module` comes from maturin's `features` in pyproject.toml, not from here:
 # baked in, it leaves Python symbols undefined and `cargo test` cannot link.
 pyo3 = { version = "0.29", features = ["experimental-async"] }
@@ -33,6 +26,18 @@ pyo3-async-runtimes = { version = "0.29.0", features = ["tokio-runtime"] }
 regex = "1"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+# Property-based port of tests/hypothesis/*.py (ticket 13). No proptest-state-machine: the
+# ported suites aren't state machines.
+proptest = "1.11"
+# Only active for `cargo test`/benches/examples, never the extension-module wheel build (that
+# build never pulls in [dev-dependencies]) -- `auto-initialize` and `extension-module` conflict,
+# since an extension module doesn't own the interpreter but a standalone `cargo test` binary does.
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
+# Integration tests decode the JSON text `send_eval` returns back into Rust values.
+serde_json = "1"
 
 [build-dependencies]
 # build.rs bakes the deno_webidl + deno_web ESM into a base V8 snapshot: deno_core 0.410
@@ -43,13 +48,8 @@ deno_core = "0.410.0"
 deno_web = "0.288.0"
 deno_webidl = "0.257.0"
 
-[dev-dependencies]
-# Only active for `cargo test`/benches/examples, never the extension-module wheel build (that
-# build never pulls in [dev-dependencies]) -- `auto-initialize` and `extension-module` conflict,
-# since an extension module doesn't own the interpreter but a standalone `cargo test` binary does.
-pyo3 = { version = "0.29", features = ["auto-initialize"] }
-# Integration tests decode the JSON text `send_eval` returns back into Rust values.
-serde_json = "1"
-# Property-based port of tests/hypothesis/*.py (ticket 13). No proptest-state-machine: the
-# ported suites aren't state machines.
-proptest = "1.11"
+[lints.clippy]
+todo = "warn"
+# expect_used stays off on purpose: `.expect("why")` is the recommended fix for a bare
+# `.unwrap()`, and the runtime's isolate-thread setup relies on it for real invariants.
+unwrap_used = "warn"
