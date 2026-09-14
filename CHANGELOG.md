@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.2.5]
 
+### Removed
+
+- `Runtime.register_function()`, the JS-callback-into-Python mechanism it was built on
+  (`op_call_python`), and the `_miniclient.pyi` stub for it. Its only caller was the old
+  `HttpxFetchMock`, now replaced by a Rust-native fetch mock.
+
 ### Changed
 
 - happy-dom now comes from our new fork (<https://github.com/marciomazza/happy-dom/tree/join>),
