@@ -7,9 +7,9 @@
 // (~6x happy-dom's minified size) does cost real snapshot-restore time, not just disk space.
 //
 // No patches applied to this Window yet beyond XPath's ANY_TYPE default and the hx-on
-// index short-circuit: the MutationObserver WeakRef-GC fix, shared SelectorParser/CSS
-// cache, cookie-jar/CORS handling in the fetch override, and real navigation
-// (__zzz_navigate/__zzz_get_browser_frame) are all still unported below.
+// index short-circuit: the MutationObserver WeakRef-GC fix, cookie-jar/CORS handling in
+// the fetch override, and real navigation (__zzz_navigate/__zzz_get_browser_frame) are
+// all still unported below.
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
