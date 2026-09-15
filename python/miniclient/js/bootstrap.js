@@ -6,8 +6,9 @@
 // snapshot -- still well inside the deserialize-a-blob budget, but jsdom's larger bundle
 // (~6x happy-dom's minified size) does cost real snapshot-restore time, not just disk space.
 //
-// No patches applied to this Window yet beyond XPath's ANY_TYPE default: the hx-on
-// attribute index, cookie-jar/CORS handling in the fetch override, and real navigation
+// No patches applied to this Window yet beyond XPath's ANY_TYPE default and the hx-on
+// index short-circuit: the MutationObserver WeakRef-GC fix, shared SelectorParser/CSS
+// cache, cookie-jar/CORS handling in the fetch override, and real navigation
 // (__zzz_navigate/__zzz_get_browser_frame) are all still unported below.
 
 // Snapshot the global names that already exist before Window is constructed: native
@@ -138,8 +139,8 @@ function registerWindowGlobals(win) {
         configurable: true,
     });
 
-    // No per-window patches applied yet (MutationObserver WeakRef-GC fix, shared
-    // SelectorParser/CSS cache, hx-on index).
+    // No per-window patches applied yet beyond XPath (MutationObserver WeakRef-GC fix,
+    // shared SelectorParser/CSS cache).
 
     // XPathExpression.prototype.evaluate — jsdom's own XPath engine predates the webidl2js
     // pipeline that gives optional arguments their spec default, so a call with only a
@@ -149,6 +150,50 @@ function registerWindowGlobals(win) {
         const origEvaluate = win.XPathExpression.prototype.evaluate;
         win.XPathExpression.prototype.evaluate = function (contextNode, type = 0, result) {
             return origEvaluate.call(this, contextNode, type, result);
+        };
+    }
+
+    // XPathEvaluator.prototype.createExpression — short-circuit the two XPath shapes htmx
+    // actually compiles (#hxOnQuery and hx-live's bind scan, both
+    // `.//*[@*[starts-with(name(), "...") or @exact]]`) against patch-jsdom-hxon-index.js's
+    // grow-only Set instead of walking the real XPath engine over the whole subtree on every
+    // process(). A superset match is safe here (see that file's header); this is the only
+    // reader of its Set. win.XPathEvaluator is a fresh class per Window, so this must be
+    // reapplied every navigation like the ANY_TYPE patch above.
+    {
+        const HXON_INDEX_KEY = Symbol.for("miniclient.hxOnIndex");
+        function hxOnShortCircuit(expr) {
+            if (!/^\.\/\/\*\[@\*\[/.test(expr) || !expr.includes("starts-with(name()")) return null;
+            const prefixes = [...expr.matchAll(/starts-with\(name\(\),\s*"([^"]*)"\)/g)].map(
+                (m) => m[1],
+            );
+            const exacts = [...expr.matchAll(/(?:^|[\s([])@([a-z][\w:-]*)/gi)].map((m) => m[1]);
+            const matchName = (n) => prefixes.some((p) => n.startsWith(p)) || exacts.includes(n);
+            return function evaluate(ctxWrapper) {
+                const ctx = globalThis.__jsdomImplForWrapper(ctxWrapper);
+                const doc = ctx.ownerDocument || ctx;
+                const index = doc && doc[HXON_INDEX_KEY];
+                const out = [];
+                if (index) {
+                    for (const el of index) {
+                        if (!el.isConnected) {
+                            index.delete(el);
+                            continue;
+                        }
+                        if (ctx !== el && !ctx.contains(el)) continue;
+                        if (el.getAttributeNames().some(matchName))
+                            out.push(globalThis.__jsdomWrapperForImpl(el));
+                    }
+                }
+                let i = 0;
+                return { iterateNext: () => out[i++] ?? null };
+            };
+        }
+        const origCreateExpression = win.XPathEvaluator.prototype.createExpression;
+        win.XPathEvaluator.prototype.createExpression = function (expression, resolver) {
+            const shortCircuit = hxOnShortCircuit(expression);
+            if (shortCircuit) return { evaluate: shortCircuit };
+            return origCreateExpression.call(this, expression, resolver);
         };
     }
 
