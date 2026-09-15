@@ -2,8 +2,7 @@
   "name": "miniclient",
   "dependencies": {
     "entities": "^8.1.0",
-    "jsdom": "30.0.1",
-    "xpath": "^0.0.34"
+    "jsdom": "30.0.1"
   },
   "devDependencies": {
     "chai": "4.5.0",

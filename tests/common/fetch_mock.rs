@@ -34,7 +34,7 @@ pub struct RecordedRequest {
 }
 
 impl RecordedRequest {
-    /// Case-insensitive header lookup -- happy-dom's `Headers` lowercases names, but assert on
+    /// Case-insensitive header lookup -- `Headers` lowercases names per spec, but assert on
     /// intent, not that quirk.
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers

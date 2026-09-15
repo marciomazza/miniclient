@@ -1,8 +1,8 @@
 // Second pass of deno_core's two-pass snapshot: this runs against the cold snapshot, and the
 // context it exercises is what ships, so whatever it compiles is already compiled at Page
 // load. It warms what every Page pays for first -- window construction, jsdom's HTML parser,
-// DOM manipulation and traversal, xpath and FormData. It ships in production, so it must
-// never touch anything from tests/.
+// DOM manipulation and traversal, and FormData. It ships in production, so it must never touch
+// anything from tests/.
 //
 // `Event` (and friends) come off `win`, not `globalThis`: bootstrap.js's global registration
 // -- the step that normally copies window properties onto globalThis -- never runs during a
@@ -12,6 +12,10 @@
 // context that ever constructed a `WeakRef`. htmx is out for a different reason: it is not in
 // the snapshot at all, a page loads it from a <script> tag. The hx-* attributes below still
 // warm the parser path htmx's own scan walks.
+//
+// jsdom's native `XPathEvaluator` is deliberately not exercised here either: unlike the old
+// npm `xpath` package it replaced, its implementation trips the same WeakRef/cppgc serializer
+// abort. It gets JIT-compiled on first real use per Page instead of during warmup.
 //
 // The Rust tests `runtime_scripts_and_warmup_produce_a_bootable_snapshot` and
 // `appended_scripts_produce_a_distinct_bootable_snapshot` are the guard: they fail if
@@ -46,8 +50,6 @@
     root.dispatchEvent(new win.Event("click", { bubbles: true }));
     root.matches("div");
     root.closest("div");
-
-    new globalThis.XPathEvaluator().createExpression("//button").evaluate(root).iterateNext();
 
     const form = new globalThis.FormData();
     form.append("a", "1");

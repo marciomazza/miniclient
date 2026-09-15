@@ -52,14 +52,7 @@ pub(crate) mod support {
 
     /// Mirrors the list in `build.rs`'s `build_default_snapshot()`, which is canonical.
     pub(crate) fn runtime_scripts() -> Vec<(String, String)> {
-        let xpath = read("node_modules/xpath/xpath.js");
         vec![
-            (
-                "xpath".into(),
-                format!(
-                    "const __xpathLib = {{}};\n(function(exports){{{xpath}}})(__xpathLib);\nglobalThis.__xpathLib = __xpathLib;"
-                ),
-            ),
             (
                 "pre_globals".into(),
                 read("python/miniclient/js/pre_globals.js"),

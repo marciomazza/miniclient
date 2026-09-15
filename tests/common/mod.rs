@@ -10,7 +10,7 @@ pub mod htmx_fetch_mock;
 pub use _miniclient::runtime::Runtime;
 use _miniclient::runtime::{EvalError, EvalOutcome};
 
-/// No `install_host_ops()`: fetch and fs are unavailable, but the default snapshot's happy-dom
+/// No `install_host_ops()`: fetch and fs are unavailable, but the default snapshot's jsdom
 /// `document`, `Buffer`, timers and deno_web globals are all live from construction.
 pub fn runtime() -> Runtime {
     Runtime::new("http://localhost/", "[]")

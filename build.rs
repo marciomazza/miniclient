@@ -12,7 +12,7 @@ use std::process::Command;
 // maturin's `include` cannot remap paths, so the copy into the package happens here and
 // maturin picks the package dir up as-is. Only licences: the wheel embeds the bundle and the
 // snapshot, so it redistributes this code but never reads these files at runtime.
-const VENDORED: &[&str] = &["jsdom/LICENSE.txt", "xpath/LICENSE", "entities/LICENSE"];
+const VENDORED: &[&str] = &["jsdom/LICENSE.txt", "entities/LICENSE"];
 
 fn run(program: &str, args: &[&str], cwd: &Path) {
     let status = Command::new(program)
@@ -71,11 +71,7 @@ fn main() {
         copy_tree(&node_modules.join(rel), &vendor.join(rel));
     }
 
-    build_default_snapshot(
-        &node_modules,
-        &js,
-        &PathBuf::from(std::env::var("OUT_DIR").unwrap()),
-    );
+    build_default_snapshot(&js, &PathBuf::from(std::env::var("OUT_DIR").unwrap()));
 }
 
 /// Builds mini's default V8 snapshot at build time and embeds it in the `.so`.
@@ -87,18 +83,11 @@ fn main() {
 ///
 /// This script list is the canonical one. `runtime_scripts()` in `src/snapshot.rs` copies it
 /// for the crate's tests; keep the two in sync (a divergence fails those tests' boot check).
-fn build_default_snapshot(node_modules: &Path, js: &Path, out_dir: &Path) {
+fn build_default_snapshot(js: &Path, out_dir: &Path) {
     let read = |p: &Path| {
         std::fs::read_to_string(p).unwrap_or_else(|e| panic!("snapshot input {p:?}: {e}"))
     };
-    let xpath = read(&node_modules.join("xpath/xpath.js"));
     let scripts: Vec<(String, String)> = vec![
-        (
-            "xpath".into(),
-            format!(
-                "const __xpathLib = {{}};\n(function(exports){{{xpath}}})(__xpathLib);\nglobalThis.__xpathLib = __xpathLib;"
-            ),
-        ),
         ("pre_globals".into(), read(&js.join("pre_globals.js"))),
         ("formdata".into(), read(&js.join("formdata.js"))),
         (
