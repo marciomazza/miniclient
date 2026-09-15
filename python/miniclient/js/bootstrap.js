@@ -139,7 +139,7 @@ function registerWindowGlobals(win) {
     });
 
     // No per-window patches applied yet (MutationObserver WeakRef-GC fix, shared
-    // SelectorParser/CSS cache, hx-on index, DOMParser <template>/table repair).
+    // SelectorParser/CSS cache, hx-on index).
 
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM
     // node as a short collapsed tag, never eagerly walking its full property graph. Deno's

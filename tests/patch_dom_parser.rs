@@ -88,6 +88,8 @@ fn template_with_non_table_content() {
 
 #[test]
 fn template_attributes_preserved() {
+    // A bare top-level <template>, with nothing else forcing a <body>, parses into <head> per
+    // spec -- same as a real browser.
     let rt = runtime();
     for (html, want) in [
         (
@@ -100,7 +102,7 @@ fn template_attributes_preserved() {
         ),
     ] {
         let js = format!(
-            "new DOMParser().parseFromString('{html}', 'text/html').body
+            "new DOMParser().parseFromString('{html}', 'text/html').head
   .innerHTML"
         );
         assert_eq!(rt.eval::<String>(&js), want, "{html}");
@@ -109,12 +111,13 @@ fn template_attributes_preserved() {
 
 #[test]
 fn multiple_templates() {
+    // Same as template_attributes_preserved: bare top-level templates land in <head>.
     let rt = runtime();
     let js = r#"
         const html =
           '<template id="a"><tr><td>A</td></tr></template>' +
           '<template id="b"><tr><td>B</td></tr></template>';
-        new DOMParser().parseFromString(html, 'text/html').body.innerHTML;
+        new DOMParser().parseFromString(html, 'text/html').head.innerHTML;
     "#;
     assert_eq!(
         rt.eval::<String>(js),

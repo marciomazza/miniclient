@@ -1,4 +1,3 @@
-import patchDomParser from "./patch-happy-dom-parser.js";
 import patchHxOnIndex from "./patch-happy-dom-hxon-index.js";
 import SyncFetchScriptBuilder from "happy-dom/lib/fetch/utilities/SyncFetchScriptBuilder.js";
 import SelectorParser from "happy-dom/lib/query-selector/SelectorParser.js";
@@ -123,7 +122,6 @@ export default function patch(win) {
         };
     }
 
-    patchDomParser(win);
     patchHxOnIndex(win);
 
     // -----------------------------------------------------------------------------------
@@ -135,8 +133,7 @@ export default function patch(win) {
     // -----------------------------------------------------------------------------------
     // Uses the bare global DOMParser, not win.DOMParser: `win` is the original Window
     // instance, a separate object from globalThis (bootstrap.js only one-time-copies
-    // properties across at startup), so win.DOMParser would miss patchDomParser's
-    // table-repair wrapper, which lives on globalThis.DOMParser.
+    // properties across at startup).
     win.Document.parseHTMLUnsafe = (html) => new DOMParser().parseFromString(html, "text/html");
 
     // -----------------------------------------------------------------------------------
