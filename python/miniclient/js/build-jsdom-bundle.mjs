@@ -11,6 +11,7 @@ const _JS = fileURLToPath(new URL(".", import.meta.url));
 const _POLYFILLS = _JS + "polyfills/";
 
 const NODE_POLYFILL_FILES = {
+  assert: "node-assert.js",
   buffer: "node-buffer.js",
   crypto: "node-crypto.js",
   events: "node-events.js",
@@ -21,10 +22,12 @@ const NODE_POLYFILL_FILES = {
   os: "node-os.js",
   path: "node-path.js",
   perf_hooks: "node-perf-hooks.js",
+  querystring: "node-querystring.js",
   stream: "node-stream.js",
   "stream/web": "node-stream-web.js",
   url: "node-url.js",
   util: "node-util.js",
+  "util/types": "node-util-types.js",
   vm: "node-vm.js",
   worker_threads: "node-worker-threads.js",
   zlib: "node-zlib.js",
@@ -82,6 +85,10 @@ await build({
   loader: { ".css": "text" },
   plugins: [polyfillResolverPlugin()],
   logLevel: "info",
+  // Only ever referenced behind a runtime feature check (`runtimeFeatures.has('sqlite')`)
+  // that this bundle never triggers -- undici/lib/util/runtime-features.js's lazy factory
+  // map still needs it to resolve at bundle time, so external it rather than polyfill.
+  external: ["node:sqlite"],
   // esbuild's `platform: "browser"` deliberately never defines `__dirname` (no
   // filesystem assumption) -- jsdom's computed-style.js is the one file that reads one
   // at module scope (`fs.readFileSync(path.resolve(__dirname, ...))`, to load its default

@@ -40,5 +40,13 @@ class EventEmitter {
 }
 EventEmitter.prototype.removeListener = EventEmitter.prototype.off;
 
-export { EventEmitter };
-export default { EventEmitter };
+// undici calls this only with a real `AbortSignal` (deno_web's, not this file's EventEmitter),
+// so it always takes the `addEventListener` branch -- the `signal.once('abort', ...)` fallback
+// Node's real implementation has for plain EventEmitters is dead code here.
+function addAbortListener(signal, listener) {
+    signal.addEventListener("abort", listener, { once: true });
+    return () => signal.removeEventListener("abort", listener);
+}
+
+export { EventEmitter, addAbortListener };
+export default { EventEmitter, addAbortListener };

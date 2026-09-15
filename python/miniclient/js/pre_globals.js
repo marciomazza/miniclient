@@ -214,6 +214,29 @@
         });
     }
 
+    // Blob/File/AbortController/AbortSignal — deno_web's real implementations, force-loaded
+    // (like streams above) so the jsdom bundle's cold-pass import of undici's Request/Response
+    // (jsdom-entry.js) sees these globals: its webidl layer references them at module scope
+    // (e.g. `webidl.is.Blob = webidl.util.MakeTypeAssertion(Blob)`), before any Window exists.
+    // These stay global permanently (unlike the streams above, which Window's own versions take
+    // over) because deno_web's own `URL.createObjectURL`/`revokeObjectURL` -- also global, also
+    // op-backed -- only recognises its own Blob class as a valid argument.
+    {
+        const f = Deno.core.loadExtScript("ext:deno_web/09_file.js");
+        const a = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");
+        Object.assign(globalThis, {
+            Blob: f.Blob,
+            File: f.File,
+            AbortController: a.AbortController,
+            AbortSignal: a.AbortSignal,
+        });
+    }
+
+    // MessagePort — same reason as Blob/AbortSignal above (undici's webidl module-scope type
+    // assertion needs the constructor to exist), but never actually constructed here: mini has
+    // no worker/postMessage support, so this is a type-only stand-in, not a real port.
+    globalThis.MessagePort ??= class MessagePort {};
+
     globalThis.CSS = {
         escape(value) {
             value = String(value);

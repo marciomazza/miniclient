@@ -51,7 +51,7 @@
     root.matches("div");
     root.closest("div");
 
-    const form = new globalThis.FormData();
+    const form = new win.FormData();
     form.append("a", "1");
     [...form.entries()];
 

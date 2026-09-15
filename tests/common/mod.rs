@@ -96,7 +96,11 @@ fn json(outcome: EvalOutcome) -> Option<String> {
     match outcome {
         Ok(value) => value,
         Err(EvalError::Other(message)) => panic!("expected a value, got a refusal: {message}"),
-        Err(EvalError::Js(error)) => panic!("expected a value, got a JS {:?}", error.name),
+        Err(EvalError::Js(error)) => panic!(
+            "expected a value, got a JS {}: {}",
+            error.name.clone().unwrap_or_default(),
+            error.message.clone().unwrap_or_default()
+        ),
     }
 }
 

@@ -15,5 +15,9 @@ class MessageChannel {
 function receiveMessageOnPort() {
     throw new Error("node:worker_threads.receiveMessageOnPort is not supported in this runtime");
 }
-export { Worker, MessageChannel, receiveMessageOnPort };
-export default { Worker, MessageChannel, receiveMessageOnPort };
+// No-op: only marks an object so a later structuredClone()/postMessage would reject it --
+// undici's Request/Response/FormData call this on construction, but nothing here ever
+// clones one across a message channel, so there's nothing to actually mark.
+function markAsUncloneable() {}
+export { Worker, MessageChannel, receiveMessageOnPort, markAsUncloneable };
+export default { Worker, MessageChannel, receiveMessageOnPort, markAsUncloneable };

@@ -89,7 +89,6 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
     };
     let scripts: Vec<(String, String)> = vec![
         ("pre_globals".into(), read(&js.join("pre_globals.js"))),
-        ("formdata".into(), read(&js.join("formdata.js"))),
         (
             "element-registry".into(),
             read(&js.join("element_registry.js")),

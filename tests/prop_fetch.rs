@@ -13,6 +13,13 @@ use serde_json::{Value, json};
 
 const URL: &str = "http://api.example.com";
 
+/// Header values are trimmed of HTTP whitespace (spec bytes 0x09/0x0A/0x0D/0x20) on the wire,
+/// per the Fetch/HTTP spec -- undici's `Headers` now enforces this, unlike the ad hoc header
+/// handling this mock's assertions were originally written against.
+fn trim_http_whitespace(s: &str) -> &str {
+    s.trim_matches(['\t', '\n', '\r', ' '])
+}
+
 /// ASCII printable, excluding characters that break a JS single-quoted string literal.
 fn st_ascii_text(max_len: usize) -> impl Strategy<Value = String> {
     proptest::collection::vec(
@@ -91,7 +98,10 @@ proptest! {
     }
 
     #[test]
-    fn fetch_status_arbitrary(status_code in 100u16..=599) {
+    // 1xx statuses never reach `fetch()` on a real platform (they're consumed by the network
+    // layer as informational, not a final response) -- undici's `Response` now enforces the
+    // same 200-599 range mini's mock backend previously let through unchecked.
+    fn fetch_status_arbitrary(status_code in 200u16..=599) {
         let url = format!("{URL}/status");
         let mock = MockFetchBackend::new();
         mock.status(&url, status_code);
@@ -176,7 +186,7 @@ proptest! {
             // A few header names (content-length, etc.) are recomputed by the fetch layer
             // rather than passed through as given, so only check ones that made it through.
             if let Some(actual) = request.header(key) {
-                prop_assert_eq!(actual, value.as_str());
+                prop_assert_eq!(actual, trim_http_whitespace(value));
             }
         }
     }
@@ -204,7 +214,7 @@ proptest! {
             let actual = rt.eval_async::<Option<String>>(&format!(
                 "fetch({url:?}).then(r => r.headers.get({key:?}))"
             ));
-            prop_assert_eq!(actual, Some(value.clone()));
+            prop_assert_eq!(actual, Some(trim_http_whitespace(value).to_string()));
         }
     }
 }

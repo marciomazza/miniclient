@@ -67,10 +67,13 @@ fn urlsearchparams_accepts_iterable_init() {
 #[test]
 fn create_and_revoke_object_url() {
     let rt = runtime();
-    assert!(rt.eval::<bool>(
+    // `revokeObjectURL` returns `undefined` per spec, not a success boolean -- the only
+    // observable effect here is that neither call throws.
+    rt.run(
         r#"
         const url = URL.createObjectURL(new Blob(['hi']));
-        url.startsWith('blob:') && URL.revokeObjectURL(url) === true
+        if (!url.startsWith('blob:')) throw new Error(`unexpected URL: ${url}`);
+        URL.revokeObjectURL(url);
     "#,
-    ));
+    );
 }

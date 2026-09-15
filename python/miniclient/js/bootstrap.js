@@ -12,11 +12,11 @@
 // all still unported below.
 
 // Snapshot the global names that already exist before Window is constructed: native
-// V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the
-// polyfills baked into the v8_snapshot (FormData, CSS, setTimeout/setInterval, console,
+// V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the polyfills
+// baked into the v8_snapshot (Request, Response, CSS, setTimeout/setInterval, console,
 // atob/btoa, ...). Window provides its own same-named versions of several of these
-// (e.g. FormData, setTimeout) that are worse fits for this runtime; the registration step
-// below must not let its blanket copy overwrite something that was already there.
+// (e.g. setTimeout) that are worse fits for this runtime; the registration step below
+// must not let its blanket copy overwrite something that was already there.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
 // `runScripts: "dangerously"` matches happy-dom's default of executing inline/loaded
@@ -272,8 +272,9 @@ globalThis.fetch = async (input, init = {}) => {
 
     let url, method, headers, body;
     if (!(input instanceof Request) && init.body instanceof FormData) {
-        // happy-dom's Request constructor doesn't recognise our custom FormData and
-        // would serialise it as "[object Object]" with content-type text/plain.
+        // `Request`'s body extraction only recognises its own bundled FormData class (an
+        // internal brand check), not jsdom's native one exposed as the global `FormData`
+        // here -- it would serialise as "[object Object]" with content-type text/plain.
         // Serialize manually as multipart/form-data so the wire format matches browsers.
         const boundary = "----HxClientBoundary" + Math.random().toString(36).slice(2, 18);
         const enc = new TextEncoder();
@@ -330,7 +331,10 @@ globalThis.fetch = async (input, init = {}) => {
     // Set-Cookie is a forbidden response header per spec: strip it from Response.headers
     // even though nothing stores it in a cookie jar yet.
     const responseHeaders = res.headers.filter(([k]) => !/^set-cookie2?$/i.test(k));
-    const response = new Response(res.body != null ? new Uint8Array(res.body) : null, {
+    // Null-body statuses (204/205/304) must construct with a `null` body, not an empty one --
+    // undici's Response enforces this strictly, unlike the DOM engine this used to run on.
+    const responseBody = res.body != null && res.body.length > 0 ? new Uint8Array(res.body) : null;
+    const response = new Response(responseBody, {
         status: res.status,
         statusText: res.statusText ?? "",
         headers: responseHeaders,

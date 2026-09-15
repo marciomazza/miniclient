@@ -7,11 +7,23 @@ import "buffer";
 import { JSDOM } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
 import "./patch-jsdom-hxon-index.js";
+// jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
+// Importing its class files directly, not the `undici` package entry point, keeps its real
+// network client/dispatcher out of the bundle -- bootstrap.js's fetch() only needs these as
+// spec-compliant containers around mini's own op_fetch transport.
+//
+// Response must load first: request.js's module-top-level `RequestInit` webidl converter
+// reads `webidl.converters.BodyInit`, which only exists once response.js's own module top
+// level has run and assigned it.
+import { Response } from "undici/lib/web/fetch/response.js";
+import { Request } from "undici/lib/web/fetch/request.js";
 
 // The esbuild bundle wraps this entry point in an anonymous IIFE, so the import above stays
 // scoped to it -- this is the one explicit hand-off point to the shared realm. Everywhere
 // else (bootstrap.js, snapshot_warmup.js, ...) just references the bare `JSDOM` global.
 globalThis.JSDOM = JSDOM;
+globalThis.Request = Request;
+globalThis.Response = Response;
 
 // bootstrap.js runs as a classic script, never a module, so it can't `import` jsdom's
 // webidl2js wrapper<->impl converters directly -- needed there to bridge the public Node

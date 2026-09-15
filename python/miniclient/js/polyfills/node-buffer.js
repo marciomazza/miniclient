@@ -36,6 +36,14 @@ class Buffer extends Uint8Array {
         b.fill(fill);
         return b;
     }
+    static allocUnsafe(size) {
+        return new Buffer(size);
+    }
+    static byteLength(string, encoding = "utf8") {
+        if (encoding === "utf8" || encoding === "utf-8")
+            return new TextEncoder().encode(string).length;
+        return Buffer.from(string, encoding).length;
+    }
     static concat(buffers, totalLength) {
         const len = totalLength ?? buffers.reduce((s, b) => s + b.length, 0);
         const result = new Buffer(len);

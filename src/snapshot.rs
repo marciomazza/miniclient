@@ -57,7 +57,6 @@ pub(crate) mod support {
                 "pre_globals".into(),
                 read("python/miniclient/js/pre_globals.js"),
             ),
-            ("formdata".into(), read("python/miniclient/js/formdata.js")),
             (
                 "element-registry".into(),
                 read("python/miniclient/js/element_registry.js"),
@@ -99,9 +98,15 @@ mod tests {
     #[test]
     fn runtime_scripts_and_warmup_produce_a_bootable_snapshot() {
         let blob = create_snapshot(runtime_scripts()).unwrap();
+        // FormData isn't checked here: it only becomes available once bootstrap.js's
+        // registerWindowGlobals runs against a real Window, which happens per-`Runtime`, not
+        // as part of the snapshot itself (see `runtime_apis.rs`'s `headers_dom_parser_and_form_data`).
         assert_eq!(
-            eval_in_snapshot(blob, "[typeof FormData, typeof JSDOM].join()"),
-            "function,function"
+            eval_in_snapshot(
+                blob,
+                "[typeof Request, typeof Response, typeof JSDOM].join()"
+            ),
+            "function,function,function"
         );
     }
 

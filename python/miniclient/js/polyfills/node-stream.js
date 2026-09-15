@@ -99,5 +99,22 @@ function pipeline(...args) {
     return streams[streams.length - 1];
 }
 
-export { Emitter, PassThrough, pipeline };
-export default { PassThrough, pipeline };
+// Stub, never instantiated: only referenced by undici's `InflateStream extends Transform`
+// (gzip/deflate decoding), the same dead path the `pipeline()` comment above already covers --
+// content-encoding is stripped server-side, so this class body is unreachable at runtime.
+class Transform extends Emitter {}
+
+// undici's body-extraction code checks these on the WHATWG `ReadableStream` it just created
+// itself (deno_web's, not this file's PassThrough), to bail out of writing more chunks once a
+// consumer errors or cancels it. `locked` is the only piece of that state a plain ReadableStream
+// exposes publicly; a stream that's been errored gets cancelled/unlocked too, so this is a safe
+// approximation, not a full port of Node's internal stream-state introspection.
+function isErrored() {
+    return false;
+}
+function isDisturbed(stream) {
+    return !!stream?.locked;
+}
+
+export { Emitter, PassThrough, Transform, pipeline, isErrored, isDisturbed };
+export default { PassThrough, Transform, pipeline, isErrored, isDisturbed };

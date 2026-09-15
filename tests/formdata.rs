@@ -1,5 +1,5 @@
-//! The pure-JS `FormData` implementation (formdata.js): which form controls it collects,
-//! `URLSearchParams` serialisation, and in-place `set()`.
+//! jsdom's native `FormData`: which form controls it collects, `URLSearchParams`
+//! serialisation, and in-place `set()`.
 
 mod common;
 
@@ -118,6 +118,9 @@ fn collects_successful_controls() {
 #[test]
 fn excludes_unsuccessful_controls() {
     let rt = runtime();
+    // A `type="file"` input with no selected files is NOT excluded: per spec it still
+    // contributes an entry (an empty `File`), which `Pairs`' string-only JSON marshalling
+    // can't represent -- left untested here, not a control this algorithm excludes.
     for html in [
         r#"<form><input type="checkbox" name="agree" value="yes"></form>"#,
         r#"<form><input type="radio" name="color" value="red"></form>"#,
@@ -125,7 +128,6 @@ fn excludes_unsuccessful_controls() {
         r#"<form><input value="1"></form>"#,
         r#"<form><input type="submit" name="s" value="go"></form>"#,
         r#"<form><input type="button" name="b" value="go"></form>"#,
-        r#"<form><input type="file" name="f"></form>"#,
         r#"<form><select name="x"></select></form>"#,
         r#"<form><select name="x" multiple><option value="a">A</option></select></form>"#,
     ] {
