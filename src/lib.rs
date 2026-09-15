@@ -45,9 +45,9 @@ struct Runtime(runtime::Runtime);
 #[pymethods]
 impl Runtime {
     #[new]
-    #[pyo3(signature = (url="http://localhost/", virtual_servers_json="[]"))]
-    fn new(url: &str, virtual_servers_json: &str) -> Self {
-        Self(runtime::Runtime::new(url, virtual_servers_json))
+    #[pyo3(signature = (url="http://localhost/", resource_mounts_json="{}"))]
+    fn new(url: &str, resource_mounts_json: &str) -> Self {
+        Self(runtime::Runtime::new(url, resource_mounts_json))
     }
 
     /// Detaches from the interpreter while waiting: the script may call back into Python.

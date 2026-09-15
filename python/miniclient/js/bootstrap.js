@@ -19,6 +19,35 @@
 // must not let its blanket copy overwrite something that was already there.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 
+// `resources` wires every http(s) subresource fetch (<script src>, <link>, ...) through this
+// interceptor instead of jsdom's default (no automatic subresource fetching at all). `data:`
+// and `file:` URLs never reach it -- JSDOMDispatcher resolves those itself before any
+// interceptor runs. This always answers synthetically, mount hit or not: mini must never let
+// undici's real network dispatcher (the interceptor chain's base) see a request, since every
+// HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch
+// transport the Python side controls.
+const resourceInterceptor = __jsdomRequestInterceptor(async (request) => {
+    const mounts = globalThis.__RESOURCE_MOUNTS__;
+    const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
+    if (prefix === undefined) return globalThis.fetch(request);
+
+    const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
+    try {
+        const bytes = Deno.core.ops.op_fs_read(path);
+        return new Response(bytes, { headers: { "content-type": contentTypeFor(path) } });
+    } catch {
+        return new Response(null, { status: 404, statusText: "Not Found" });
+    }
+});
+
+function contentTypeFor(path) {
+    if (path.endsWith(".mjs") || path.endsWith(".js")) return "text/javascript";
+    if (path.endsWith(".css")) return "text/css";
+    if (path.endsWith(".json")) return "application/json";
+    if (path.endsWith(".html")) return "text/html";
+    return "application/octet-stream";
+}
+
 // `runScripts: "dangerously"` matches happy-dom's default of executing inline/loaded
 // <script> tags; `pretendToBeVisual` turns on requestAnimationFrame/getComputedStyle/etc.
 // jsdom takes the initial URL directly at construction, unlike happy-dom's Browser/Page
@@ -27,6 +56,7 @@ const dom = new JSDOM("", {
     url: globalThis.__BASE_URL__,
     runScripts: "dangerously",
     pretendToBeVisual: true,
+    resources: { interceptors: [resourceInterceptor] },
 });
 const win = dom.window;
 
@@ -111,7 +141,7 @@ function registerWindowGlobals(win) {
     // on the bare `window` global, which is now globalThis, not the win instance they're
     // defined on (Window/BrowserWindow.prototype). Own-property copying above misses
     // them. Restricted to symbols only — those are invisible to normal enumeration, so
-    // this can't leak public API surface (addEventListener, close, ...) onto globalThis.
+    // this can't leak public API surface onto globalThis.
     // Re-bound every call since these close over `win` and the deletion pass above
     // just wiped the previous window's bindings.
     for (
@@ -124,6 +154,16 @@ function registerWindowGlobals(win) {
             const { value } = Object.getOwnPropertyDescriptor(proto, key);
             if (typeof value === "function") globalThis[key] = value.bind(win);
         }
+    }
+
+    // jsdom's Window (unlike Document/Element) keeps addEventListener/removeEventListener/
+    // dispatchEvent on its prototype rather than as own instance properties, so the own-
+    // property copy above never picks them up -- a bare `window.addEventListener(...)` call
+    // (htmx.js's popstate listener) would otherwise find nothing. Bound to `win`, like the
+    // Symbol methods above: the underlying webidl2js implementation rejects any `this` that
+    // isn't the real wrapper instance.
+    for (const key of ["addEventListener", "removeEventListener", "dispatchEvent"]) {
+        globalThis[key] = win[key].bind(win);
     }
 
     // Legacy `window.event` current-event global: happy-dom's fork maintains `win.event`
@@ -139,7 +179,12 @@ function registerWindowGlobals(win) {
         configurable: true,
     });
 
-    // No per-window patches applied yet beyond XPath (MutationObserver WeakRef-GC fix,
+    // jsdom has no Constructable Stylesheets support (adoptedStyleSheets is undefined, not
+    // even an empty array): htmx.js's request-indicator CSS injection does
+    // `[...document.adoptedStyleSheets, sheet]`, which throws on a bare Window otherwise.
+    win.document.adoptedStyleSheets ??= [];
+
+    // No other per-window patches applied yet beyond XPath (MutationObserver WeakRef-GC fix,
     // shared SelectorParser/CSS cache).
 
     // XPathExpression.prototype.evaluate — jsdom's own XPath engine predates the webidl2js

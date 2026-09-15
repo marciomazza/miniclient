@@ -292,10 +292,10 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
             self._runtime = await self._stack.enter_async_context(
                 open_runtime(
                     httpx_transport=self._httpx_transport,
-                    virtual_servers=[
-                        {"url": mount_url, "directory": str(directory)}
+                    resource_mounts={
+                        mount_url: str(directory)
                         for mount_url, directory in (self._mounts or {}).items()
-                    ],
+                    },
                 )
             )
         return self

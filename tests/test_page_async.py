@@ -418,14 +418,14 @@ async def test_form_request_submit_plain(
 
 
 # ---------------------------------------------------------------------------
-# AsyncPage virtual servers (external <script src>)
+# AsyncPage resource mounts (external <script src>)
 # ---------------------------------------------------------------------------
 
 
-async def test_page_create_with_virtual_servers(tmp_path: Path) -> None:
+async def test_page_create_with_resource_mounts(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    b.runtime.eval(
+    await b.runtime.eval_async(
         """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
     )
     assert b.runtime.eval("window.__ran") == 1
@@ -454,7 +454,7 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
     ["script.async = true;", "script.defer = true;", "script.type = 'module';"],
     ids=["async", "defer", "module"],
 )
-async def test_page_script_src_virtual_server(tmp_path: Path, attr_setup_js: str) -> None:
+async def test_page_script_src_resource_mount(tmp_path: Path, attr_setup_js: str) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.runtime.eval_async(

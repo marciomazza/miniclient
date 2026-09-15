@@ -26,6 +26,78 @@ class Emitter {
     }
 }
 
+// jsdom's own dispatcher (data:/file: URL bodies, and synthetic Responses from a
+// requestInterceptor) wraps its output in one of these -- only the read side matters here,
+// since mini never writes to a Readable of its own. Backpressure (pause/resume) is tracked
+// but not enforced: nothing produces chunks faster than `stream-handler.js` consumes them.
+class Readable extends Emitter {
+    constructor() {
+        super();
+        this.destroyed = false;
+        this.readableEnded = false;
+        this.errored = null;
+        this._paused = false;
+    }
+    isPaused() {
+        return this._paused;
+    }
+    pause() {
+        this._paused = true;
+        return this;
+    }
+    resume() {
+        this._paused = false;
+        return this;
+    }
+    destroy(err) {
+        if (this.destroyed) return this;
+        this.destroyed = true;
+        if (err) {
+            this.errored = err;
+            this.emit("error", err);
+        }
+        this.emit("close");
+        return this;
+    }
+    _finish() {
+        this.readableEnded = true;
+        this.emit("close");
+    }
+    // `iterable` is always a plain array of whole-body chunks here (jsdom hands
+    // `Readable.from([wholeBody])` or `Readable.from([])`), never a real generator.
+    static from(iterable) {
+        const r = new Readable();
+        queueMicrotask(() => {
+            for (const chunk of iterable) {
+                if (r.destroyed) return;
+                r.emit("data", chunk);
+            }
+            if (!r.destroyed) r._finish();
+        });
+        return r;
+    }
+    // `webStream` is the WHATWG ReadableStream backing a synthetic Response body
+    // (requestInterceptor's return value); mini's own Response never streams incrementally.
+    static fromWeb(webStream) {
+        const r = new Readable();
+        (async () => {
+            const reader = webStream.getReader();
+            try {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (r.destroyed) return;
+                    r.emit("data", value);
+                }
+                if (!r.destroyed) r._finish();
+            } catch (err) {
+                r.destroy(err);
+            }
+        })();
+        return r;
+    }
+}
+
 class PassThrough extends Emitter {
     constructor() {
         super();
@@ -116,5 +188,5 @@ function isDisturbed(stream) {
     return !!stream?.locked;
 }
 
-export { Emitter, PassThrough, Transform, pipeline, isErrored, isDisturbed };
-export default { PassThrough, Transform, pipeline, isErrored, isDisturbed };
+export { Emitter, PassThrough, Readable, Transform, pipeline, isErrored, isDisturbed };
+export default { PassThrough, Readable, Transform, pipeline, isErrored, isDisturbed };

@@ -308,15 +308,16 @@ pub struct Runtime {
 
 impl Runtime {
     /// `url` becomes the page's initial location, read off `globalThis.__BASE_URL__` before
-    /// `newPage()`. `virtual_servers_json` is a JSON array (already-encoded, matching
-    /// `__VIRTUAL_SERVERS__`'s shape) read by `bootstrap.js` at the same point -- both globals
-    /// must land before it runs, not after, since it reads them once at top level and never again.
-    pub fn new(url: &str, virtual_servers_json: &str) -> Self {
+    /// `newPage()`. `resource_mounts_json` is a JSON object (already-encoded, matching
+    /// `__RESOURCE_MOUNTS__`'s shape: `{url_prefix: directory}`) read by `bootstrap.js` at the
+    /// same point -- both globals must land before it runs, not after, since it reads them once
+    /// at top level and never again.
+    pub fn new(url: &str, resource_mounts_json: &str) -> Self {
         init_platform();
         let (commands, mut rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let url = url.to_string();
-        let virtual_servers_json = virtual_servers_json.to_string();
+        let resource_mounts_json = resource_mounts_json.to_string();
         let thread = std::thread::spawn(move || {
             let tokio = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -340,9 +341,9 @@ impl Runtime {
                 .expect("failed to install __BASE_URL__");
                 js.execute_script(
                     "<runtime-config>",
-                    format!("globalThis.__VIRTUAL_SERVERS__ = {virtual_servers_json};"),
+                    format!("globalThis.__RESOURCE_MOUNTS__ = {resource_mounts_json};"),
                 )
-                .expect("failed to install __VIRTUAL_SERVERS__");
+                .expect("failed to install __RESOURCE_MOUNTS__");
                 js.op_state()
                     .borrow_mut()
                     .put(ops::RustFunctions::default());
@@ -444,10 +445,10 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..3 {
-                        Runtime::new("http://localhost/", "[]").close();
+                        Runtime::new("http://localhost/", "{}").close();
                     }
                     // The last one closes via Drop instead.
-                    Runtime::new("http://localhost/", "[]");
+                    Runtime::new("http://localhost/", "{}");
                 })
             })
             .collect();

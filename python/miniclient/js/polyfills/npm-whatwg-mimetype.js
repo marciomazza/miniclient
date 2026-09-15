@@ -18,6 +18,13 @@ class MIMEType {
     isXML() {
         return this.subtype === "xml" || this.subtype.endsWith("+xml");
     }
+    // Real whatwg-mimetype validates types per the spec grammar; this stub only guards the
+    // one failure mode callers actually branch on -- an absent/empty header, e.g. a script
+    // response with no Content-Type at all.
+    static parse(str) {
+        if (!str) return null;
+        return new MIMEType(str);
+    }
 }
 export { MIMEType };
 export default MIMEType;

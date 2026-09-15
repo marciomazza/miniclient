@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest_asyncio
 
-from miniclient.runtime import Runtime, VirtualServer, open_runtime
+from miniclient.runtime import Runtime, open_runtime
 
 _ROOT = Path(__file__).parent.parent
 _VENDOR_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
@@ -23,10 +23,7 @@ HTMX_BASE_HTML = f"""\
 """
 
 
-HTMX_VIRTUAL_SERVER: VirtualServer = {
-    "url": "http://localhost/vendor/",
-    "directory": str(_VENDOR_HTMX_SRC.parent),
-}
+HTMX_RESOURCE_MOUNT: dict[str, str] = {"http://localhost/vendor/": str(_VENDOR_HTMX_SRC.parent)}
 
 
 @pytest_asyncio.fixture

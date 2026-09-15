@@ -4,7 +4,7 @@
 // before jsdom, purely for that side effect -- ESM evaluates imports in declaration order, so
 // this runs (and installs the real Buffer) before any of jsdom's own module graph does.
 import "buffer";
-import { JSDOM } from "jsdom";
+import { JSDOM, requestInterceptor } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
 import "./patch-jsdom-hxon-index.js";
 // jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
@@ -24,6 +24,7 @@ import { Request } from "undici/lib/web/fetch/request.js";
 globalThis.JSDOM = JSDOM;
 globalThis.Request = Request;
 globalThis.Response = Response;
+globalThis.__jsdomRequestInterceptor = requestInterceptor;
 
 // bootstrap.js runs as a classic script, never a module, so it can't `import` jsdom's
 // webidl2js wrapper<->impl converters directly -- needed there to bridge the public Node

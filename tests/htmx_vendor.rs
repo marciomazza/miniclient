@@ -134,17 +134,17 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
         .expect("vendor htmx filenames are valid UTF-8")
         .to_string();
 
-    let servers = format!(
-        r#"[{{"url": "http://localhost/vendor/", "directory": {VENDOR_HTMX_SRC:?}}},
-            {{"url": "http://localhost/test/", "directory": {HTMX_TEST_ROOT:?}}}]"#
+    let mounts = format!(
+        r#"{{"http://localhost/vendor/": {VENDOR_HTMX_SRC:?},
+            "http://localhost/test/": {HTMX_TEST_ROOT:?}}}"#
     );
-    let rt = Runtime::new("http://localhost/", &servers);
+    let rt = Runtime::new("http://localhost/", &mounts);
     let mock = HtmxFetchMock::new();
     rt.send_install_fetch_backend(Box::new(mock.clone()))
         .blocking_recv()
         .expect("fetch backend installed");
 
-    rt.run(
+    rt.run_async(
         r#"
         document.head.innerHTML = '<script src="http://localhost/vendor/htmx.js"></script>';
         document.body.innerHTML = '<div id="test-playground"></div>';
@@ -229,25 +229,21 @@ fn run_dir(subdir: &str) {
 }
 
 #[test]
-#[ignore = "script src fetching isn't ported to jsdom yet -- gap unrelated to this ticket"]
 fn htmx_vendor_unit_suite() {
     run_dir("unit");
 }
 
 #[test]
-#[ignore = "script src fetching isn't ported to jsdom yet -- gap unrelated to this ticket"]
 fn htmx_vendor_attributes_suite() {
     run_dir("attributes");
 }
 
 #[test]
-#[ignore = "script src fetching isn't ported to jsdom yet -- gap unrelated to this ticket"]
 fn htmx_vendor_end2end_suite() {
     run_dir("end2end");
 }
 
 #[test]
-#[ignore = "script src fetching isn't ported to jsdom yet -- gap unrelated to this ticket"]
 fn htmx_vendor_ext_suite() {
     run_dir("ext");
 }

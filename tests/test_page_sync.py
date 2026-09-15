@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import HTMX_SCRIPT_TAG, HTMX_VIRTUAL_SERVER
+from conftest import HTMX_RESOURCE_MOUNT, HTMX_SCRIPT_TAG
 from pytest_httpx2 import HTTPXMock
 
 from miniclient.page import Element, FormElement, Page
@@ -28,7 +28,7 @@ def htmx_page() -> Iterator[Page]:
     """A fresh Page that can reach the vendored htmx.js, closed automatically unless
     the test closes it first. Each load()/goto() is a real navigation, so htmx must be
     (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real page."""
-    b = Page(mounts={HTMX_VIRTUAL_SERVER["url"]: Path(HTMX_VIRTUAL_SERVER["directory"])})
+    b = Page(mounts={url: Path(directory) for url, directory in HTMX_RESOURCE_MOUNT.items()})
     try:
         yield b
     finally:
@@ -124,7 +124,7 @@ def test_page_context_manager_closes() -> None:
     assert b._closed
 
 
-def test_page_virtual_servers(tmp_path: Path) -> None:
+def test_page_resource_mounts(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     with Page(mounts={"http://localhost/ext/": tmp_path}) as b:
         b.eval(

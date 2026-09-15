@@ -4,7 +4,6 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import TypedDict
 
 import httpx2 as httpx
 
@@ -137,22 +136,17 @@ def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractE
     return _fetch_sync_op_impl
 
 
-class VirtualServer(TypedDict):
-    url: str
-    directory: str
-
-
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
-    virtual_servers: list[VirtualServer] | None = None,
+    resource_mounts: dict[str, str] | None = None,
 ) -> AsyncGenerator[Runtime]:
     """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(url, json.dumps(virtual_servers or []))
+        r = Runtime(url, json.dumps(resource_mounts or {}))
 
         _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
         r.install_host_ops(

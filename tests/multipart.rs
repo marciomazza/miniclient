@@ -29,22 +29,32 @@ fn response_accepts_the_global_stream() {
 }
 
 #[test]
-#[ignore = "script src fetching isn't ported to jsdom yet -- gap unrelated to this ticket"]
 fn hx_multipart_parses_chunked_straddled_boundaries() {
     // hx-multipart.js's Response.parts() over a body streamed in tiny chunks, so boundary
     // markers straddle chunk edges and chunks arrive after the parser's first read(). Every part
     // must come through whole and in order.
-    let servers =
-        format!(r#"[{{"url": "http://localhost/vendor/", "directory": {VENDOR_HTMX_SRC:?}}}]"#);
-    let rt = Runtime::new("http://localhost/", &servers);
+    let mounts = format!(r#"{{"http://localhost/vendor/": {VENDOR_HTMX_SRC:?}}}"#);
+    let rt = Runtime::new("http://localhost/", &mounts);
     // htmx.js must load before hx-multipart.js: the extension calls htmx.registerExtension(...)
     // at top level, which throws (and skips its own Response.prototype.parts prollyfill) if
-    // `htmx` isn't defined yet.
-    rt.run(
+    // `htmx` isn't defined yet. createElement+appendChild, not innerHTML: a script parsed by
+    // the fragment parsing algorithm is spec-flagged "already started" and never fetches at
+    // all. Neither script sets `async`, so jsdom's resource-loader queues (and executes) them
+    // in insertion order regardless of which one's fetch resolves first.
+    rt.run_async(
         r#"
-        document.head.innerHTML =
-          '<script src="http://localhost/vendor/htmx.js"></script>' +
-          '<script src="http://localhost/vendor/ext/hx-multipart.js"></script>'
+        (async () => {
+            const mk = (src) => Object.assign(document.createElement('script'), { src });
+            const htmx = mk('http://localhost/vendor/htmx.js');
+            const ext = mk('http://localhost/vendor/ext/hx-multipart.js');
+            const loaded = Promise.all([htmx, ext].map((s) => new Promise((resolve) => {
+                s.addEventListener('load', resolve, { once: true });
+                s.addEventListener('error', resolve, { once: true });
+            })));
+            document.head.appendChild(htmx);
+            document.head.appendChild(ext);
+            await loaded;
+        })()
     "#,
     );
     let parts = rt.eval_async::<Vec<String>>(

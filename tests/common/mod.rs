@@ -13,7 +13,7 @@ use _miniclient::runtime::{EvalError, EvalOutcome};
 /// No `install_host_ops()`: fetch and fs are unavailable, but the default snapshot's jsdom
 /// `document`, `Buffer`, timers and deno_web globals are all live from construction.
 pub fn runtime() -> Runtime {
-    Runtime::new("http://localhost/", "[]")
+    Runtime::new("http://localhost/", "{}")
 }
 
 /// Lets tests write `rt.eval::<T>(src)` / `rt.eval_async::<T>(src)`. Each snippet is wrapped in a
@@ -28,6 +28,9 @@ pub trait EvalExt {
     fn eval_json_async(&self, src: &str) -> Option<String>;
     /// A sync eval run only for its side effect; panics if it threw or was refused.
     fn run(&self, src: &str);
+    /// An async eval (Promise-returning scripts resolved, event loop pumped) run only for its
+    /// side effect; panics if it threw or was refused.
+    fn run_async(&self, src: &str);
     /// The raw outcome, for tests that assert on the error variant.
     fn try_eval(&self, src: &str) -> EvalOutcome;
     fn try_eval_async(&self, src: &str) -> EvalOutcome;
@@ -52,6 +55,10 @@ impl EvalExt for Runtime {
 
     fn run(&self, src: &str) {
         eval_blocking(self, src, false).expect("eval succeeded");
+    }
+
+    fn run_async(&self, src: &str) {
+        eval_blocking(self, src, true).expect("eval succeeded");
     }
 
     fn try_eval(&self, src: &str) -> EvalOutcome {

@@ -21,9 +21,9 @@ function readFileSync(path, encoding) {
     return encoding ? buf.toString(encoding) : buf;
 }
 
-// happy-dom's async virtual-server fetch (used by <script type="module"> and
-// async/deferred <script src>) reads mounted files via fs.promises, unlike the
-// sync fetch path (plain <script src>) which uses statSync/readFileSync above.
+// Async resource-mount reads (used by <script type="module"> and async/deferred
+// <script src>) go through fs.promises, unlike the sync path (plain <script src>)
+// which uses statSync/readFileSync above.
 const promises = {
     stat: async (path) => statSync(path),
     readFile: async (path, encoding) => readFileSync(path, encoding),
