@@ -14,15 +14,6 @@
         const { Console } = Deno.core.loadExtScript("ext:deno_web/01_console.js");
         globalThis.console = new Console(Deno.core.print);
 
-        // deno's URL has no createObjectURL; hx-download.js needs it.
-        const _blobs = new Map();
-        url.URL.createObjectURL = (obj) => {
-            const id = `blob:local/${Deno.core.ops.op_crypto_random_uuid()}`;
-            _blobs.set(id, obj);
-            return id;
-        };
-        url.URL.revokeObjectURL = (id) => _blobs.delete(id);
-
         Object.assign(globalThis, { URL: url.URL, URLSearchParams: url.URLSearchParams });
     }
 
@@ -218,9 +209,11 @@
     // (like streams above) so the jsdom bundle's cold-pass import of undici's Request/Response
     // (jsdom-entry.js) sees these globals: its webidl layer references them at module scope
     // (e.g. `webidl.is.Blob = webidl.util.MakeTypeAssertion(Blob)`), before any Window exists.
-    // These stay global permanently (unlike the streams above, which Window's own versions take
-    // over) because deno_web's own `URL.createObjectURL`/`revokeObjectURL` -- also global, also
-    // op-backed -- only recognises its own Blob class as a valid argument.
+    // Blob/File are deleted again at the end of snapshot_warmup.js: each real Window has its
+    // own spec-correct versions (what jsdom's native FormData checks file-input entries
+    // against), and must still be free to become the live global once one exists --
+    // AbortController/AbortSignal stay, since nothing does an `instanceof` check against a
+    // per-Window version of them.
     {
         const f = Deno.core.loadExtScript("ext:deno_web/09_file.js");
         const a = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");
@@ -230,6 +223,20 @@
             AbortController: a.AbortController,
             AbortSignal: a.AbortSignal,
         });
+
+        // 09_file.js (above) clobbers URL.createObjectURL/revokeObjectURL as a side effect of
+        // loading -- it assigns its own real, op-backed versions, which only accept instances
+        // of deno_web's Blob. Reassert mini's original hand-rolled ones (hx-download.js is the
+        // only caller) so this keeps working once Blob/File stop being deno_web's below: the
+        // op-backed versions' storage/URL registry is never actually used here (nothing
+        // resolves a `blob:` URL back into bytes), only their type check would bite.
+        const _blobs = new Map();
+        URL.createObjectURL = (obj) => {
+            const id = `blob:local/${Deno.core.ops.op_crypto_random_uuid()}`;
+            _blobs.set(id, obj);
+            return id;
+        };
+        URL.revokeObjectURL = (id) => _blobs.delete(id);
     }
 
     // MessagePort — same reason as Blob/AbortSignal above (undici's webidl module-scope type

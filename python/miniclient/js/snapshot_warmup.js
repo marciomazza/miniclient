@@ -57,3 +57,13 @@
 
     dom.window.close();
 })();
+
+// pre_globals.js force-loaded these onto globalThis only so undici's webidl module (imported
+// by jsdom-bundle, evaluated above) had *some* Blob/File class to bind its type assertions to
+// at cold-pass time, before any Window exists. Deleting them here -- after that binding has
+// already happened, but before the snapshot is serialized -- keeps them out of bootstrap.js's
+// `_preExistingGlobals` baseline, so each real Window's own spec-correct Blob/File (what
+// jsdom's native FormData checks file-input entries against) still becomes the live global on
+// every Runtime, exactly as it did before this cold-pass workaround existed.
+delete globalThis.Blob;
+delete globalThis.File;
