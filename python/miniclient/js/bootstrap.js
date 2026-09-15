@@ -6,8 +6,8 @@
 // snapshot -- still well inside the deserialize-a-blob budget, but jsdom's larger bundle
 // (~6x happy-dom's minified size) does cost real snapshot-restore time, not just disk space.
 //
-// No patches applied to this Window yet: XPath's ANY_TYPE default, the hx-on attribute
-// index, cookie-jar/CORS handling in the fetch override, and real navigation
+// No patches applied to this Window yet beyond XPath's ANY_TYPE default: the hx-on
+// attribute index, cookie-jar/CORS handling in the fetch override, and real navigation
 // (__zzz_navigate/__zzz_get_browser_frame) are all still unported below.
 
 // Snapshot the global names that already exist before Window is constructed: native
@@ -140,6 +140,17 @@ function registerWindowGlobals(win) {
 
     // No per-window patches applied yet (MutationObserver WeakRef-GC fix, shared
     // SelectorParser/CSS cache, hx-on index).
+
+    // XPathExpression.prototype.evaluate — jsdom's own XPath engine predates the webidl2js
+    // pipeline that gives optional arguments their spec default, so a call with only a
+    // context node (htmx's `#hxOnQuery.evaluate(root)`, run on every process()) throws
+    // NOT_SUPPORTED_ERR instead of defaulting `type` to ANY_TYPE (0) per the DOM spec.
+    {
+        const origEvaluate = win.XPathExpression.prototype.evaluate;
+        win.XPathExpression.prototype.evaluate = function (contextNode, type = 0, result) {
+            return origEvaluate.call(this, contextNode, type, result);
+        };
+    }
 
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM
     // node as a short collapsed tag, never eagerly walking its full property graph. Deno's
