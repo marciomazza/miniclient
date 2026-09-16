@@ -68,10 +68,9 @@ win.IntersectionObserver ??= class {
     disconnect() {}
 };
 
-// Make window behave like the global object, following the same approach as
-// @happy-dom/global-registrator: copy every own property (and symbol) of the window
-// instance onto globalThis, redirecting any self-reference (window.window/self/top/
-// parent) to point at globalThis instead of the original instance. Afterwards
+// Make window behave like the global object: copy every own property (and symbol) of
+// the window instance onto globalThis, redirecting any self-reference (window.window/
+// self/top/parent) to point at globalThis instead of the original instance. Afterwards
 // `window === globalThis`, so code like `window.foo = x; foo` works as in a real
 // browser, and there's no need to keep the two objects in sync after this point.
 //
