@@ -17,6 +17,19 @@ import "./patch-jsdom-hxon-index.js";
 // level has run and assigned it.
 import { Response } from "undici/lib/web/fetch/response.js";
 import { Request } from "undici/lib/web/fetch/request.js";
+// jsdom has no DataTransfer/innerText of its own -- both ported from the jsdom-ecosystem
+// (not reimplemented) since real, tested implementations of these already exist. Only the
+// factory function is imported, not the whole @testing-library/user-event package: the
+// rest of it (event simulation) is out of scope, and this deep import keeps
+// @testing-library/dom (its peer dep) out of the bundle entirely.
+import { createDataTransfer } from "@testing-library/user-event/dist/esm/utils/dataTransfer/DataTransfer.js";
+import innerText from "styleless-innertext";
+// user-event's own `.files` (FileList.js, unused here) fakes a FileList with a
+// prototype swap, which real jsdom rejects: `input.files = ...` runs through jsdom's
+// webidl2js conversion, which brand-checks an internal symbol no amount of prototype
+// spoofing can add. A real, convertible FileList only comes from jsdom's own generated
+// factory -- same one jsdom's own HTMLInputElement-impl.js uses internally.
+import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileList.js";
 
 // The esbuild bundle wraps this entry point in an anonymous IIFE, so the import above stays
 // scoped to it -- this is the one explicit hand-off point to the shared realm. Everywhere
@@ -32,3 +45,13 @@ globalThis.__jsdomRequestInterceptor = requestInterceptor;
 // indexes.
 globalThis.__jsdomImplForWrapper = implForWrapper;
 globalThis.__jsdomWrapperForImpl = wrapperForImpl;
+globalThis.__innerText = innerText;
+// user-event's own `.files` getter (default files=[], fixed at construction) is replaced
+// with one derived live from `.items` -- see bootstrap.js's DataTransfer polyfill.
+globalThis.__createDataTransfer = createDataTransfer;
+globalThis.__createRealFileList = function (win, fileWrappers) {
+    const wrapper = createFileListWrapper(win, [], {});
+    const impl = implForWrapper(wrapper);
+    for (const f of fileWrappers) impl.push(f);
+    return wrapper;
+};

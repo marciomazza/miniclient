@@ -99,6 +99,38 @@ function createDom(url) {
         unobserve() {}
         disconnect() {}
     };
+    // DataTransfer: jsdom doesn't implement it either. `createDataTransfer` (from
+    // @testing-library/user-event, ported rather than reimplemented) already returns a
+    // spec-shaped object with items/files/getData/setData; a constructor may return an
+    // object in place of `this`, so this is the whole polyfill. `createDataTransfer` itself
+    // checks `typeof window.DataTransfer === 'undefined'` to pick real-vs-stub -- it must not
+    // see itself here, or `new window.DataTransfer()` recurses forever, so it's hidden for the
+    // duration of that one synchronous call.
+    d.window.DataTransfer ??= class DataTransfer {
+        constructor() {
+            const self = d.window.DataTransfer;
+            d.window.DataTransfer = undefined;
+            let dt;
+            try {
+                dt = globalThis.__createDataTransfer(d.window);
+            } finally {
+                d.window.DataTransfer = self;
+            }
+            // Overrides the ported `.files` getter (fixed at construction, never reflects
+            // later items.add() calls) with one derived live from `.items`, built through
+            // jsdom's own FileList factory so a plain `input.files = dt.files` assignment
+            // passes jsdom's webidl2js conversion.
+            Object.defineProperty(dt, "files", {
+                get: () =>
+                    globalThis.__createRealFileList(
+                        d.window,
+                        dt.items.filter((i) => i.kind === "file").map((i) => i.getAsFile()),
+                    ),
+                configurable: true,
+            });
+            return dt;
+        }
+    };
     return d;
 }
 let dom = createDom(globalThis.__BASE_URL__);
@@ -276,6 +308,38 @@ function registerWindowGlobals(win) {
             return origCreateExpression.call(this, expression, resolver);
         };
     }
+
+    // innerText: jsdom has no layout engine, so it never implements this (needs rendered-box
+    // information). styleless-innertext (ported, not reimplemented) approximates it from the
+    // DOM tree + computed style instead of real layout. Its own algorithm has no hidden-element
+    // exclusion, so a self/ancestor `hidden` attribute or display:none/visibility:hidden check
+    // is added here; hidden *descendants* still leak their text, an accepted gap since real
+    // layout info doesn't exist to detect them either.
+    {
+        function isMiniHidden(el) {
+            for (let node = el; node; node = node.parentElement) {
+                if (node.hidden) return true;
+                const style = win.getComputedStyle(node);
+                if (style.display === "none" || style.visibility === "hidden") return true;
+            }
+            return false;
+        }
+        Object.defineProperty(win.HTMLElement.prototype, "innerText", {
+            get() {
+                if (isMiniHidden(this)) return "";
+                return globalThis.__innerText(this, {
+                    getComputedStyle: (el) => win.getComputedStyle(el),
+                });
+            },
+            set(value) {
+                this.textContent = value;
+            },
+            configurable: true,
+        });
+    }
+
+    // scrollIntoView: jsdom has no layout engine, so scrolling can never do anything real here.
+    win.Element.prototype.scrollIntoView ??= function () {};
 
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM
     // node as a short collapsed tag, never eagerly walking its full property graph. Deno's

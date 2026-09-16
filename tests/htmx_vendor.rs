@@ -234,8 +234,11 @@ fn run_dir(subdir: &str) {
     }
 }
 
-// Script loading works, but running the suite for real surfaces separate polyfill gaps
-// (DataTransfer, chai's `should`, form-associated custom elements) still open elsewhere.
+// DataTransfer and innerText are polyfilled now (bootstrap.js); chai's `should` was never
+// actually broken -- those failures were a downstream effect of missing innerText. Still
+// failing here: form-associated custom elements (jsdom's ElementInternals never implements
+// setFormValue/form participation) and __makeFragment (jsdom has no Document.parseHTMLUnsafe).
+// Both are real jsdom gaps, tracked in their own tickets rather than fixed inline here.
 #[test]
 #[ignore]
 fn htmx_vendor_unit_suite() {
@@ -243,17 +246,18 @@ fn htmx_vendor_unit_suite() {
 }
 
 #[test]
-#[ignore]
 fn htmx_vendor_attributes_suite() {
     run_dir("attributes");
 }
 
 #[test]
-#[ignore]
 fn htmx_vendor_end2end_suite() {
     run_dir("end2end");
 }
 
+// hx-alpine-compat(-history).js and hx-head.js each hang the whole suite: their `before()`/
+// test hooks await a promise (`alpine:init`, a `<script>` onload) that never resolves here.
+// Tracked in its own ticket rather than fixed inline.
 #[test]
 #[ignore]
 fn htmx_vendor_ext_suite() {
