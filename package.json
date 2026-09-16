@@ -6,7 +6,11 @@
   },
   "devDependencies": {
     "chai": "4.5.0",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "patch-package": "^8.0.1"
+  },
+  "scripts": {
+    "postinstall": "patch-package"
   },
   "//": "chai pinned to 4.5.0 to match vendor/htmx/test/ (loaded from unpkg CDN)"
 }

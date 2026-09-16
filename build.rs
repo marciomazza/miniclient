@@ -53,11 +53,17 @@ fn main() {
     let node_modules = root.join("node_modules");
 
     println!("cargo::rerun-if-changed=package-lock.json");
+    println!("cargo::rerun-if-changed=patches");
     watch_js_sources(&js);
 
     if !node_modules.join(".package-lock.json").exists() {
         run("npm", &["ci"], &root);
     }
+    // Idempotent: re-applies cleanly even if `npm ci` (via its postinstall) already did.
+    // Needed on its own when node_modules was restored from a cache that predates a patch
+    // (the `npm ci` above is skipped in that case) -- without this, an edit to patches/
+    // would rebuild the bundle from a stale, unpatched jsdom and never notice.
+    run("npx", &["patch-package"], &root);
     run(
         "node",
         &[js.join("build-jsdom-bundle.mjs").to_str().unwrap()],
@@ -93,6 +99,7 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
             "element-registry".into(),
             read(&js.join("element_registry.js")),
         ),
+        ("navigate".into(), read(&js.join("navigate.js"))),
         ("submit".into(), read(&js.join("submit.js"))),
         (
             "jsdom-bundle".into(),

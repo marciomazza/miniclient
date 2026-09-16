@@ -1,9 +1,11 @@
 (function () {
+    globalThis.__mini ??= {};
+
     const ids = new WeakMap();
     const refs = new Map();
     let nextId = 1;
 
-    globalThis.__zzz_ref = function (el) {
+    globalThis.__mini.ref = function (el) {
         if (el == null) return null;
         let id = ids.get(el);
         if (id === undefined) {
@@ -14,7 +16,7 @@
         return id;
     };
 
-    globalThis.__zzz_deref = function (id) {
+    globalThis.__mini.deref = function (id) {
         const ref = refs.get(id);
         const el = ref && ref.deref();
         if (!el || !el.isConnected) {

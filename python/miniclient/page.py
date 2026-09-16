@@ -43,13 +43,13 @@ def _event_class(event_type: str) -> str:
 def _dispatch_js(handle: int, event: str, event_init: dict | None, js: str = "") -> str:
     """Dispatch a DOM event, wrapped in a Promise that resolves once the page
     settles. Delegates the wait/settle logic to the shared JS helper also used
-    by __zzz_submit (see submit.js). If `js` is given, runs it against `el`
+    by __mini.submit (see submit.js). If `js` is given, runs it against `el`
     first (used by fill()/type() to set the value).
     """
     event_cls = _event_class(event)
     init_json = json.dumps(event_init) if event_init else "{bubbles: true, cancelable: true}"
     return f"""
-        __zzz_await_settle({handle}, el => {{
+        __mini.awaitSettle({handle}, el => {{
           {js};
           el.dispatchEvent(new {event_cls}({json.dumps(event)}, {init_json}));
         }});"""
@@ -106,7 +106,7 @@ class _FindMixin(Generic[_E]):
             const matches = Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}));
             const match =
               text === null ? matches[0] : matches.find(m => m.textContent.includes(text));
-            match ? [__zzz_ref(match), match.tagName] : [null, null];
+            match ? [__mini.ref(match), match.tagName] : [null, null];
         """
         handle, tag = self.eval(js)  # type: ignore[misc]
         if handle is None:
@@ -122,7 +122,7 @@ class _FindMixin(Generic[_E]):
             const text = {json.dumps(text)};
             Array.from({self._root_js}.querySelectorAll({json.dumps(selector)}))
               .filter(m => text === null || m.textContent.includes(text))
-              .map(m => [__zzz_ref(m), m.tagName]);
+              .map(m => [__mini.ref(m), m.tagName]);
         """
         return [self._make_element(handle, tag) for handle, tag in self.eval(js)]  # type: ignore[misc]
 
@@ -182,7 +182,7 @@ class AsyncElementBase(Generic[_E]):
         """
         js = """
         const p = this.parentElement;
-        p ? [__zzz_ref(p), p.tagName] : [null, null];
+        p ? [__mini.ref(p), p.tagName] : [null, null];
         """
         handle, tag = self.eval(js)  # type: ignore[misc]
         if handle is None:
@@ -219,7 +219,7 @@ class AsyncElementBase(Generic[_E]):
     def _el_js(self, code: str) -> str:
         """Wrap `code` so `this` is the element and each call gets a fresh scope."""
         guard = f"if (!this) throw new Error('Element not found (handle {self.handle})');"
-        return _scoped_js(code, f"__zzz_deref({self.handle})", guard)
+        return _scoped_js(code, f"__mini.deref({self.handle})", guard)
 
     def eval(self, code: str) -> object:
         """Evaluate JavaScript with `this` bound to this element, returning the result.
@@ -255,7 +255,7 @@ class AsyncFormElementBase:
         If a script (e.g. htmx) intercepts the submit, waits for the page to settle.
         Otherwise, performs the form's native GET/POST navigation and reloads the page.
         """
-        await self._runtime.eval_async(f"__zzz_submit({self.handle})")
+        await self._runtime.eval_async(f"__mini.submit({self.handle})")
 
 
 class AsyncFormElement(AsyncElement, AsyncFormElementBase):
@@ -324,11 +324,11 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 
     async def goto(self, url: str) -> None:
         """Fetch url, load the full document, and process htmx."""
-        await self.runtime.eval_async(f"__zzz_fetch_and_load({json.dumps(url)})")
+        await self.runtime.eval_async(f"__mini.fetchAndLoad({json.dumps(url)})")
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""
-        await self.runtime.eval_async(f"__document_write({json.dumps(html)})")
+        await self.runtime.eval_async(f"__mini.documentWrite({json.dumps(html)})")
 
     def close(self) -> None:
         self.runtime.close()

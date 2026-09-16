@@ -61,6 +61,7 @@ pub(crate) mod support {
                 "element-registry".into(),
                 read("python/miniclient/js/element_registry.js"),
             ),
+            ("navigate".into(), read("python/miniclient/js/navigate.js")),
             ("submit".into(), read("python/miniclient/js/submit.js")),
             (
                 "jsdom-bundle".into(),

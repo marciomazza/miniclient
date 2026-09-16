@@ -6,10 +6,9 @@
 // snapshot -- still well inside the deserialize-a-blob budget, but jsdom's larger bundle
 // (~6x happy-dom's minified size) does cost real snapshot-restore time, not just disk space.
 //
-// No patches applied to this Window yet beyond XPath's ANY_TYPE default and the hx-on
-// index short-circuit: the MutationObserver WeakRef-GC fix, cookie-jar/CORS handling in
-// the fetch override, and real navigation (__zzz_navigate/__zzz_get_browser_frame) are
-// all still unported below.
+// Patches applied to this Window: XPath's ANY_TYPE default and the hx-on index
+// short-circuit (below), plus real navigation (__mini.navigateDocument). Still unported:
+// the MutationObserver WeakRef-GC fix and cookie-jar/CORS handling in the fetch override.
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the polyfills
@@ -17,7 +16,17 @@
 // atob/btoa, ...). Window provides its own same-named versions of several of these
 // (e.g. setTimeout) that are worse fits for this runtime; the registration step below
 // must not let its blanket copy overwrite something that was already there.
+//
+// `__mini` (this runtime's whole Python<->JS bridge surface: element refs, navigation,
+// settle-tracking) is already among these names by the time this line runs -- it's set up
+// by element_registry.js/submit.js, which are baked into the snapshot and so run once at
+// snapshot-build time, before bootstrap.js's own fresh run on every Runtime() restore. That
+// makes it pre-existing for free: registerWindowGlobals()'s reset sweep below only ever
+// touches globalThis's own keys, never recurses into an object's properties, so adding
+// methods onto the existing `__mini` object (as this file does) never needs its own entry
+// in this set the way a bare `globalThis.foo = ...` would.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
+globalThis.__mini ??= {};
 
 // `resources` wires every http(s) subresource fetch (<script src>, <link>, ...) through this
 // interceptor instead of jsdom's default (no automatic subresource fetching at all). `data:`
@@ -27,16 +36,27 @@ const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 // HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch
 // transport the Python side controls.
 const resourceInterceptor = __jsdomRequestInterceptor(async (request) => {
-    const mounts = globalThis.__RESOURCE_MOUNTS__;
-    const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
-    if (prefix === undefined) return globalThis.fetch(request);
-
-    const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
+    // Tracked synchronously at the moment jsdom invokes the interceptor (not just inside
+    // the fetch() branch below): jsdom schedules subresource fetches asynchronously after
+    // navigation returns, so __mini.settleTracker's "settled" check has to see this as
+    // pending from the instant jsdom starts it, or a fast check could race ahead of it
+    // ever starting.
+    const settleTracker = globalThis.__mini.settleTracker;
+    settleTracker.startTask();
     try {
-        const bytes = Deno.core.ops.op_fs_read(path);
-        return new Response(bytes, { headers: { "content-type": contentTypeFor(path) } });
-    } catch {
-        return new Response(null, { status: 404, statusText: "Not Found" });
+        const mounts = globalThis.__RESOURCE_MOUNTS__;
+        const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
+        if (prefix === undefined) return await globalThis.fetch(request);
+
+        const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
+        try {
+            const bytes = Deno.core.ops.op_fs_read(path);
+            return new Response(bytes, { headers: { "content-type": contentTypeFor(path) } });
+        } catch {
+            return new Response(null, { status: 404, statusText: "Not Found" });
+        }
+    } finally {
+        settleTracker.endTask();
     }
 });
 
@@ -52,21 +72,37 @@ function contentTypeFor(path) {
 // <script> tags; `pretendToBeVisual` turns on requestAnimationFrame/getComputedStyle/etc.
 // jsdom takes the initial URL directly at construction, unlike happy-dom's Browser/Page
 // API, which needed a Window built first and its location patched in separately.
-const dom = new JSDOM("", {
-    url: globalThis.__BASE_URL__,
-    runScripts: "dangerously",
-    pretendToBeVisual: true,
-    resources: { interceptors: [resourceInterceptor] },
-});
-const win = dom.window;
-
-// IntersectionObserver: happy-dom doesn't implement it, polyfill as a no-op.
-win.IntersectionObserver ??= class {
-    constructor(cb, options) {}
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-};
+//
+// Factored out because real navigation (__mini.navigateDocument, below) has no jsdom
+// equivalent -- window.location only handles same-document hash changes, and
+// HTMLFormElement's own submission algorithm is unimplemented (notImplementedMethod) --
+// so a navigation is a brand new JSDOM instance, built the same way as the first one.
+//
+// Built empty, without html, on purpose: this runtime has one real V8 global object, so a
+// page's own scripts (executed by jsdom via indirect eval) write to whatever globalThis is
+// at the time they run, not to the new Window instance -- if html were parsed here, its
+// scripts would run and write to the *previous* window's globalThis mirror, then get wiped
+// by registerWindowGlobals()'s reset-to-baseline sweep right after. Content is written
+// (triggering the real parse and script execution) only once globalThis already mirrors
+// this new window -- see __mini.navigateDocument below.
+function createDom(url) {
+    const d = new JSDOM("", {
+        url,
+        runScripts: "dangerously",
+        pretendToBeVisual: true,
+        resources: { interceptors: [resourceInterceptor] },
+    });
+    // IntersectionObserver: jsdom doesn't implement it, polyfill as a no-op.
+    d.window.IntersectionObserver ??= class {
+        constructor(cb, options) {}
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+    };
+    return d;
+}
+let dom = createDom(globalThis.__BASE_URL__);
+let win = dom.window;
 
 // Make window behave like the global object: copy every own property (and symbol) of
 // the window instance onto globalThis, redirecting any self-reference (window.window/
@@ -74,9 +110,9 @@ win.IntersectionObserver ??= class {
 // `window === globalThis`, so code like `window.foo = x; foo` works as in a real
 // browser, and there's no need to keep the two objects in sync after this point.
 //
-// Real navigation (browserFrame.goto()/frame.content=) replaces `win` with a brand
-// new Window instance, so this registration must be re-run after every navigation —
-// exposed as a global (submit.js, a plain script, has no `import` access to the
+// Real navigation (__mini.navigateDocument, below) replaces `win` with a brand new
+// Window instance, so this registration must be re-run after every navigation —
+// exposed via __mini (submit.js, a plain script, has no `import` access to the
 // bundle this module scope destructured above) and re-entrant:
 // - Deletes only the globalThis own-keys that are stale: not in the pre-Window
 //   baseline and not among the new win's own keys either. This still wipes an
@@ -262,33 +298,70 @@ function registerWindowGlobals(win) {
         };
     }
 }
-// Protected from registerWindowGlobals' own reset-to-baseline sweep below: this is a
-// bootstrap-level helper, not per-window state, and must survive every navigation
-// (it's how submit.js — a plain script with no `import` of its own — reaches this
-// module's registerWindowGlobals at all).
-globalThis.__zzz_register_window_globals = registerWindowGlobals;
-// Real navigation (browserFrame.goto(), a non-navigating URL set, and the
-// multipart-bypassing submit primitive) has no jsdom equivalent yet. submit.js calls
-// these; throw instead of silently doing the wrong thing.
-const _notPorted = (name) => () => {
-    throw new Error(`${name}: navigation is not implemented for jsdom yet`);
+// Not per-window state, so exposed on __mini rather than copied in by
+// registerWindowGlobals' own reset-to-baseline sweep below -- must survive every
+// navigation (it's how submit.js — a plain script with no `import` of its own — reaches
+// this module's registerWindowGlobals at all).
+globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
+
+// Real navigation (window.location only handles same-document hash changes;
+// HTMLFormElement's own submission algorithm is unimplemented, see
+// notImplementedMethod in jsdom's HTMLFormElement-impl.js) has no jsdom equivalent --
+// the only way to get a new Window/Document pair is a brand new JSDOM instance. Used
+// directly by submit.js for every kind of navigation (document.write, goto, and
+// post-submit).
+globalThis.__mini.navigateDocument = function (html, url) {
+    dom = createDom(url);
+    win = dom.window;
+    registerWindowGlobals(win);
+    // Only now, with globalThis already mirroring `win`, is it safe to parse content and
+    // let its <script> tags run (see createDom's comment above). open() resets the
+    // just-constructed, already-"complete" empty document back to "loading", so
+    // parser-inserted defer/module/external scripts get the right readyState and fetch
+    // synchronously mid-parse, same as ticket 19's script-loading tests rely on.
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
 };
-globalThis.__zzz_get_browser_frame = _notPorted("__zzz_get_browser_frame");
-globalThis.__zzz_set_url = _notPorted("__zzz_set_url");
-globalThis.__zzz_navigate = _notPorted("__zzz_navigate");
-_preExistingGlobals.add("__zzz_register_window_globals");
-_preExistingGlobals.add("__zzz_get_browser_frame");
-_preExistingGlobals.add("__zzz_set_url");
-_preExistingGlobals.add("__zzz_navigate");
 
 registerWindowGlobals(win);
 
-// window.happyDOM.waitUntilComplete() (used by submit.js's __zzz_await_settle to track
-// pending timers/fetches) has no jsdom equivalent yet. Every call site already treats a
-// null return as an expected "no tracker" case, so this is a harmless no-op stub.
-function __zzz_atm() {
-    return null;
+// Minimal replacement for happy-dom's AsyncTaskManager / window.happyDOM.waitUntilComplete()
+// (used by submit.js's __mini.awaitSettle to know when a click/submit's follow-on work --
+// fetches, timers -- has drained). A single counter is enough: every start*/end* pair below
+// is already 1:1 at its call site, so there's no need to track individual timer/fetch
+// identities, just how many are outstanding.
+let _zzzPendingTasks = 0;
+let _zzzQuietWaiters = [];
+function _zzzNotifyIfQuiet() {
+    if (_zzzPendingTasks !== 0) return;
+    const waiters = _zzzQuietWaiters;
+    _zzzQuietWaiters = [];
+    for (const resolve of waiters) resolve();
 }
+async function _zzzWhenQuiet() {
+    while (_zzzPendingTasks > 0) {
+        await new Promise((resolve) => _zzzQuietWaiters.push(resolve));
+    }
+    // A task that just finished (e.g. a fetch's own .then()) can synchronously start the
+    // next one after its endTask()/endTimer() already fired below -- give it one raw
+    // macrotask to do so before declaring the page settled, then recheck.
+    await new Promise((resolve) => _zzzRawSetTimeout(resolve, 0));
+    if (_zzzPendingTasks > 0) return _zzzWhenQuiet();
+}
+globalThis.__mini.settleTracker = {
+    startTask: () => _zzzPendingTasks++,
+    endTask: () => {
+        _zzzPendingTasks--;
+        _zzzNotifyIfQuiet();
+    },
+    startTimer: () => _zzzPendingTasks++,
+    endTimer: () => {
+        _zzzPendingTasks--;
+        _zzzNotifyIfQuiet();
+    },
+    whenQuiet: _zzzWhenQuiet,
+};
 const _zzzRawSetTimeout = globalThis.setTimeout;
 const _zzzRawClearTimeout = globalThis.clearTimeout;
 globalThis.setTimeout = (fn, ms = 0, ...args) => {
@@ -296,17 +369,17 @@ globalThis.setTimeout = (fn, ms = 0, ...args) => {
         (...cbArgs) => {
             // endTimer() before the callback, not after: mirrors happy-dom's own
             // BrowserWindow.setTimeout ordering (the callback might throw).
-            __zzz_atm()?.endTimer(id);
+            globalThis.__mini.settleTracker.endTimer(id);
             fn(...cbArgs);
         },
         ms,
         ...args,
     );
-    __zzz_atm()?.startTimer(id);
+    globalThis.__mini.settleTracker.startTimer(id);
     return id;
 };
 globalThis.clearTimeout = (id) => {
-    if (id != null) __zzz_atm()?.endTimer(id);
+    if (id != null) globalThis.__mini.settleTracker.endTimer(id);
     _zzzRawClearTimeout(id);
 };
 
@@ -359,8 +432,8 @@ globalThis.fetch = async (input, init = {}) => {
 
     // No cookie jar or CORS-aware credentials handling yet: outgoing requests carry no
     // Cookie header, and Set-Cookie responses are dropped rather than stored (below).
-    const atm = __zzz_atm();
-    const _taskID = atm?.startTask();
+    const settleTracker = globalThis.__mini.settleTracker;
+    settleTracker.startTask();
     const requestId = crypto.randomUUID();
     const onAbort = () => Deno.core.ops.op_fetch_abort(requestId);
     signal?.addEventListener("abort", onAbort);
@@ -373,7 +446,7 @@ globalThis.fetch = async (input, init = {}) => {
         if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
         throw err;
     } finally {
-        atm?.endTask(_taskID);
+        settleTracker.endTask();
         signal?.removeEventListener("abort", onAbort);
     }
 
@@ -393,10 +466,10 @@ globalThis.fetch = async (input, init = {}) => {
     Object.defineProperty(response, "url", { value: res.url, configurable: true });
     return response;
 };
-// Protected from registerWindowGlobals' reset-to-baseline sweep, same reasoning as
-// the __zzz_* helpers above: this closure already re-resolves `window`/`location`
-// dynamically on every call rather than capturing a particular win, so it's valid
-// for the lifetime of the runtime — it must survive every navigation rather than
-// being overwritten by the plain `win.fetch` the registration copy loop would
-// otherwise install.
+// Protected from registerWindowGlobals' reset-to-baseline sweep: this closure already
+// re-resolves `window`/`location` dynamically on every call rather than capturing a
+// particular win, so it's valid for the lifetime of the runtime — it must survive every
+// navigation rather than being overwritten by the plain `win.fetch` the registration
+// copy loop would otherwise install. `fetch` itself can't live on `__mini` like the rest
+// of the bridge surface: it's real, page-visible browser API, not internal plumbing.
 _preExistingGlobals.add("fetch");

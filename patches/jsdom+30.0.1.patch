@@ -1,0 +1,61 @@
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
+index 30afbde..396fb20 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
+@@ -127,7 +127,20 @@ class HTMLFormElementImpl extends HTMLElementImpl {
+       return;
+     }
+
+-    notImplementedMethod(this._ownerDocument._defaultView, "HTMLFormElement", "requestSubmit");
++    // Patched by mini (see patches/jsdom+30.0.1.patch): delegates the actual submission fetch
++    // and document replacement to the embedder, since jsdom has no navigation implementation
++    // of its own here. Runs for both an explicit requestSubmit() call and a real click on a
++    // submit button/input (whose activation behaviour calls requestSubmit(submitter) here
++    // too). Falls back to the original not-implemented behaviour if the embedder never
++    // installed a hook (e.g. jsdom used standalone, outside mini).
++    const hook = globalThis.__mini && globalThis.__mini.formSubmitFetch;
++    if (!hook) {
++      notImplementedMethod(this._ownerDocument._defaultView, "HTMLFormElement", "requestSubmit");
++      return;
++    }
++    // this/submitter are jsdom impl objects here, not the public DOM wrappers the hook (and
++    // anything it passes to FormData()) needs.
++    hook(idlUtils.wrapperForImpl(this), submitter && idlUtils.wrapperForImpl(submitter));
+   }
+
+   _doReset() {
+diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
+index 18ce4a3..4f0654f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js
++++ b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
+@@ -54,7 +54,7 @@ exports.navigate = (window, newURL, flags) => {
+     }, 0);
+     return;
+   }
+-  navigateFetch(window);
++  navigateFetch(window, newURL);
+ };
+
+ // https://html.spec.whatwg.org/#scroll-to-fragid
+@@ -74,9 +74,18 @@ function navigateToFragment(window, newURL, flags) {
+ }
+
+ // https://html.spec.whatwg.org/#process-a-navigate-fetch
+-function navigateFetch(window) {
+-  // TODO:
+-  notImplemented(window, "navigation to another Document");
++//
++// Patched by mini (see patches/jsdom+30.0.1.patch): delegates the actual cross-document fetch
++// and document replacement to the embedder, since jsdom has no navigation implementation of
++// its own here. Falls back to the original not-implemented behaviour if the embedder never
++// installed a hook (e.g. jsdom used standalone, outside mini).
++function navigateFetch(window, newURL) {
++  const hook = globalThis.__mini && globalThis.__mini.navigateFetch;
++  if (!hook) {
++    notImplemented(window, "navigation to another Document");
++    return;
++  }
++  hook(window, whatwgURL.serializeURL(newURL));
+ }
+
+ // https://url.spec.whatwg.org/#concept-url-equals

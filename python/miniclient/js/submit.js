@@ -1,174 +1,80 @@
-// Runs after a fresh document has been written into the page (by document.write(),
-// or internally by happy-dom's own navigation machinery via browserFrame.goto()/
-// frame.content=): processes htmx on it and synthesizes DOMContentLoaded.
-// happy-dom never dispatches DOMContentLoaded natively (no
-// "loading" readyState, and its one native `load` event fires once for the whole
-// Window's lifetime, not once per navigation). Synthesize it once this write's own
-// deferred/module scripts have actually finished running, mirroring the real-browser
-// rule that plain `async` scripts don't delay DOMContentLoaded but `defer`/
-// `type=module` do.
-globalThis.__zzz_finish_load = function () {
-    if (typeof htmx !== "undefined") {
-        htmx.process(document.body);
-    }
-    // `defer`/`type=module` scripts delay DOMContentLoaded (plain `async` ones
-    // don't). They finish asynchronously through happy-dom's own fetch/eval
-    // tasks, which waitUntilComplete() drains. We can't instead wait on each
-    // script's own `load`/`error` event: with this runtime, that event routinely
-    // fires *during* navigation, before this function runs, and happy-dom exposes
-    // no already-settled flag to test against -- so a plain addEventListener()
-    // here would block forever on an event that already fired.
-    //
-    // TODO: waitUntilComplete() also blocks on a slow `<script async>`'s fetch,
-    // which per spec shouldn't delay DOMContentLoaded. If that strict fidelity
-    // ever matters, wait per-script instead with
-    // `Promise.race([<load/error listener>, window.happyDOM.waitUntilComplete()])`
-    // -- more code for a payoff that's dubious in this harness.
-    const hasDeferredScripts = [...document.querySelectorAll("script[src]")].some(
-        (script) => script.type === "module" || script.defer,
-    );
-    const ready = hasDeferredScripts ? window.happyDOM.waitUntilComplete() : Promise.resolve();
-    return ready
-        .then(() => {
-            document.dispatchEvent(
-                new Event("DOMContentLoaded", { bubbles: true, cancelable: false }),
-            );
-        })
-        .then(
-            () =>
-                // A plain, unattributed `<script src="...">` (e.g. htmx.js) already ran by
-                // the time we get here, but document.readyState is "complete", not
-                // "loading", when it ran -- unlike a real browser, where such scripts
-                // block the parser and always see "loading". So a script whose own
-                // self-init depends on that ("if loading, wait for DOMContentLoaded, else
-                // setTimeout(0)") falls into the setTimeout(0) branch here, and that timer
-                // is still pending when this promise resolves. Give it one tick to fire so
-                // callers of load()/goto() don't race a library's deferred self-init.
-                new Promise((resolve) => setTimeout(resolve, 0)),
-        );
-};
+globalThis.__mini ??= {};
 
-// beforeContentCallback fires after goto() constructs the new Window but before it
-// writes content (and runs that content's <script> tags) into it — registering here
-// rather than after goto() resolves matters because this runtime has one real global object:
-// a page's own scripts write to whatever globalThis is at the time they run, so
-// globalThis must already mirror the new window before those scripts execute, or
-// their writes (e.g. htmx.js's `globalThis.htmx = ...`) end up on the old window's
-// mirror and get discarded by the next registration's reset-to-baseline sweep.
-//
-// Wrapped in a closure rather than passed directly: submit.js is baked into the V8
-// snapshot and evaluated before bootstrap.js's module (which defines
-// __zzz_register_window_globals) ever runs, so a direct reference here would freeze
-// in as undefined.
-const __zzz_gotoOptions = { beforeContentCallback: (win) => __zzz_register_window_globals(win) };
+// Form submission. Navigation primitives (fetchAndNavigate, navigateDocument, finishLoad,
+// ...) live in navigate.js.
+(function () {
+    const __mini = globalThis.__mini;
 
-// Loads html as a fresh document. Used directly by Browser.load() (browser.py) and
-// by the initial test-page setup (see conftest.py's HTMX_BASE_HTML). Navigates to
-// about:blank first (real navigation → brand new Window, so listeners/state from
-// whatever was loaded before don't carry over) rather than writing into the current
-// document in place.
-globalThis.__document_write = async function (html) {
-    __clearAllTimers();
-    const browserFrame = __zzz_get_browser_frame();
-    const currentHref = location.href;
-    await browserFrame.goto("about:blank", __zzz_gotoOptions);
-    // Restore the pre-navigation URL: about:blank has no meaningful base for the
-    // fragment's own relative URLs (hx-get="/path", action="/path", ...) to resolve
-    // against.
-    __zzz_set_url(browserFrame.window, browserFrame, currentHref);
-    // document.write is deprecated for real browsers, but it's the only happy-dom API
-    // that replaces the document and evaluates <script> tags natively.
-    browserFrame.content = html;
-    return __zzz_finish_load();
-};
+    // Runs `doAction(el)`, then resolves once the page settles: every pending fetch/timer
+    // started as a result (tracked via __mini.settleTracker, wired into fetch()/setTimeout() in
+    // bootstrap.js) has drained. Shared by Element.trigger()/click() (page.py) and
+    // __mini.submit below.
+    __mini.awaitSettle = async function (handle, doAction) {
+        const el = __mini.deref(handle);
+        if (!el) throw new Error("Element not found (handle " + handle + ")");
+        await doAction(el);
+        await __mini.settleTracker.whenQuiet();
+    };
 
-// Fetches url and loads the response body as the new document, via a real
-// happy-dom navigation (fresh Window each time — no accumulating popstate listeners
-// or leftover history state across goto()s). Backs Browser.goto() (browser.py).
-globalThis.__zzz_fetch_and_load = async function (url) {
-    __clearAllTimers();
-    const browserFrame = __zzz_get_browser_frame();
-    await browserFrame.goto(url, __zzz_gotoOptions);
-    return __zzz_finish_load();
-};
+    // Patched into jsdom's HTMLFormElement#requestSubmit (see patches/jsdom+30.0.1.patch):
+    // jsdom already validates the form (novalidate/reportValidity()) and dispatches the
+    // `submit` event, respecting preventDefault() -- it just has no navigation of its own
+    // past that point. This runs for both __mini.submit below (explicit
+    // FormElement.requestSubmit(), page.py) and a real click on a submit button/input
+    // (jsdom's own activation behaviour calls requestSubmit(submitter) internally too), so a
+    // plain, unintercepted form now navigates the same way regardless of which one
+    // triggered it.
+    __mini.formSubmitFetch = function (form, submitter) {
+        __clearAllTimers();
+        const method = form.method; // already normalized/defaulted by jsdom: "get" or "post"
+        const enctype = form.enctype; // already normalized/defaulted to urlencoded
+        const formData = new FormData(form, submitter); // includes submitter's name/value
 
-// Runs `doAction(el)`, then resolves once the page settles: happy-dom's real
-// AsyncTaskManager (via window.happyDOM.waitUntilComplete(), reconnected to
-// setTimeout/fetch in bootstrap.js) tracks every pending timer and in-flight fetch.
-// Shared by Element.trigger()/click() (browser.py) and __zzz_submit below.
-globalThis.__zzz_await_settle = async function (handle, doAction) {
-    const el = __zzz_deref(handle);
-    if (!el) throw new Error("Element not found (handle " + handle + ")");
-    await doAction(el);
-    await window.happyDOM.waitUntilComplete();
-};
+        async function navigate() {
+            if (method === "get") {
+                const url = new URL(form.action);
+                url.search = new URLSearchParams(formData).toString();
+                await __mini.fetchAndNavigate(url);
+                return;
+            }
 
-// happy-dom's native HTMLFormElement#submit() always sends POST bodies as
-// multipart/form-data, ignoring enctype — real browsers default to
-// application/x-www-form-urlencoded. Bypass it for that (common) case by
-// driving BrowserFrameNavigator ourselves with a urlencoded body.
-function __zzz_submit_urlencoded(el) {
-    const frame = __zzz_get_browser_frame();
-    __zzz_navigate({
-        windowClass: document.defaultView.constructor,
-        frame,
-        method: "post",
-        url: el.action,
-        formData: new URLSearchParams(new FormData(el)),
-        goToOptions: {
-            referrer: frame.page.mainFrame.window.location.origin,
-            // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8";
-            // real browsers send the bare mime type for form submissions.
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        },
-    });
-}
+            let body, headers;
+            if (enctype === "multipart/form-data") {
+                body = formData; // bootstrap.js's fetch() already serializes FormData bodies.
+                headers = undefined;
+            } else if (enctype === "text/plain") {
+                body = [...formData].map(([k, v]) => `${k}=${v}\r\n`).join("");
+                headers = { "content-type": "text/plain" };
+            } else {
+                body = new URLSearchParams(formData);
+                // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8"; real
+                // browsers send the bare mime type for form submissions.
+                headers = { "content-type": "application/x-www-form-urlencoded" };
+            }
+            const res = await fetch(form.action, { method: "post", body, headers });
+            __mini.navigateDocument(await res.text(), res.url);
+        }
 
-// __zzz_submit is form-only. FormElement.requestSubmit() (browser.py) calls it;
-// the form's own requestSubmit() dispatches the submit event (and runs validation).
-globalThis.__zzz_submit = async function (handle) {
-    const browserFrame = __zzz_get_browser_frame();
-    const winBefore = browserFrame.window;
-    await __zzz_await_settle(handle, async (el) => {
+        // Not awaited by the caller (jsdom's own requestSubmit() isn't async either) --
+        // catch here so a network failure surfaces on the console instead of as an
+        // unhandled rejection. The fetch is still tracked by settleTracker, so
+        // __mini.awaitSettle/__mini.submit's whenQuiet() below waits for it correctly.
+        navigate().catch((err) => console.error("form submission failed:", err));
+    };
+
+    // __mini.submit is form-only. FormElement.requestSubmit() (page.py) calls it. jsdom's own
+    // requestSubmit() (patched above) already does validation, event dispatch and the actual
+    // navigation; this just drives it and waits for the page to settle.
+    __mini.submit = async function (handle) {
+        const el = __mini.deref(handle);
+        if (!el) throw new Error("Element not found (handle " + handle + ")");
         if (el.tagName !== "FORM") {
             throw new Error(
                 "requestSubmit() only works on <form> elements (handle " + handle + ")",
             );
         }
-        // Registered fresh per call, so it always runs after htmx's own submit
-        // listener (added once, at htmx.process() time) — evt.defaultPrevented
-        // tells us whether htmx already claimed the submission.
-        el.addEventListener(
-            "submit",
-            (evt) => {
-                if (evt.defaultPrevented) return;
-                const method = (el.getAttribute("method") || "get").toLowerCase();
-                const enctype = (el.enctype || "").toLowerCase();
-                if (
-                    method === "post" &&
-                    enctype !== "multipart/form-data" &&
-                    enctype !== "text/plain"
-                ) {
-                    evt.preventDefault();
-                    __zzz_submit_urlencoded(el);
-                }
-            },
-            { once: true },
-        );
         el.requestSubmit();
-    });
-    // If nothing prevented the submit's default action, requestSubmit() already ran
-    // happy-dom's own native HTMLFormElement submit handling, which does a real GET/POST
-    // navigation through the same BrowserFrameNavigator goto() uses (see
-    // HTMLFormElement.js's #submit()) — that replaces browserFrame.window with a brand
-    // new Window instance, which the identity check above detects.
-    if (browserFrame.window !== winBefore) {
-        // __clearAllTimers() must run after __zzz_await_settle's waitUntilComplete():
-        // the navigation itself relies on our custom setTimeout polyfill for its own
-        // internal request-timeout guard — clearing timers earlier wipes that out too
-        // and the navigation's promise never settles.
-        __clearAllTimers();
-        __zzz_register_window_globals(browserFrame.window);
-        return __zzz_finish_load();
-    }
-};
+        await __mini.settleTracker.whenQuiet();
+        return __mini.finishLoad();
+    };
+})();

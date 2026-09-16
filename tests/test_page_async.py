@@ -18,7 +18,7 @@ from miniclient.page import AsyncElement, AsyncFormElement, AsyncPage
 async def page() -> AsyncIterator[AsyncPage]:
     """A fresh htmx-loaded AsyncPage, closed automatically unless the test closes it first."""
     b = await AsyncPage()
-    await b.runtime.eval_async("""__document_write(`
+    await b.runtime.eval_async("""__mini.documentWrite(`
         <!DOCTYPE html>
         <html>
           <body>
@@ -505,8 +505,8 @@ async def test_page_goto_page_with_external_module_script(
     """goto() a real page whose HTML links an external module script.
 
     Regression: the script's own `load` event fires *during* navigation, before
-    __zzz_finish_load() runs, so waiting on that event there hung forever (30s
-    happy-dom navigation timeout -> "Promise resolution is still pending").
+    submit.js's finishLoad() runs, so waiting on that event there hung forever
+    ("Promise resolution is still pending but the event loop has already resolved").
     """
     (tmp_path / "entry.js").write_text("window.__ran = 1;")
     httpx_mock.add_response(
