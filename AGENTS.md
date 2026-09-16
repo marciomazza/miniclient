@@ -48,6 +48,12 @@ This project is an integration-testing tool that simulates a browser environment
 JavaScript. htmx (vendored) is one of the workloads validated inside that simulated
 environment.
 
+## Design principle: mini is a shared test dependency
+
+mini is a library other projects' test suites run against — htmx's vendored suite is one
+consumer, not the spec. A polyfill gap here silently changes behavior for every downstream
+app too. Prefer spec-correct behavior over the minimum needed to turn mini's own suite green.
+
 ## Runtime stack
 
 - A JavaScript runtime provide by deno_core. It is NOT Node.js and NOT QuickJS.
