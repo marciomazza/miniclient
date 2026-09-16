@@ -127,10 +127,18 @@ def test_page_context_manager_closes() -> None:
 def test_page_resource_mounts(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     with Page(mounts={"http://localhost/ext/": tmp_path}) as b:
-        b.eval(
-            """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
+        # document.write's script is parser-inserted, so it fetches and executes automatically.
+        ran = b.eval_async(
+            """
+            const loaded = new Promise((resolve) =>
+                window.addEventListener('load', resolve, { once: true }));
+            document.open();
+            document.write('<script src="http://localhost/ext/external-script.js"></script>');
+            document.close();
+            loaded.then(() => window.__ran === 1);
+            """
         )
-        assert b.eval("window.__ran") == 1
+        assert ran is True
 
 
 # ---------------------------------------------------------------------------

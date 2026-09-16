@@ -35,26 +35,21 @@ fn hx_multipart_parses_chunked_straddled_boundaries() {
     // must come through whole and in order.
     let mounts = format!(r#"{{"http://localhost/vendor/": {VENDOR_HTMX_SRC:?}}}"#);
     let rt = Runtime::new("http://localhost/", &mounts);
-    // htmx.js must load before hx-multipart.js: the extension calls htmx.registerExtension(...)
-    // at top level, which throws (and skips its own Response.prototype.parts prollyfill) if
-    // `htmx` isn't defined yet. createElement+appendChild, not innerHTML: a script parsed by
-    // the fragment parsing algorithm is spec-flagged "already started" and never fetches at
-    // all. Neither script sets `async`, so jsdom's resource-loader queues (and executes) them
-    // in insertion order regardless of which one's fetch resolves first.
+    // document.write's scripts are parser-inserted, so they fetch automatically and execute in
+    // source order -- htmx.js must run before hx-multipart.js, which calls
+    // htmx.registerExtension(...) at top level and throws if `htmx` isn't defined yet. Both
+    // tags in one document.write call: a second call made while the parser is still paused on
+    // the first script's fetch never resumes it (a jsdom bug, not just an ordering nicety).
     rt.run_async(
         r#"
-        (async () => {
-            const mk = (src) => Object.assign(document.createElement('script'), { src });
-            const htmx = mk('http://localhost/vendor/htmx.js');
-            const ext = mk('http://localhost/vendor/ext/hx-multipart.js');
-            const loaded = Promise.all([htmx, ext].map((s) => new Promise((resolve) => {
-                s.addEventListener('load', resolve, { once: true });
-                s.addEventListener('error', resolve, { once: true });
-            })));
-            document.head.appendChild(htmx);
-            document.head.appendChild(ext);
-            await loaded;
-        })()
+        const loaded = new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
+        document.open();
+        document.write(`
+            <script src="http://localhost/vendor/htmx.js"></script>
+            <script src="http://localhost/vendor/ext/hx-multipart.js"></script>
+        `);
+        document.close();
+        loaded.then(() => true);
     "#,
     );
     let parts = rt.eval_async::<Vec<String>>(

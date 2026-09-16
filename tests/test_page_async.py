@@ -425,10 +425,18 @@ async def test_form_request_submit_plain(
 async def test_page_create_with_resource_mounts(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    await b.runtime.eval_async(
-        """document.head.innerHTML = '<script src="http://localhost/ext/external-script.js"></script>'"""
+    # document.write's script is parser-inserted, so it fetches and executes automatically.
+    ran = await b.runtime.eval_async(
+        """
+        const loaded = new Promise((resolve) =>
+            window.addEventListener('load', resolve, { once: true }));
+        document.open();
+        document.write('<script src="http://localhost/ext/external-script.js"></script>');
+        document.close();
+        loaded.then(() => window.__ran === 1);
+        """
     )
-    assert b.runtime.eval("window.__ran") == 1
+    assert ran is True
 
 
 def _load_script_js(attr_setup_js: str, url: str) -> str:
@@ -451,7 +459,16 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
 
 @pytest.mark.parametrize(
     "attr_setup_js",
-    ["script.async = true;", "script.defer = true;", "script.type = 'module';"],
+    [
+        "script.async = true;",
+        "script.defer = true;",
+        pytest.param(
+            "script.type = 'module';",
+            marks=pytest.mark.xfail(
+                reason="module scripts never fire load/error under jsdom", strict=True
+            ),
+        ),
+    ],
     ids=["async", "defer", "module"],
 )
 async def test_page_script_src_resource_mount(tmp_path: Path, attr_setup_js: str) -> None:

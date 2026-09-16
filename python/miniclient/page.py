@@ -457,6 +457,10 @@ class Page:
         """Evaluate arbitrary JavaScript and return the result."""
         return self._async.eval(code)
 
+    def eval_async(self, code: str) -> object:
+        """Evaluate JavaScript, awaiting the result if it is a promise."""
+        return self._loop.run_until_complete(self._async.eval_async(code))
+
     @property
     def url(self) -> str:
         """The current document URL (`location.href`)."""

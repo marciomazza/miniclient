@@ -346,7 +346,12 @@ globalThis.fetch = async (input, init = {}) => {
             "content-type": `multipart/form-data; boundary=${boundary}`,
         };
     } else {
-        const req = input instanceof Request ? input : new Request(input, init);
+        // A relative string input must be resolved against location before hitting Request's
+        // constructor -- unlike the FormData branch above, undici's Request never received one.
+        const req =
+            input instanceof Request
+                ? input
+                : new Request(new URL(input, location.href).href, init);
         body = req.body ? new Uint8Array(await req.arrayBuffer()) : null;
         url = req.url;
         method = req.method;

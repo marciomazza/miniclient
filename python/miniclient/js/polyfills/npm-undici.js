@@ -31,7 +31,14 @@ export class Dispatcher {
                     context = ctx ?? {};
                 },
                 onResponseStart(_controller, statusCode, headers, statusText) {
-                    resolve({ statusCode, headers, statusText, context, trailers: {}, body: { bytes: () => bytes } });
+                    resolve({
+                        statusCode,
+                        headers,
+                        statusText,
+                        context,
+                        trailers: {},
+                        body: { bytes: () => bytes },
+                    });
                 },
                 onResponseData(_controller, chunk) {
                     chunks.push(chunk);
