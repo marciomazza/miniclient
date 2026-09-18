@@ -4,7 +4,7 @@
 // before jsdom, purely for that side effect -- ESM evaluates imports in declaration order, so
 // this runs (and installs the real Buffer) before any of jsdom's own module graph does.
 import "buffer";
-import { JSDOM, requestInterceptor } from "jsdom";
+import { CookieJar, JSDOM, requestInterceptor } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
 import "./patch-jsdom-hxon-index.js";
 // jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
@@ -35,6 +35,7 @@ import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileLis
 // scoped to it -- this is the one explicit hand-off point to the shared realm. Everywhere
 // else (bootstrap.js, snapshot_warmup.js, ...) just references the bare `JSDOM` global.
 globalThis.JSDOM = JSDOM;
+globalThis.__JSDOMCookieJar = CookieJar;
 globalThis.Request = Request;
 globalThis.Response = Response;
 globalThis.__jsdomRequestInterceptor = requestInterceptor;

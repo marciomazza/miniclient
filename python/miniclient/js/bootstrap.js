@@ -27,6 +27,7 @@
 // in this set the way a bare `globalThis.foo = ...` would.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 globalThis.__mini ??= {};
+const cookieJar = new globalThis.__JSDOMCookieJar();
 
 // `resources` wires every http(s) subresource fetch (<script src>, <link>, ...) through this
 // interceptor instead of jsdom's default (no automatic subresource fetching at all). `data:`
@@ -91,6 +92,7 @@ function createDom(url) {
         runScripts: "dangerously",
         pretendToBeVisual: true,
         resources: { interceptors: [resourceInterceptor] },
+        cookieJar,
     });
     // IntersectionObserver: jsdom doesn't implement it, polyfill as a no-op.
     d.window.IntersectionObserver ??= class {
@@ -494,8 +496,15 @@ globalThis.fetch = async (input, init = {}) => {
         headers = Object.fromEntries(req.headers.entries());
     }
 
-    // No cookie jar or CORS-aware credentials handling yet: outgoing requests carry no
-    // Cookie header, and Set-Cookie responses are dropped rather than stored (below).
+    const requestUrl = new URL(url);
+    const sameOrigin = requestUrl.origin === location.origin;
+    if (init.credentials !== "omit" && (sameOrigin || init.credentials === "include")) {
+        const cookie = cookieJar.getCookieStringSync(url);
+        if (cookie && !Object.keys(headers).some((key) => key.toLowerCase() === "cookie")) {
+            headers.cookie = cookie;
+        }
+    }
+
     const settleTracker = globalThis.__mini.settleTracker;
     settleTracker.startTask();
     const requestId = crypto.randomUUID();
@@ -514,8 +523,12 @@ globalThis.fetch = async (input, init = {}) => {
         signal?.removeEventListener("abort", onAbort);
     }
 
-    // Set-Cookie is a forbidden response header per spec: strip it from Response.headers
-    // even though nothing stores it in a cookie jar yet.
+    if (init.credentials !== "omit") {
+        for (const [key, value] of res.headers) {
+            if (/^set-cookie2?$/i.test(key)) cookieJar.setCookieSync(value, url);
+        }
+    }
+    // Set-Cookie is a forbidden response header per spec.
     const responseHeaders = res.headers.filter(([k]) => !/^set-cookie2?$/i.test(k));
     // Null-body statuses (204/205/304) must construct with a `null` body, not an empty one --
     // undici's Response enforces this strictly, unlike the DOM engine this used to run on.
