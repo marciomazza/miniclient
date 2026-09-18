@@ -1,3 +1,18 @@
+diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
+index 7d09de2..a885613 100644
+--- a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
++++ b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
+@@ -103,7 +103,10 @@ module.exports = class PerDocumentResourceLoader {
+     if (element.localName === "script" && element.hasAttributeNS(null, "async")) {
+       this._asyncQueue.push(request, onLoadWrapped, onErrorWrapped, this._queue.getLastScript());
+     } else if (
++      // Dynamically inserted scripts never enter the parser's defer queue; that queue is
++      // resumed only during document parsing, so putting one there leaves its load event pending.
+       element.localName === "script" &&
++        element._parserInserted &&
+         element.hasAttributeNS(null, "defer") &&
+         this._document.readyState !== "interactive") {
+       this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 index 30afbde..396fb20 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js

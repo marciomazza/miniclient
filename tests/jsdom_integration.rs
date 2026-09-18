@@ -79,6 +79,32 @@ fn script_with_external_file_src_executed() {
 }
 
 #[test]
+fn dynamically_inserted_defer_script_loads() {
+    let dir = std::env::temp_dir().join(format!("miniclient-defer-script-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("deferred-script.js"), b"window.__ran = 1;").unwrap();
+    let mounts = format!(
+        r#"{{"http://localhost/ext/": {:?}}}"#,
+        dir.to_str().unwrap()
+    );
+    let rt = Runtime::new("http://localhost/", &mounts);
+    let loaded = rt.eval_async::<bool>(
+        r#"
+        new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.defer = true;
+            script.src = 'http://localhost/ext/deferred-script.js';
+            script.onload = () => resolve(window.__ran === 1);
+            script.onerror = () => reject(new Error('deferred script failed to load'));
+            document.head.append(script);
+        });
+    "#,
+    );
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(loaded);
+}
+
+#[test]
 fn window_crypto_is_available() {
     // window.crypto used to be undefined: happy-dom resolves it via `import { webcrypto } from
     // 'crypto'`, which node-crypto.js forwards from globalThis.crypto -- unset unless
