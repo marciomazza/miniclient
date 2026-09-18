@@ -320,3 +320,17 @@ async def test_sync_xhr_network_error_fires_onerror(runtime, httpx_mock):
         })();
     """)
     assert result is True
+
+
+async def test_unmocked_stylesheet_fires_error_not_exception(runtime):
+    result = await runtime.eval_async("""
+        new Promise(resolve => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'http://localhost/unmocked.css';
+          link.onload = () => resolve('loaded');
+          link.onerror = () => resolve('errored');
+          document.head.appendChild(link);
+        });
+    """)
+    assert result == "errored"

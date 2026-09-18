@@ -44,7 +44,7 @@ _preExistingGlobals.add("__zzz_get_browser_frame");
 // undici's real network dispatcher (the interceptor chain's base) see a request, since every
 // HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch
 // transport the Python side controls.
-const resourceInterceptor = __jsdomRequestInterceptor(async (request) => {
+const resourceInterceptor = __jsdomRequestInterceptor(async (request, { element }) => {
     // Tracked synchronously at the moment jsdom invokes the interceptor (not just inside
     // the fetch() branch below): jsdom schedules subresource fetches asynchronously after
     // navigation returns, so __mini.settleTracker's "settled" check has to see this as
@@ -55,7 +55,17 @@ const resourceInterceptor = __jsdomRequestInterceptor(async (request) => {
     try {
         const mounts = globalThis.__RESOURCE_MOUNTS__;
         const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
-        if (prefix === undefined) return await globalThis.fetch(request);
+        if (prefix === undefined) {
+            try {
+                return await globalThis.fetch(request);
+            } catch (error) {
+                // jsdom reports stylesheet failures through the link element. Convert a
+                // transport failure to that path without weakening script failures.
+                if (element?.localName !== "link" || !element.relList?.contains("stylesheet"))
+                    throw error;
+                return new Response(null, { status: 404, statusText: "Not Found" });
+            }
+        }
 
         const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
         try {
