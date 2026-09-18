@@ -234,11 +234,9 @@ fn run_dir(subdir: &str) {
     }
 }
 
-// DataTransfer and innerText are polyfilled now (bootstrap.js); chai's `should` was never
-// actually broken -- those failures were a downstream effect of missing innerText. Still
-// failing here: form-associated custom elements (jsdom's ElementInternals never implements
-// setFormValue/form participation) and __makeFragment (jsdom has no Document.parseHTMLUnsafe).
-// Both are real jsdom gaps, tracked in their own tickets rather than fixed inline here.
+// DataTransfer, innerText, and form-associated custom elements are polyfilled in bootstrap.js;
+// chai's `should` was never actually broken -- those failures were a downstream effect of
+// missing innerText. The unit suite still has six __makeFragment failures, tracked in ticket 24.
 #[test]
 #[ignore]
 fn htmx_vendor_unit_suite() {

@@ -261,6 +261,8 @@ function registerWindowGlobals(win) {
     // `[...document.adoptedStyleSheets, sheet]`, which throws on a bare Window otherwise.
     win.document.adoptedStyleSheets ??= [];
 
+    globalThis.__patchElementInternals(win);
+
     // No other per-window patches applied yet beyond XPath (MutationObserver WeakRef-GC fix,
     // shared SelectorParser/CSS cache).
 

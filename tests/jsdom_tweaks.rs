@@ -152,10 +152,7 @@ fn non_disabled_fieldset_does_not_disable_children() {
 }
 
 #[test]
-#[ignore = "jsdom's ElementInternals has no setFormValue -- no public API to port, TODO in jsdom itself"]
 fn attach_internals_set_form_value() {
-    // attachInternals()/setFormValue() worked on the old happy-dom fork
-    // (fix/element-internals); jsdom's own ElementInternals doesn't implement this at all.
     let rt = runtime();
     for (value_js, expected) in [
         ("'hello'", Some(r#""hello""#)),
