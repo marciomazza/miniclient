@@ -13,6 +13,21 @@ index 7d09de2..a885613 100644
          element.hasAttributeNS(null, "defer") &&
          this._document.readyState !== "interactive") {
        this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
+diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
+index 9b315a3..63e1d8d 100644
+--- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
++++ b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
+@@ -88,7 +88,9 @@ function queueMutationRecord(
+     activeMutationObservers.add(observer);
+   }
+
+-  queueMutationObserverMicrotask();
++  if (interestedObservers.size > 0) {
++    queueMutationObserverMicrotask();
++  }
+ }
+
+ // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 index 30afbde..396fb20 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
