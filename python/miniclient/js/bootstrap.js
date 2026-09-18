@@ -351,11 +351,15 @@ function registerWindowGlobals(win) {
     // exclusion, so a self/ancestor `hidden` attribute or display:none/visibility:hidden check
     // is added here; hidden *descendants* still leak their text, an accepted gap since real
     // layout info doesn't exist to detect them either.
+    // DOMParser-created documents have no browsing context; jsdom rejects cross-window style
+    // lookup, so detached fragments use textContent instead.
     {
         function isMiniHidden(el) {
             for (let node = el; node; node = node.parentElement) {
                 if (node.hidden) return true;
-                const style = win.getComputedStyle(node);
+                const ownerWindow = node.ownerDocument?.defaultView;
+                if (!ownerWindow) continue;
+                const style = ownerWindow.getComputedStyle(node);
                 if (style.display === "none" || style.visibility === "hidden") return true;
             }
             return false;
@@ -363,8 +367,10 @@ function registerWindowGlobals(win) {
         Object.defineProperty(win.HTMLElement.prototype, "innerText", {
             get() {
                 if (isMiniHidden(this)) return "";
+                const ownerWindow = this.ownerDocument?.defaultView;
+                if (!ownerWindow) return this.textContent;
                 return globalThis.__innerText(this, {
-                    getComputedStyle: (el) => win.getComputedStyle(el),
+                    getComputedStyle: (el) => ownerWindow.getComputedStyle(el),
                 });
             },
             set(value) {

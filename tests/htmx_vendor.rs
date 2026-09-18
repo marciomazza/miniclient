@@ -236,9 +236,8 @@ fn run_dir(subdir: &str) {
 
 // DataTransfer, innerText, and form-associated custom elements are polyfilled in bootstrap.js;
 // chai's `should` was never actually broken -- those failures were a downstream effect of
-// missing innerText. The unit suite still has six __makeFragment failures, tracked in ticket 24.
+// missing innerText.
 #[test]
-#[ignore]
 fn htmx_vendor_unit_suite() {
     run_dir("unit");
 }
