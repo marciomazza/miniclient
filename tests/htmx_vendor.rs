@@ -252,9 +252,9 @@ fn htmx_vendor_end2end_suite() {
     run_dir("end2end");
 }
 
-// hx-alpine-compat(-history).js and hx-head.js each hang the whole suite: their `before()`/
-// test hooks await a promise (`alpine:init`, a `<script>` onload) that never resolves here.
-// Tracked in its own ticket rather than fixed inline.
+// Dynamically inserted deferred scripts now load through jsdom's normal resource queue. The
+// ext suite stays ignored because Alpine history/morph and hx-head still have separate behavior
+// failures that are not script-loading hangs.
 #[test]
 #[ignore]
 fn htmx_vendor_ext_suite() {

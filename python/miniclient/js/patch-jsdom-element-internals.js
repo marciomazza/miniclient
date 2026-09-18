@@ -21,8 +21,7 @@ export function patchElementInternals(win) {
             );
         }
         return controls.filter(
-            (element) =>
-                element.constructor.formAssociated === true && formOwner(element) === form,
+            (element) => element.constructor.formAssociated === true && formOwner(element) === form,
         );
     };
     const elementFromImpl = (impl) => wrapperForImpl(impl);
@@ -62,14 +61,12 @@ export function patchElementInternals(win) {
             return new Proxy(elements, {
                 get(target, property) {
                     if (property === "length") return target.length;
-                    if (property === Symbol.iterator)
-                        return target[Symbol.iterator].bind(target);
+                    if (property === Symbol.iterator) return target[Symbol.iterator].bind(target);
                     if (property === "namedItem") {
                         return (name) =>
                             target.find(
                                 (element) =>
-                                    element.id === name ||
-                                    element.getAttribute("name") === name,
+                                    element.id === name || element.getAttribute("name") === name,
                             ) ?? null;
                     }
                     return Reflect.get(target, property, target);
