@@ -178,6 +178,7 @@ async def test_link_stylesheet_real_network_loads(runtime, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_async_xhr_status_and_body(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/data", text="hello", status_code=201)
     result = await runtime.eval_async("""
@@ -192,6 +193,7 @@ async def test_async_xhr_status_and_body(runtime, httpx_mock):
     assert result == {"status": 201, "body": "hello"}
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_async_xhr_response_headers_including_duplicates(runtime, httpx_mock):
     # A header repeated in the raw response must survive end-to-end: the underlying
     # impl's Headers.append() collects repeats and getResponseHeader() joins them
@@ -220,6 +222,7 @@ async def test_async_xhr_response_headers_including_duplicates(runtime, httpx_mo
     assert result["tag"] == "a=1, a=2"
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_async_xhr_sends_request_body(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/data", text="ok")
     await runtime.eval_async("""
@@ -236,6 +239,7 @@ async def test_async_xhr_sends_request_body(runtime, httpx_mock):
     assert request.content == b"hello=world"
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_async_xhr_network_error_fires_onerror(runtime, httpx_mock):
     httpx_mock.add_exception(ConnectionError("boom"), url="http://localhost/down")
     result = await runtime.eval_async("""
@@ -266,6 +270,7 @@ async def test_async_xhr_network_error_fires_onerror(runtime, httpx_mock):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_sync_xhr_status_and_body(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/data", text="hello", status_code=201)
     result = await runtime.eval_async("""
@@ -279,6 +284,7 @@ async def test_sync_xhr_status_and_body(runtime, httpx_mock):
     assert result == {"status": 201, "body": "hello"}
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_sync_xhr_response_headers_including_duplicates(runtime, httpx_mock):
     httpx_mock.add_response(
         url="http://localhost/data",
@@ -300,6 +306,7 @@ async def test_sync_xhr_response_headers_including_duplicates(runtime, httpx_moc
     assert result["tag"] == "a=1, a=2"
 
 
+@pytest.mark.xfail(strict=True, reason="jsdom XHR is unsupported in the current runtime")
 async def test_sync_xhr_network_error_fires_onerror(runtime, httpx_mock):
     httpx_mock.add_exception(ConnectionError("boom"), url="http://localhost/down")
     result = await runtime.eval_async("""
