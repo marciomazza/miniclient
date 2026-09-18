@@ -29,6 +29,14 @@ const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 globalThis.__mini ??= {};
 const cookieJar = new globalThis.__JSDOMCookieJar();
 
+// Keep the old fixture cleanup path working while callers migrate to the jsdom cookie jar.
+globalThis.__zzz_get_browser_frame = () => ({
+    page: {
+        context: { cookieContainer: { clearCookies: () => cookieJar.removeAllCookiesSync() } },
+    },
+});
+_preExistingGlobals.add("__zzz_get_browser_frame");
+
 // `resources` wires every http(s) subresource fetch (<script src>, <link>, ...) through this
 // interceptor instead of jsdom's default (no automatic subresource fetching at all). `data:`
 // and `file:` URLs never reach it -- JSDOMDispatcher resolves those itself before any
@@ -311,6 +319,30 @@ function registerWindowGlobals(win) {
         };
     }
 
+    // jsdom's parser leaves multiple checked radios in one group checked when markup is
+    // assigned through innerHTML. Reapply the radio-group invariant after that parse; the
+    // checked setter already handles the sibling exclusion.
+    {
+        const innerHTML = Object.getOwnPropertyDescriptor(win.Element.prototype, "innerHTML");
+        const originalSet = innerHTML.set;
+        Object.defineProperty(win.Element.prototype, "innerHTML", {
+            get: innerHTML.get,
+            set(value) {
+                originalSet.call(this, value);
+                const groups = new Map();
+                for (const radio of this.querySelectorAll('input[type="radio"][name]')) {
+                    if (!radio.name || !radio.checked) continue;
+                    const byName = groups.get(radio.form ?? radio.getRootNode()) ?? new Map();
+                    const previous = byName.get(radio.name);
+                    if (previous) previous.checked = false;
+                    byName.set(radio.name, radio);
+                    groups.set(radio.form ?? radio.getRootNode(), byName);
+                }
+            },
+            configurable: true,
+        });
+    }
+
     // innerText: jsdom has no layout engine, so it never implements this (needs rendered-box
     // information). styleless-innertext (ported, not reimplemented) approximates it from the
     // DOM tree + computed style instead of real layout. Its own algorithm has no hidden-element
@@ -340,7 +372,17 @@ function registerWindowGlobals(win) {
         });
     }
 
-    // scrollIntoView: jsdom has no layout engine, so scrolling can never do anything real here.
+    // jsdom has no dialog UI, but pages still need the stateful showModal()/close() surface.
+    if (win.HTMLDialogElement) {
+        win.HTMLDialogElement.prototype.showModal ??= function () {
+            this.open = true;
+        };
+        win.HTMLDialogElement.prototype.close ??= function () {
+            this.open = false;
+        };
+    }
+
+    // scrollIntoView: jsdom has no layout engine, so scrolling can never do anything real.
     win.Element.prototype.scrollIntoView ??= function () {};
 
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM

@@ -6,7 +6,6 @@ mod common;
 use common::{EvalExt, runtime};
 
 #[test]
-#[ignore = "innerHTML radio-group exclusion gap on jsdom, unrelated to this ticket -- needs its own investigation"]
 fn innerhtml_radio_mutual_exclusion() {
     let rt = runtime();
     rt.run(
