@@ -1,7 +1,3 @@
-// The wheel ships prebuilt JS: jsdom bundled by esbuild, plus the licence files of the
-// npm code that bundle/snapshot redistributes, copied into the package as _vendor/. Cargo
-// runs this on every build, and maturin drives cargo -- so there is nowhere else to hook this.
-//
 // A build script that fails the build on any I/O error is the intended behaviour, so the
 // unwrap/expect lints from Cargo.toml add nothing here.
 #![allow(clippy::unwrap_used)]
@@ -86,9 +82,6 @@ fn main() {
 /// read while the snapshot is built. Doing it at runtime would try to read the build box's
 /// `/root/.cargo` and panic with EACCES -- so it happens here, where those files exist, and
 /// only the finished blob ships.
-///
-/// This script list is the canonical one. `runtime_scripts()` in `src/snapshot.rs` copies it
-/// for the crate's tests; keep the two in sync (a divergence fails those tests' boot check).
 fn build_default_snapshot(js: &Path, out_dir: &Path) {
     let read = |p: &Path| {
         std::fs::read_to_string(p).unwrap_or_else(|e| panic!("snapshot input {p:?}: {e}"))

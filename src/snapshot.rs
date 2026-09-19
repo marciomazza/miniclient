@@ -1,107 +1,18 @@
-/// Mini's default snapshot, built by build.rs (`build_default_snapshot`) where deno_web's
-/// ESM is on disk, and handed to every `Runtime`. Building it at runtime would fail reading
-/// the build machine's cargo registry, so it is baked into the extension instead.
 pub static DEFAULT_SNAPSHOT: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/DEFAULT_SNAPSHOT.bin"));
-
-#[cfg(test)]
-use std::sync::{Mutex, OnceLock};
-
-#[cfg(test)]
-use crate::runtime::{extensions, init_platform};
-#[cfg(test)]
-use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
-
-/// Runs `scripts` in order into a single isolate and serializes it. The real default snapshot
-/// is built by `build.rs`; this is the crate's own test entry point into the same machinery.
-#[cfg(test)]
-static SNAPSHOT_CREATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-#[cfg(test)]
-pub(crate) fn create_snapshot(
-    scripts: Vec<(String, String)>,
-) -> Result<Box<[u8]>, deno_core::error::CoreError> {
-    // V8 snapshot creators share process-global state; serialize test snapshots so their
-    // microtask checkpoints cannot overlap.
-    let _guard = SNAPSHOT_CREATION_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("snapshot creation lock poisoned");
-    init_platform();
-    // Not `Extension::js_files`: those must be 7-bit ASCII, and the happy-dom bundle is not.
-    let output = deno_create_snapshot(
-        CreateSnapshotOptions {
-            cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
-            startup_snapshot: None,
-            skip_op_registration: false,
-            extensions: extensions(),
-            extension_transpiler: None,
-            with_runtime_cb: Some(Box::new(move |js| {
-                for (name, source) in &scripts {
-                    js.execute_script(name.clone(), source.clone())
-                        .unwrap_or_else(|e| panic!("snapshot script `{name}` failed: {e}"));
-                }
-                // Do not serialize callbacks whose host runtime will be gone after the build.
-                js.v8_isolate().perform_microtask_checkpoint();
-            })),
-        },
-        None,
-    )?;
-    Ok(output.output)
-}
-
-/// Test-only helpers shared with `runtime.rs`'s tests: both need a real, bootable snapshot
-/// (mini's actual production scripts), not just `snapshot.rs`'s own round-trip checks.
-#[cfg(test)]
-pub(crate) mod support {
-    use std::path::PathBuf;
-
-    pub(crate) fn root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-    }
-
-    pub(crate) fn read(rel: &str) -> String {
-        std::fs::read_to_string(root().join(rel)).unwrap()
-    }
-
-    /// Mirrors the list in `build.rs`'s `build_default_snapshot()`, which is canonical.
-    pub(crate) fn runtime_scripts() -> Vec<(String, String)> {
-        vec![
-            (
-                "pre_globals".into(),
-                read("python/miniclient/js/pre_globals.js"),
-            ),
-            (
-                "element-registry".into(),
-                read("python/miniclient/js/element_registry.js"),
-            ),
-            ("navigate".into(), read("python/miniclient/js/navigate.js")),
-            ("submit".into(), read("python/miniclient/js/submit.js")),
-            (
-                "jsdom-bundle".into(),
-                read("python/miniclient/js/_generated/jsdom-bundle.js"),
-            ),
-            (
-                "warmup".into(),
-                read("python/miniclient/js/snapshot_warmup.js"),
-            ),
-        ]
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use deno_core::{JsRuntime, RuntimeOptions};
 
-    use super::create_snapshot;
-    use super::support::runtime_scripts;
-    use crate::runtime::extensions;
+    use crate::runtime::{extensions, init_platform};
 
     /// Boots a snapshot and reads one expression out of it -- the only proof that a blob is
     /// restorable, not merely non-empty.
-    fn eval_in_snapshot(blob: Box<[u8]>, expr: &'static str) -> String {
+    fn eval_in_snapshot(blob: &'static [u8], expr: &'static str) -> String {
+        init_platform();
         let mut js = JsRuntime::new(RuntimeOptions {
-            startup_snapshot: Some(Box::leak(blob)),
+            startup_snapshot: Some(blob),
             extensions: extensions(),
             ..Default::default()
         });
@@ -111,40 +22,16 @@ mod tests {
     }
 
     #[test]
-    fn runtime_scripts_and_warmup_produce_a_bootable_snapshot() {
-        let blob = create_snapshot(runtime_scripts()).unwrap();
+    fn default_snapshot_boots_and_exposes_dom_globals() {
         // FormData isn't checked here: it only becomes available once bootstrap.js's
         // registerWindowGlobals runs against a real Window, which happens per-`Runtime`, not
         // as part of the snapshot itself (see `runtime_apis.rs`'s `headers_dom_parser_and_form_data`).
         assert_eq!(
             eval_in_snapshot(
-                blob,
+                crate::snapshot::DEFAULT_SNAPSHOT,
                 "[typeof Request, typeof Response, typeof JSDOM].join()"
             ),
             "function,function,function"
         );
-    }
-
-    #[test]
-    fn snapshot_drains_microtasks_before_serialization() {
-        let blob = create_snapshot(vec![(
-            "microtask".into(),
-            r#"globalThis.__snapshot_value = 'before';
-               Promise.resolve().then(() => {
-                   globalThis.__snapshot_value = 'after';
-               });"#
-                .into(),
-        )])
-        .unwrap();
-        assert_eq!(eval_in_snapshot(blob, "__snapshot_value"), "after");
-    }
-
-    /// Extra scripts appended to the list still produce a bootable, distinct snapshot.
-    #[test]
-    fn appended_scripts_produce_a_distinct_bootable_snapshot() {
-        let mut scripts = runtime_scripts();
-        scripts.push(("marker".into(), "globalThis.__marker = 'chai';".into()));
-        let blob = create_snapshot(scripts).unwrap();
-        assert_eq!(eval_in_snapshot(blob, "__marker"), "chai");
     }
 }
