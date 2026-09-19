@@ -128,6 +128,8 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
                     rt.execute_script(name.clone(), source.clone())
                         .unwrap_or_else(|e| panic!("snapshot script `{name}` failed: {e}"));
                 }
+                // Do not serialize callbacks whose host runtime will be gone after the build.
+                rt.v8_isolate().perform_microtask_checkpoint();
             })),
         },
         None,

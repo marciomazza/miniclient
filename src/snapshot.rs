@@ -5,6 +5,9 @@ pub static DEFAULT_SNAPSHOT: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/DEFAULT_SNAPSHOT.bin"));
 
 #[cfg(test)]
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(test)]
 use crate::runtime::{extensions, init_platform};
 #[cfg(test)]
 use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_snapshot};
@@ -12,9 +15,18 @@ use deno_core::snapshot::{CreateSnapshotOptions, create_snapshot as deno_create_
 /// Runs `scripts` in order into a single isolate and serializes it. The real default snapshot
 /// is built by `build.rs`; this is the crate's own test entry point into the same machinery.
 #[cfg(test)]
+static SNAPSHOT_CREATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[cfg(test)]
 pub(crate) fn create_snapshot(
     scripts: Vec<(String, String)>,
 ) -> Result<Box<[u8]>, deno_core::error::CoreError> {
+    // V8 snapshot creators share process-global state; serialize test snapshots so their
+    // microtask checkpoints cannot overlap.
+    let _guard = SNAPSHOT_CREATION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("snapshot creation lock poisoned");
     init_platform();
     // Not `Extension::js_files`: those must be 7-bit ASCII, and the happy-dom bundle is not.
     let output = deno_create_snapshot(
@@ -29,6 +41,8 @@ pub(crate) fn create_snapshot(
                     js.execute_script(name.clone(), source.clone())
                         .unwrap_or_else(|e| panic!("snapshot script `{name}` failed: {e}"));
                 }
+                // Do not serialize callbacks whose host runtime will be gone after the build.
+                js.v8_isolate().perform_microtask_checkpoint();
             })),
         },
         None,
@@ -109,6 +123,20 @@ mod tests {
             ),
             "function,function,function"
         );
+    }
+
+    #[test]
+    fn snapshot_drains_microtasks_before_serialization() {
+        let blob = create_snapshot(vec![(
+            "microtask".into(),
+            r#"globalThis.__snapshot_value = 'before';
+               Promise.resolve().then(() => {
+                   globalThis.__snapshot_value = 'after';
+               });"#
+                .into(),
+        )])
+        .unwrap();
+        assert_eq!(eval_in_snapshot(blob, "__snapshot_value"), "after");
     }
 
     /// Extra scripts appended to the list still produce a bootable, distinct snapshot.
