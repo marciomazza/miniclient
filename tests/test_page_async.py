@@ -459,17 +459,8 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
 
 @pytest.mark.parametrize(
     "attr_setup_js",
-    [
-        "script.async = true;",
-        "script.defer = true;",
-        pytest.param(
-            "script.type = 'module';",
-            marks=pytest.mark.xfail(
-                reason="module scripts never fire load/error under jsdom", strict=True
-            ),
-        ),
-    ],
-    ids=["async", "defer", "module"],
+    ["script.async = true;", "script.defer = true;"],
+    ids=["async", "defer"],
 )
 async def test_page_script_src_resource_mount(tmp_path: Path, attr_setup_js: str) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
@@ -478,6 +469,16 @@ async def test_page_script_src_resource_mount(tmp_path: Path, attr_setup_js: str
         _load_script_js(attr_setup_js, "http://localhost/ext/external-script.js")
     )
     assert b.runtime.eval("window.__ran") == 1
+
+
+async def test_page_rejects_dynamic_module_script(tmp_path: Path) -> None:
+    (tmp_path / "external-script.js").write_text("window.__ran = 1;")
+    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
+        await b.runtime.eval_async(
+            _load_script_js("script.type = 'module';", "http://localhost/ext/external-script.js")
+        )
+    await b.aclose()
 
 
 @pytest.mark.xfail(
@@ -493,35 +494,21 @@ async def test_page_module_script_relative_import(tmp_path: Path) -> None:
     assert b.runtime.eval("window.__ran") == 1
 
 
-@pytest.mark.xfail(
-    strict=True, reason="jsdom does not load external module scripts in this runtime"
-)
-async def test_page_load_fires_dom_content_loaded_after_module_script(tmp_path: Path) -> None:
-    (tmp_path / "entry.js").write_text(
-        "document.addEventListener('DOMContentLoaded', () => { window.__dclFired = true; });"
-    )
+async def test_page_rejects_parser_module_script(tmp_path: Path) -> None:
+    (tmp_path / "entry.js").write_text("window.__ran = 1;")
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
-    assert b.runtime.eval("window.__dclFired") is True
+    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
+        await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
+    await b.aclose()
 
 
-@pytest.mark.xfail(
-    strict=True, reason="jsdom does not load external module scripts in this runtime"
-)
-async def test_page_goto_page_with_external_module_script(
-    tmp_path: Path, httpx_mock: HTTPXMock
-) -> None:
-    """goto() a real page whose HTML links an external module script.
-
-    Regression: the script's own `load` event fires *during* navigation, before
-    submit.js's finishLoad() runs, so waiting on that event there hung forever
-    ("Promise resolution is still pending but the event loop has already resolved").
-    """
+async def test_page_goto_rejects_module_script(tmp_path: Path, httpx_mock: HTTPXMock) -> None:
     (tmp_path / "entry.js").write_text("window.__ran = 1;")
     httpx_mock.add_response(
         url="http://localhost/",
         html='<script type="module" src="http://localhost/ext/entry.js"></script>',
     )
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    await b.goto("http://localhost/")
-    assert b.runtime.eval("window.__ran") == 1
+    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
+        await b.goto("http://localhost/")
+    await b.aclose()

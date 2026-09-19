@@ -443,7 +443,7 @@ globalThis.__mini.navigateDocument = function (html, url) {
     // Only now, with globalThis already mirroring `win`, is it safe to parse content and
     // let its <script> tags run (see createDom's comment above). open() resets the
     // just-constructed, already-"complete" empty document back to "loading", so
-    // parser-inserted defer/module/external scripts get the right readyState and fetch
+    // parser-inserted defer/external scripts get the right readyState and fetch
     // synchronously mid-parse, same as ticket 19's script-loading tests rely on.
     win.document.open();
     win.document.write(html);
