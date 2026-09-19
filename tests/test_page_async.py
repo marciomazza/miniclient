@@ -471,13 +471,13 @@ async def test_page_script_src_resource_mount(tmp_path: Path, attr_setup_js: str
     assert b.runtime.eval("window.__ran") == 1
 
 
-async def test_page_rejects_dynamic_module_script(tmp_path: Path) -> None:
+async def test_page_dynamic_module_script_executes(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
-        await b.runtime.eval_async(
-            _load_script_js("script.type = 'module';", "http://localhost/ext/external-script.js")
-        )
+    await b.runtime.eval_async(
+        _load_script_js("script.type = 'module';", "http://localhost/ext/external-script.js")
+    )
+    assert b.runtime.eval("window.__ran") == 1
     await b.aclose()
 
 
@@ -494,21 +494,21 @@ async def test_page_module_script_relative_import(tmp_path: Path) -> None:
     assert b.runtime.eval("window.__ran") == 1
 
 
-async def test_page_rejects_parser_module_script(tmp_path: Path) -> None:
+async def test_page_parser_module_script_executes(tmp_path: Path) -> None:
     (tmp_path / "entry.js").write_text("window.__ran = 1;")
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
-        await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
+    await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
+    assert b.runtime.eval("window.__ran") == 1
     await b.aclose()
 
 
-async def test_page_goto_rejects_module_script(tmp_path: Path, httpx_mock: HTTPXMock) -> None:
+async def test_page_goto_module_script_executes(tmp_path: Path, httpx_mock: HTTPXMock) -> None:
     (tmp_path / "entry.js").write_text("window.__ran = 1;")
     httpx_mock.add_response(
         url="http://localhost/",
         html='<script type="module" src="http://localhost/ext/entry.js"></script>',
     )
     b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
-        await b.goto("http://localhost/")
+    await b.goto("http://localhost/")
+    assert b.runtime.eval("window.__ran") == 1
     await b.aclose()

@@ -5,11 +5,10 @@ async/defer `<script src>`, `<link>`, and async `XMLHttpRequest`; and
 sync `XMLHttpRequest`.
 
 All requests target the runtime's own origin (http://localhost/, see conftest.py's
-`runtime` fixture) rather than a cross-origin URL: async XHR fetches in CORS mode by
-spec and would otherwise be blocked by happy-dom's Same-Origin Policy check — a real,
-correct check living above our patch boundary, not something this suite is testing.
-`type="module"` scripts are rejected before any fetch is attempted (see
-test_module_script_rejected_before_fetch), so CORS mode never comes into play for them.
+`runtime` fixture) rather than a cross-origin URL: async/module XHR and `<script>` fetches
+run in CORS mode by spec and would otherwise be blocked by happy-dom's Same-Origin Policy
+check — a real, correct check living above our patch boundary, not something this suite
+is testing.
 
 `<img src>` real-network loading is out of scope: it's gated behind happy-dom's
 `enableImageFileLoading` setting, which defaults to off and this project doesn't
@@ -25,8 +24,8 @@ import pytest
 
 @pytest.mark.parametrize(
     "attr_setup_js",
-    ["script.async = true;", "script.defer = true;"],
-    ids=["async", "defer"],
+    ["script.async = true;", "script.defer = true;", "script.type = 'module';"],
+    ids=["async", "defer", "module"],
 )
 async def test_script_src_real_network_executes(runtime, httpx_mock, attr_setup_js):
     httpx_mock.add_response(url="http://localhost/x.js", text="window.__ran = 1;")
@@ -43,16 +42,24 @@ async def test_script_src_real_network_executes(runtime, httpx_mock, attr_setup_
     assert result == 1
 
 
-async def test_module_script_rejected_before_fetch(runtime):
-    # No httpx_mock response registered: the rejection must happen before jsdom
-    # even attempts the fetch.
-    with pytest.raises(Exception, match=r'Unsupported feature: <script type="module">'):
-        await runtime.eval_async("""
-            const script = document.createElement('script');
-            script.type = 'module';
-            script.src = 'http://localhost/entry.js';
-            document.head.appendChild(script);
-        """)
+@pytest.mark.xfail(reason="no real ESM loader: bare imports are only a SyntaxError, not resolved")
+async def test_module_script_relative_import_real_network(runtime, httpx_mock):
+    httpx_mock.add_response(
+        url="http://localhost/entry.js",
+        text="import { value } from './helper.js'; window.__ran = value;",
+    )
+    httpx_mock.add_response(url="http://localhost/helper.js", text="export const value = 1;")
+    result = await runtime.eval_async("""
+        new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.type = 'module';
+          script.src = 'http://localhost/entry.js';
+          script.onload = () => resolve(window.__ran);
+          script.onerror = () => reject(new Error('script failed to load'));
+          document.head.appendChild(script);
+        });
+    """)
+    assert result == 1
 
 
 async def test_script_src_non_ok_status_fires_error_not_exception(runtime, httpx_mock):

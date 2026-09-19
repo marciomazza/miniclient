@@ -121,8 +121,56 @@ index 30afbde..396fb20 100644
    }
 
    _doReset() {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
+index 68c8e6f..56aef05 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
+@@ -143,8 +143,7 @@ class HTMLScriptElementImpl extends HTMLElementImpl {
+     const scriptBlocksTypeString = this._getTypeString();
+     const type = getType(scriptBlocksTypeString);
+
+-    if (type !== "classic") {
+-      // TODO: implement modules, and then change the check to `type === null`.
++    if (type === null) {
+       return;
+     }
+
+@@ -163,7 +162,8 @@ class HTMLScriptElementImpl extends HTMLElementImpl {
+
+   _innerEval(text, filename) {
+     this._ownerDocument._writeAfterElement = this;
+-    processJavaScript(this, text, filename);
++    const isModule = getType(this._getTypeString()) === "module";
++    processJavaScript(this, text, filename, isModule);
+     delete this._ownerDocument._writeAfterElement;
+   }
+
+@@ -208,7 +208,7 @@ class HTMLScriptElementImpl extends HTMLElementImpl {
+   }
+ }
+
+-function processJavaScript(element, code, filename) {
++function processJavaScript(element, code, filename, isModule = false) {
+   const document = element.ownerDocument;
+   const window = document && document._global;
+
+@@ -227,6 +227,14 @@ function processJavaScript(element, code, filename) {
+       }
+     }
+
++    // Module scripts are always strict-mode, per spec. This isn't a real ESM loader (no
++    // import/export resolution) -- it only covers already-bundled module scripts (e.g. Vite
++    // output) that have no remaining static imports to resolve.
++    if (isModule) {
++      code = `"use strict";\n${code}`;
++      lineOffset -= 1;
++    }
++
+     try {
+       vm.runInContext(code, window, { filename, lineOffset, displayErrors: false });
+     } catch (e) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
-index 18ce4a3..1a2b3c4 100644
+index 18ce4a3..0b5ac09 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 +++ b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 @@ -54,7 +54,7 @@ exports.navigate = (window, newURL, flags) => {

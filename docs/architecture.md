@@ -40,10 +40,12 @@ Follow the same approach — a resolver plus hand-written polyfills — for any 
 
 A [Vite](https://vite.dev/) production bundle sidesteps this almost entirely: bundling resolves the whole import graph at build time, so nothing needs runtime `require()` or bare-specifier resolution — a standard browser-targeted build just works. The exception is Node-targeted output (SSR, `target: 'node'`) that still calls real `fs`/`child_process`/`os` at runtime — bundling flattens imports, not the runtime APIs, so that code hits the same missing-Node-API wall as unbundled code.
 
-**No ES module scripts.** The jsdom runtime does not load or execute `<script type="module">`
-correctly and does not dispatch its `load` or `error` events. Code that waits for either event
-can remain pending indefinitely. Classic and `async`/`defer` scripts are supported; use a bundled
-classic script when a page depends on module execution.
+**`<script type="module">` runs as a classic script, not a real ES module.** jsdom fetches and
+executes it (`load`/`error` fire normally, same as `async`/`defer`), but there is no module
+loader: static `import`/`export` statements are a `SyntaxError` (reported to the console, script
+execution just stops there — it still counts as "loaded"). A Vite production bundle sidesteps
+this the same way it sidesteps `require()` above: bundling resolves the whole import graph at
+build time, so the emitted `<script type="module">` has no `import`/`export` left to resolve.
 
 **Reduced hardening against malicious page JS.** This project disables one of V8's memory-safety
 defenses (Memory Protection Keys) process-wide, to work around a V8 threading bug. This makes V8
