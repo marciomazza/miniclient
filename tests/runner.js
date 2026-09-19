@@ -10,7 +10,7 @@
     // Keeps nonzero delays nonzero: flooring to 0 would turn a macrotask wait into a
     // microtask one, breaking tests that depend on that ordering (e.g. MutationObserver
     // flush timing).
-    const TIMEOUT_DIVISOR = 10;
+    const TIMEOUT_DIVISOR = 3;
     const realSetTimeout = globalThis.setTimeout;
     const realSetInterval = globalThis.setInterval;
     const scale =

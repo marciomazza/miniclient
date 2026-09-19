@@ -27,19 +27,14 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
     ),
     ("timeout", "timeout() unit tests", "accepts seconds format"),
     (
-        "morph",
-        "htmx processing during morph",
-        "processes new htmx attributes added during innerMorph",
-    ),
-    (
-        "morph",
-        "htmx processing during morph",
-        "processes new htmx attributes added during outerMorph",
-    ),
-    (
         "hx-swap",
         "hx-swap modifiers",
         "main swap with delay respects blocking behavior",
+    ),
+    (
+        "hx-ws",
+        "Message Sending",
+        "queues a message until the initial connection opens",
     ),
     (
         "hx-live",
@@ -55,41 +50,6 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "hx-live",
         "hx-live extension",
         "debounce(ms, fn) supersedes across separate hx-on events on the same element",
-    ),
-    (
-        "hx-ws",
-        "Deep Review Fixes",
-        "cleans up expired pending requests on message receive",
-    ),
-    (
-        "hx-ws",
-        "Message Sending",
-        "includes async hx-vals (js:) in sent message",
-    ),
-    (
-        "hx-ws",
-        "Message Sending",
-        "queues a message until the initial connection opens",
-    ),
-    (
-        "hx-ws",
-        "Error Handling and Reconnection",
-        "reconnects after every default close code",
-    ),
-    (
-        "hx-ws",
-        "Custom Channels",
-        "waits for an incoming swap before processing the next message",
-    ),
-    (
-        "hx-sse",
-        "hx-sse SSE extension",
-        "reconnectMaxAttempts configuration works",
-    ),
-    (
-        "hx-multipart",
-        "hx-multipart extension",
-        "handles the next parallel part while an earlier part settles",
     ),
 ];
 
