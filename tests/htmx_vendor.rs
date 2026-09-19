@@ -77,6 +77,11 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "reconnects after every default close code",
     ),
     (
+        "hx-ws",
+        "Custom Channels",
+        "waits for an incoming swap before processing the next message",
+    ),
+    (
         "hx-sse",
         "hx-sse SSE extension",
         "reconnectMaxAttempts configuration works",
