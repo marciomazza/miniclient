@@ -1,11 +1,19 @@
 // htmx's #hxOnQuery and hx-live's bind scan both run `.//*[@*[starts-with(name(), ...)]]`
 // on every process() -- an XPath walk over every element x every attribute name of a
-// subtree. Keep a grow-only per-document Set of elements carrying an attribute name one of
-// those queries could select; the patched XPathEvaluator (bootstrap.js) short-circuits
-// them against it. A superset is safe: the evaluator re-filters by subtree membership and
-// the exact name predicate, and htmx's __handleHxOnAttributes is idempotent. Keyed on the
-// document so it dies with the Window on navigation; detached nodes are pruned lazily by
-// the evaluator's isConnected check.
+// subtree. Keep a grow-only Set of elements carrying an attribute name one of those queries
+// could select; the patched XPathEvaluator (bootstrap.js) short-circuits them against it. A
+// superset is safe: the evaluator re-filters by subtree membership and the exact name
+// predicate, and htmx's __handleHxOnAttributes is idempotent. Detached nodes are pruned
+// lazily by the evaluator's isConnected check.
+//
+// One Set per isolate (globalThis, not per-document): a <template>'s content briefly lives
+// in a separate "template contents owner document" (its elements' ownerDocument at
+// attribute-set time), then moves into the real document on insertion -- htmx's own
+// swap/makeFragment path does exactly this. A per-document Set would index the element under
+// the template's throwaway document and never find it again once adopted; a single Set
+// keyed on nothing survives that move for free. Every Runtime owns its own isolate, so this
+// still dies with the Window/Runtime -- just at process-teardown grain instead of navigation
+// grain.
 //
 // jsdom has no PropertySymbol-style per-Window attribute hook: the one choke point every
 // attribute write goes through -- public setAttribute(NS)/setAttributeNode(NS)/
@@ -44,8 +52,7 @@ function interesting(name) {
 const origAttrModified = ElementImpl.prototype._attrModified;
 ElementImpl.prototype._attrModified = function (name, value, oldValue) {
     if (value !== null && name && interesting(name)) {
-        const doc = this.ownerDocument;
-        if (doc) (doc[HXON_INDEX_KEY] ??= new Set()).add(this);
+        (globalThis[HXON_INDEX_KEY] ??= new Set()).add(this);
     }
     return origAttrModified.call(this, name, value, oldValue);
 };

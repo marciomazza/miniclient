@@ -289,8 +289,9 @@ function registerWindowGlobals(win) {
     // `.//*[@*[starts-with(name(), "...") or @exact]]`) against patch-jsdom-hxon-index.js's
     // grow-only Set instead of walking the real XPath engine over the whole subtree on every
     // process(). A superset match is safe here (see that file's header); this is the only
-    // reader of its Set. win.XPathEvaluator is a fresh class per Window, so this must be
-    // reapplied every navigation like the ANY_TYPE patch above.
+    // reader of its Set, kept on globalThis (not per-document -- see that file's header for
+    // why). win.XPathEvaluator is a fresh class per Window, so this must be reapplied every
+    // navigation like the ANY_TYPE patch above.
     {
         const HXON_INDEX_KEY = Symbol.for("miniclient.hxOnIndex");
         function hxOnShortCircuit(expr) {
@@ -302,8 +303,7 @@ function registerWindowGlobals(win) {
             const matchName = (n) => prefixes.some((p) => n.startsWith(p)) || exacts.includes(n);
             return function evaluate(ctxWrapper) {
                 const ctx = globalThis.__jsdomImplForWrapper(ctxWrapper);
-                const doc = ctx.ownerDocument || ctx;
-                const index = doc && doc[HXON_INDEX_KEY];
+                const index = globalThis[HXON_INDEX_KEY];
                 const out = [];
                 if (index) {
                     for (const el of index) {
