@@ -106,9 +106,9 @@ fn dynamically_inserted_defer_script_loads() {
 
 #[test]
 fn window_crypto_is_available() {
-    // window.crypto used to be undefined: happy-dom resolves it via `import { webcrypto } from
-    // 'crypto'`, which node-crypto.js forwards from globalThis.crypto -- unset unless
-    // pre_globals.js polyfills it before happy-dom is imported.
+    // window.crypto used to be undefined: jsdom resolves it via `require('crypto')`'s
+    // webcrypto, which node-crypto.js forwards from globalThis.crypto -- unset unless
+    // pre_globals.js polyfills it before jsdom is imported.
     let rt = runtime();
     assert!(rt.eval::<bool>(
         r#"

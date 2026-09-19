@@ -1,4 +1,4 @@
-//! The deno_web, happy-dom and node-polyfill globals the default snapshot boots, exercised
+//! The deno_web, jsdom and node-polyfill globals the default snapshot boots, exercised
 //! through `send_eval`.
 
 mod common;
@@ -111,7 +111,7 @@ fn dom_manipulation() {
 }
 
 #[test]
-fn happy_dom_globals_are_functions() {
+fn jsdom_globals_are_functions() {
     let rt = runtime();
     for js in [
         "typeof Headers",

@@ -17,7 +17,7 @@ def _wrap(form_html: str) -> str:
 
 
 class DomCheck:
-    """Compares DOM state between V8/happy-dom and a real browser after each interaction.
+    """Compares DOM state between V8/jsdom and a real browser after each interaction.
 
     No network, no WSGI server, no htmx — HTML is injected directly.
     """

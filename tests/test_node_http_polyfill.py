@@ -1,18 +1,19 @@
-"""Tests for the `node:http`/`node:https`/`node:child_process` polyfills that back
-happy-dom's real (non-virtual-server) resource fetching: `Fetch` (async), used by
-async/defer `<script src>`, `<link>`, and async `XMLHttpRequest`; and
-`SyncFetch` (`node:child_process`), used by classic blocking `<script src>` and
-sync `XMLHttpRequest`.
+"""Tests for real (non-mocked-transport) resource fetching under jsdom: `<script src>` and
+`<link>`, routed through jsdom's `resources`/`requestInterceptor` option to the runtime's own
+`httpx`-backed `fetch()` (see ticket 19 of `.scratch/jsdom-port/`). `XMLHttpRequest` itself
+-- async or sync -- is not ported yet (ticket 16): it's stubbed to throw on any real use
+(`polyfills/npm-jsdom-xhr-stub.js`), since jsdom's own implementation needs `node:worker_threads`
+(for the sync path) and this runtime doesn't polyfill it. The XHR tests below are xfail rather
+than exercising a real path -- they document the target behaviour ticket 16 would restore.
 
 All requests target the runtime's own origin (http://localhost/, see conftest.py's
-`runtime` fixture) rather than a cross-origin URL: async/module XHR and `<script>` fetches
-run in CORS mode by spec and would otherwise be blocked by happy-dom's Same-Origin Policy
-check — a real, correct check living above our patch boundary, not something this suite
-is testing.
+`runtime` fixture) rather than a cross-origin URL: `<script>` fetches run in CORS mode by spec
+and would otherwise be blocked by jsdom's Same-Origin Policy check — a real, correct check
+living above our patch boundary, not something this suite is testing.
 
-`<img src>` real-network loading is out of scope: it's gated behind happy-dom's
-`enableImageFileLoading` setting, which defaults to off and this project doesn't
-enable — a separate, pre-existing opt-in, not part of this patch.
+`<img src>` real-network loading is out of scope: it's gated behind jsdom's `resources`
+option (default: no subresource loading), which this project doesn't enable for images --
+a separate, pre-existing opt-in, not part of this patch.
 """
 
 import pytest

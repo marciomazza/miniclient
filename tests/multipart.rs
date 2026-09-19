@@ -7,7 +7,7 @@ const VENDOR_HTMX_SRC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/htmx/
 
 #[test]
 fn response_accepts_the_global_stream() {
-    // happy-dom's FetchBodyUtility does `body instanceof ReadableStream` against the class the
+    // undici's body extraction does `body instanceof ReadableStream` against the class the
     // `stream/web` bundle alias re-exports; a Response built from the global ReadableStream must
     // round-trip its bytes (guards the shim-identity trap).
     let rt = common::runtime();

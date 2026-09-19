@@ -199,7 +199,7 @@ async def test_click_not_blocked_by_unrelated_poller(
 ) -> None:
     """A live hx-trigger="every ..." poller elsewhere on the page must not make
     click()/trigger() on an unrelated element hang: bootstrap.js deliberately does not
-    track setInterval in the AsyncTaskManager reconnection (happy-dom's native
+    track setInterval in the AsyncTaskManager reconnection (jsdom's native
     Window.setInterval starts a timer with no matching endTimer() until clearInterval()),
     so a live poller would otherwise keep waitUntilComplete() permanently pending."""
     httpx_mock.add_response(
