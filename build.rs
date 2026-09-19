@@ -59,7 +59,9 @@ fn main() {
     // Needed on its own when node_modules was restored from a cache that predates a patch
     // (the `npm ci` above is skipped in that case) -- without this, an edit to patches/
     // would rebuild the bundle from a stale, unpatched jsdom and never notice.
-    run("npx", &["patch-package"], &root);
+    // `patch-package` exits 0 even when it fails to apply a patch unless told otherwise --
+    // `--error-on-fail` is what makes the `assert!` in `run()` actually catch it.
+    run("npx", &["patch-package", "--error-on-fail"], &root);
     run(
         "node",
         &[js.join("build-jsdom-bundle.mjs").to_str().unwrap()],
