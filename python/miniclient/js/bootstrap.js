@@ -271,10 +271,7 @@ function registerWindowGlobals(win) {
     // `[...document.adoptedStyleSheets, sheet]`, which throws on a bare Window otherwise.
     win.document.adoptedStyleSheets ??= [];
 
-    globalThis.__patchElementInternals(win);
-
-    // No other per-window patches applied yet beyond XPath (MutationObserver WeakRef-GC fix,
-    // shared SelectorParser/CSS cache).
+    globalThis.__patchJsdom(win);
 
     // XPathExpression.prototype.evaluate — jsdom's own XPath engine predates the webidl2js
     // pipeline that gives optional arguments their spec default, so a call with only a

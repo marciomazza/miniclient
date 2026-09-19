@@ -7,7 +7,7 @@ import "buffer";
 import { CookieJar, JSDOM, requestInterceptor } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
 import "./patch-jsdom-hxon-index.js";
-import { patchElementInternals } from "./patch-jsdom-element-internals.js";
+import { patchJsdom } from "./patch-jsdom.js";
 // jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
 // Importing its class files directly, not the `undici` package entry point, keeps its real
 // network client/dispatcher out of the bundle -- bootstrap.js's fetch() only needs these as
@@ -47,7 +47,7 @@ globalThis.__jsdomRequestInterceptor = requestInterceptor;
 // indexes.
 globalThis.__jsdomImplForWrapper = implForWrapper;
 globalThis.__jsdomWrapperForImpl = wrapperForImpl;
-globalThis.__patchElementInternals = patchElementInternals;
+globalThis.__patchJsdom = patchJsdom;
 globalThis.__innerText = innerText;
 // user-event's own `.files` getter (default files=[], fixed at construction) is replaced
 // with one derived live from `.items` -- see bootstrap.js's DataTransfer polyfill.

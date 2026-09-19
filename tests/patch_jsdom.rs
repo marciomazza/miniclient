@@ -24,6 +24,17 @@ fn xpath_expression_evaluate_defaults_type_to_any_type() {
 }
 
 #[test]
+fn document_parse_html_unsafe_reads_head_meta() {
+    let rt = runtime();
+    let js = r#"
+        Document.parseHTMLUnsafe(
+          '<html><head><meta name="csp-nonce" content="abc"></head><body></body></html>',
+        ).head.querySelector('meta').content;
+    "#;
+    assert_eq!(rt.eval::<String>(js), "abc");
+}
+
+#[test]
 fn hxon_index_short_circuit_sees_attributes_set_after_parse() {
     let rt = runtime();
     let js = r#"
