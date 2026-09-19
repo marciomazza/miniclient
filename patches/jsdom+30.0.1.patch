@@ -1,3 +1,44 @@
+diff --git a/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js b/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js
+index 18a4a67..856c63b 100644
+--- a/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js
++++ b/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js
+@@ -6,6 +6,16 @@ const utils = require("./utils.js");
+ const AbortSignal = require("./AbortSignal.js");
+ const EventListenerOptions = require("./EventListenerOptions.js");
+
++function bridgeAbortSignal(globalObject, signal) {
++  const controller = new globalObject.AbortController();
++  const abort = () => controller.abort(signal.reason);
++  if (signal.aborted) {
++    abort();
++  } else {
++    signal.addEventListener("abort", abort, { once: true });
++  }
++  return AbortSignal.convert(globalObject, controller.signal);
++}
+ exports._convertInherit = (globalObject, obj, ret, { context = "The provided value" } = {}) => {
+   EventListenerOptions._convertInherit(globalObject, obj, ret, { context });
+
+@@ -35,7 +45,18 @@ exports._convertInherit = (globalObject, obj, ret, { context = "The provided val
+     const key = "signal";
+     let value = obj === undefined || obj === null ? undefined : obj[key];
+     if (value !== undefined) {
+-      value = AbortSignal.convert(globalObject, value, { context: context + " has member 'signal' that" });
++      try {
++        value = AbortSignal.convert(globalObject, value, { context: context + " has member 'signal' that" });
++      } catch (error) {
++        const isForeignAbortSignal = value !== null &&
++          (typeof value === "object" || typeof value === "function") &&
++          typeof value.aborted === "boolean" &&
++          typeof value.addEventListener === "function";
++        if (!isForeignAbortSignal) {
++          throw error;
++        }
++        value = bridgeAbortSignal(globalObject, value);
++      }
+
+       ret[key] = value;
+     }
 diff --git a/node_modules/jsdom/lib/generated/idl/HTMLElement.js b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
 index 10cf4fb..cde9f99 100644
 --- a/node_modules/jsdom/lib/generated/idl/HTMLElement.js
@@ -176,7 +217,7 @@ index 0084dc0..69394b2 100644
 @@ -25,7 +25,12 @@ exports.implementation = class HistoryImpl {
    get length() {
      this._guardAgainstInactiveDocuments();
- 
+
 -    return this._window._sessionHistory.length;
 +    const localLength = this._window._sessionHistory.length;
 +    // Patched by mini (see patches/jsdom+30.0.1.patch): localLength alone undercounts every
@@ -185,7 +226,7 @@ index 0084dc0..69394b2 100644
 +    const hook = globalThis.__mini && globalThis.__mini.historyLength;
 +    return hook ? hook() + localLength - 1 : localLength;
    }
- 
+
    get state() {
 @@ -43,7 +48,17 @@ exports.implementation = class HistoryImpl {
        this._actAsIfLocationReloadCalled();
@@ -205,7 +246,7 @@ index 0084dc0..69394b2 100644
 +      }
      }
    }
- 
+
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 index 18ce4a3..0b5ac09 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js

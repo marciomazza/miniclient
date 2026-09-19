@@ -17,6 +17,27 @@ fn window_and_document_basics() {
 }
 
 #[test]
+fn foreign_abort_signal_removes_listener() {
+    let rt = runtime();
+    assert_eq!(
+        rt.eval::<u8>(
+            r#"
+            (() => {
+              const controller = new AbortController();
+              const element = document.createElement("button");
+              let calls = 0;
+              element.addEventListener("click", () => calls++, { signal: controller.signal });
+              controller.abort();
+              element.click();
+              return calls;
+            })()
+            "#,
+        ),
+        0,
+    );
+}
+
+#[test]
 fn deno_web_globals_wired() {
     let rt = runtime();
     for name in [

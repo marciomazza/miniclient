@@ -212,8 +212,15 @@
     // Blob/File are deleted again at the end of snapshot_warmup.js: each real Window has its
     // own spec-correct versions (what jsdom's native FormData checks file-input entries
     // against), and must still be free to become the live global once one exists --
-    // AbortController/AbortSignal stay, since nothing does an `instanceof` check against a
-    // per-Window version of them.
+    // AbortController/AbortSignal stay, because jsdom's own resource-loader interceptor
+    // (request-interceptor.js) does `new AbortController()` + `new Request(url, { signal })`
+    // internally, and that `Request` is undici's (also bound to this same deno_web
+    // AbortSignal at cold-pass, see below) -- swapping AbortController/AbortSignal for a
+    // per-Window version here would desync that pairing and break every subresource fetch,
+    // not just the one thing it was meant to fix (jsdom's `EventTarget#addEventListener`
+    // brand-checking an `{ signal }` option against its own internal AbortSignal class,
+    // rejecting this deno_web one -- patched instead in jsdom itself, see
+    // patches/jsdom+30.0.1.patch).
     {
         const f = Deno.core.loadExtScript("ext:deno_web/09_file.js");
         const a = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");
