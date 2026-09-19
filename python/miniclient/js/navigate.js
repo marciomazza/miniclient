@@ -29,10 +29,11 @@ globalThis.__mini ??= {};
     };
 
     // Fetches url and loads the response body as the new document. Shared by fetchAndLoad,
-    // navigateFetch below and submit.js's GET form submission.
-    __mini.fetchAndNavigate = async function (url) {
+    // navigateFetch below, submit.js's GET form submission, and bootstrap.js's navigateHistory.
+    // navigateOptions is forwarded to navigateDocument as-is (e.g. { fromHistoryTraversal }).
+    __mini.fetchAndNavigate = async function (url, navigateOptions) {
         const res = await fetch(url);
-        __mini.navigateDocument(await res.text(), res.url);
+        __mini.navigateDocument(await res.text(), res.url, navigateOptions);
     };
 
     // Fetches url and loads the response body as the new document. Backs Page.goto()

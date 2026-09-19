@@ -169,6 +169,43 @@ index 68c8e6f..56aef05 100644
      try {
        vm.runInContext(code, window, { filename, lineOffset, displayErrors: false });
      } catch (e) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
+index 0084dc0..69394b2 100644
+--- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
+@@ -25,7 +25,12 @@ exports.implementation = class HistoryImpl {
+   get length() {
+     this._guardAgainstInactiveDocuments();
+ 
+-    return this._window._sessionHistory.length;
++    const localLength = this._window._sessionHistory.length;
++    // Patched by mini (see patches/jsdom+30.0.1.patch): localLength alone undercounts every
++    // full-document navigation before this one (a fresh Window always starts at 1) -- add the
++    // embedder's persistent count, minus the 1 entry both already agree on (this document).
++    const hook = globalThis.__mini && globalThis.__mini.historyLength;
++    return hook ? hook() + localLength - 1 : localLength;
+   }
+ 
+   get state() {
+@@ -43,7 +48,17 @@ exports.implementation = class HistoryImpl {
+       this._actAsIfLocationReloadCalled();
+     } else {
+       // Otherwise, the user agent must traverse the history by a delta whose value is delta
+-      this._window._sessionHistory.traverseByDelta(delta);
++      const sessionHistory = this._window._sessionHistory;
++      const newIndex = sessionHistory._currentIndex + delta;
++      // Patched by mini (see patches/jsdom+30.0.1.patch): this window's session history never
++      // spans a full-document navigation -- delegate out-of-range deltas to the embedder's
++      // persistent one, bypassing traverseByDelta's setTimeout queueing (unpumped here).
++      const hook = globalThis.__mini && globalThis.__mini.navigateHistory;
++      if (hook && (newIndex < 0 || newIndex >= sessionHistory.length)) {
++        hook(delta);
++      } else {
++        sessionHistory.traverseByDelta(delta);
++      }
+     }
+   }
+ 
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 index 18ce4a3..0b5ac09 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js

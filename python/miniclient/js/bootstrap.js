@@ -433,7 +433,19 @@ globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
 // the only way to get a new Window/Document pair is a brand new JSDOM instance. Used
 // directly by submit.js for every kind of navigation (document.write, goto, and
 // post-submit).
-globalThis.__mini.navigateDocument = function (html, url) {
+// Visited-URL stack surviving navigateDocument's Window replacement below, unlike jsdom's own
+// window._sessionHistory -- history.go()'s embedder hook (navigateHistory) traverses this
+// instead, re-fetching rather than restoring a cached document (same as happy-dom's own
+// browserFrame.goBack(), which likewise re-navigates against its persistent BrowserFrame).
+let _zzzHistoryEntries = [globalThis.__BASE_URL__];
+let _zzzHistoryIndex = 0;
+
+globalThis.__mini.navigateDocument = function (html, url, { fromHistoryTraversal = false } = {}) {
+    if (!fromHistoryTraversal) {
+        _zzzHistoryEntries.length = _zzzHistoryIndex + 1;
+        _zzzHistoryEntries.push(url);
+        _zzzHistoryIndex = _zzzHistoryEntries.length - 1;
+    }
     dom = createDom(url);
     win = dom.window;
     registerWindowGlobals(win);
@@ -445,6 +457,25 @@ globalThis.__mini.navigateDocument = function (html, url) {
     win.document.open();
     win.document.write(html);
     win.document.close();
+};
+
+// Patched into jsdom's History#length getter (see patches/jsdom+30.0.1.patch): the total
+// count across every full navigation so far, position-independent (unlike _zzzHistoryIndex).
+globalThis.__mini.historyLength = function () {
+    return _zzzHistoryEntries.length;
+};
+
+// Patched into jsdom's History#go() (see patches/jsdom+30.0.1.patch): the hook it calls once
+// a delta runs past the current window's own (always-fresh) session history. Fire-and-forget
+// like navigateFetch (navigate.js) -- fetchAndNavigate's fetch is still tracked by settleTracker.
+globalThis.__mini.navigateHistory = function (delta) {
+    const targetIndex = _zzzHistoryIndex + delta;
+    if (targetIndex < 0 || targetIndex >= _zzzHistoryEntries.length) return;
+    __clearAllTimers();
+    _zzzHistoryIndex = targetIndex;
+    globalThis.__mini
+        .fetchAndNavigate(_zzzHistoryEntries[targetIndex], { fromHistoryTraversal: true })
+        .catch((err) => console.error("history navigation failed:", err));
 };
 
 registerWindowGlobals(win);

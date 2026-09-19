@@ -118,6 +118,34 @@ async def test_goto_isolates_globals_across_navigations(
     assert page.runtime.eval("typeof window.__leaked") == "undefined"
 
 
+async def test_history_back_spans_full_navigations(page: AsyncPage, httpx_mock: HTTPXMock) -> None:
+    """Each full navigation (goto/link click/form submit) replaces the whole jsdom Window,
+    and with it window._sessionHistory -- history.back() must still reach the previous page,
+    same as a real browser."""
+    # is_reusable: history.back()/forward() below re-fetch each URL (no document cache, see
+    # __mini.navigateHistory), so goto()'s own response for it must be matchable again.
+    httpx_mock.add_response(
+        url="http://localhost/a", text="<html><body><p>a</p></body></html>", is_reusable=True
+    )
+    httpx_mock.add_response(
+        url="http://localhost/b", text="<html><body><p>b</p></body></html>", is_reusable=True
+    )
+
+    await page.goto("http://localhost/a")
+    await page.goto("http://localhost/b")
+    assert page.runtime.eval("location.href") == "http://localhost/b"
+    # history.length must count every full navigation, not just the current (always-fresh)
+    # window's own -- real apps guard history.back() with it, e.g. a Cancel button doing
+    # `history.length > 1 ? history.back() : (location.href = '/')`.
+    assert page.runtime.eval("history.length") > 1
+
+    await page.eval_async("history.back(); __mini.settleTracker.whenQuiet()")
+    assert page.runtime.eval("location.href") == "http://localhost/a"
+
+    await page.eval_async("history.forward(); __mini.settleTracker.whenQuiet()")
+    assert page.runtime.eval("location.href") == "http://localhost/b"
+
+
 # ---------------------------------------------------------------------------
 # AsyncPage.load
 # ---------------------------------------------------------------------------

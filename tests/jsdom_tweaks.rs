@@ -121,6 +121,21 @@ fn history_pushstate_url_parts() {
 }
 
 #[test]
+fn history_length_starts_at_one() {
+    let rt = runtime();
+    assert_eq!(rt.eval::<i32>("history.length"), 1);
+}
+
+#[test]
+fn history_length_counts_pushstate_entries() {
+    let rt = runtime();
+    rt.run("history.pushState(null, '', '/a')");
+    assert_eq!(rt.eval::<i32>("history.length"), 2);
+    rt.run("history.pushState(null, '', '/b')");
+    assert_eq!(rt.eval::<i32>("history.length"), 3);
+}
+
+#[test]
 fn location_hash_change_resets_history_state() {
     let rt = runtime();
     rt.run("history.replaceState({foo: 1}, '', '/page'); location.hash = '#section'");
