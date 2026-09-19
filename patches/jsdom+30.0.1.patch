@@ -1,34 +1,70 @@
+diff --git a/node_modules/jsdom/lib/generated/idl/HTMLElement.js b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
+index 10cf4fb..cde9f99 100644
+--- a/node_modules/jsdom/lib/generated/idl/HTMLElement.js
++++ b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
+@@ -301,7 +301,14 @@ exports.install = (globalObject, globalNames) => {
+
+       ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
+       try {
+-        return esValue[implSymbol]._reflectGetTheContentAttribute("hidden") !== null;
++        // hidden is a tri-state enumerated attribute: "until-found" is its own state,
++        // distinct from the boolean hidden/not-hidden reflection of every other value.
++        // TODO: consider upstreaming this fix as a PR to jsdom/jsdom.
++        const value = esValue[implSymbol]._reflectGetTheContentAttribute("hidden");
++        if (value === null) {
++          return false;
++        }
++        return value.toLowerCase() === "until-found" ? "until-found" : true;
+       } finally {
+         ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
+       }
+@@ -316,6 +323,16 @@ exports.install = (globalObject, globalNames) => {
+         );
+       }
+
++      if (typeof V === "string" && V.toLowerCase() === "until-found") {
++        ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
++        try {
++          esValue[implSymbol]._reflectSetTheContentAttribute("hidden", "until-found");
++        } finally {
++          ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
++        }
++        return;
++      }
++
+       V = conversions["boolean"](V, {
+         context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
+         globals: globalObject
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
-index 7d09de2..7f36d21 100644
+index 7d09de2..a885613 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
-@@ -104,6 +104,7 @@ module.exports = class PerDocumentResourceLoader {
+@@ -103,7 +103,10 @@ module.exports = class PerDocumentResourceLoader {
+     if (element.localName === "script" && element.hasAttributeNS(null, "async")) {
        this._asyncQueue.push(request, onLoadWrapped, onErrorWrapped, this._queue.getLastScript());
      } else if (
++      // Dynamically inserted scripts never enter the parser's defer queue; that queue is
++      // resumed only during document parsing, so putting one there leaves its load event pending.
        element.localName === "script" &&
 +        element._parserInserted &&
          element.hasAttributeNS(null, "defer") &&
          this._document.readyState !== "interactive") {
        this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
-index 9b315a3..b635f41 100644
+index 9b315a3..2f232e3 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
-@@ -129,9 +129,11 @@ function queueMutationObserverMicrotask() {
+@@ -88,7 +88,9 @@ function queueMutationRecord(
+     activeMutationObservers.add(observer);
+   }
 
-   mutationObserverMicrotaskQueueFlag = true;
-
--  Promise.resolve().then(() => {
--    notifyMutationObservers();
--  });
-+  if (globalThis.__mini?.scheduleMutationObserver) {
-+    globalThis.__mini.scheduleMutationObserver(() => notifyMutationObservers());
-+  } else {
-+    Promise.resolve().then(notifyMutationObservers);
+-  queueMutationObserverMicrotask();
++  if (interestedObservers.size > 0) {
++    queueMutationObserverMicrotask();
 +  }
  }
 
- // https://dom.spec.whatwg.org/#notify-mutation-observers
+ // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 index 30afbde..396fb20 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
@@ -55,23 +91,6 @@ index 30afbde..396fb20 100644
    }
 
    _doReset() {
-diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
-index 68c8e6f..641c25a 100644
---- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
-+++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
-@@ -143,6 +143,12 @@ class HTMLScriptElementImpl extends HTMLElementImpl {
-     const scriptBlocksTypeString = this._getTypeString();
-     const type = getType(scriptBlocksTypeString);
-
-+    if (type === "module") {
-+      throw new Error(
-+        `Unsupported feature: <script type="module"> (${this.getAttributeNS(null, "src") || "inline script"})`
-+      );
-+    }
-+
-     if (type !== "classic") {
-       // TODO: implement modules, and then change the check to `type === null`.
-       return;
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 index 18ce4a3..4f0654f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js
