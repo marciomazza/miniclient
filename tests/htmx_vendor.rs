@@ -86,6 +86,11 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "hx-sse SSE extension",
         "reconnectMaxAttempts configuration works",
     ),
+    (
+        "hx-multipart",
+        "hx-multipart extension",
+        "handles the next parallel part while an earlier part settles",
+    ),
 ];
 
 /// (file stem, suite, test name) rewritten to `it.skip(...)` before the file runs -- not just
@@ -257,11 +262,7 @@ fn htmx_vendor_end2end_suite() {
     run_dir("end2end");
 }
 
-// Dynamically inserted deferred scripts now load through jsdom's normal resource queue. The
-// ext suite stays ignored because Alpine history/morph and hx-head still have separate behavior
-// failures that are not script-loading hangs.
 #[test]
-#[ignore]
 fn htmx_vendor_ext_suite() {
     run_dir("ext");
 }
