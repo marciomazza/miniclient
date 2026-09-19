@@ -122,7 +122,7 @@ index 30afbde..396fb20 100644
 
    _doReset() {
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
-index 18ce4a3..4f0654f 100644
+index 18ce4a3..1a2b3c4 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 +++ b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 @@ -54,7 +54,7 @@ exports.navigate = (window, newURL, flags) => {
@@ -134,7 +134,19 @@ index 18ce4a3..4f0654f 100644
  };
 
  // https://html.spec.whatwg.org/#scroll-to-fragid
-@@ -74,9 +74,18 @@ function navigateToFragment(window, newURL, flags) {
+@@ -68,15 +68,29 @@ function navigateToFragment(window, newURL, flags) {
+     // see https://github.com/whatwg/html/issues/2796 for spec bug
+     window._sessionHistory.removeAllEntriesAfterCurrentEntry();
+   }
+-  const newEntry = { document, url: newURL };
++  // Patched by mini (see patches/jsdom+30.0.1.patch): the classic history API state must be
++  // explicitly null on fragment navigation, per
++  // https://html.spec.whatwg.org/#url-and-history-update-steps -- left unset, `history.state`
++  // reads back as `undefined` instead of `null`. TODO: consider upstreaming this fix as a PR
++  // to jsdom/jsdom, since no existing issue/PR was found for it.
++  const newEntry = { document, url: newURL, stateObject: null };
+   window._sessionHistory.addEntryAfterCurrentEntry(newEntry);
+   window._sessionHistory.traverseHistory(newEntry, { nonBlockingEvents: true, replacement: flags.replacement });
  }
 
  // https://html.spec.whatwg.org/#process-a-navigate-fetch
