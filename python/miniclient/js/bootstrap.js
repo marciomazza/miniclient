@@ -435,8 +435,7 @@ globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
 // post-submit).
 // Visited-URL stack surviving navigateDocument's Window replacement below, unlike jsdom's own
 // window._sessionHistory -- history.go()'s embedder hook (navigateHistory) traverses this
-// instead, re-fetching rather than restoring a cached document (same as happy-dom's own
-// browserFrame.goBack(), which likewise re-navigates against its persistent BrowserFrame).
+// instead, re-fetching rather than restoring a cached document.
 let _zzzHistoryEntries = [globalThis.__BASE_URL__];
 let _zzzHistoryIndex = 0;
 
@@ -482,10 +481,15 @@ registerWindowGlobals(win);
 
 // Minimal replacement for happy-dom's AsyncTaskManager / window.happyDOM.waitUntilComplete()
 // (used by submit.js's __mini.awaitSettle to know when a click/submit's follow-on work --
-// fetches, timers -- has drained). A single counter is enough: every start*/end* pair below
-// is already 1:1 at its call site, so there's no need to track individual timer/fetch
-// identities, just how many are outstanding.
+// fetches, timers -- has drained). A single counter for tasks (fetches) is enough, since
+// those start*/end* pairs are 1:1 at their call site. Timers aren't: code commonly keeps a
+// timer id around after it has already fired (debounce patterns store it in a variable that
+// only gets reassigned, never cleared) and later calls clearTimeout() on that stale id --
+// a harmless no-op on a real timer, but it would double-decrement a bare counter here. Track
+// live timer ids in a set instead, so a clearTimeout() on an id that already fired (or never
+// existed) is a no-op, same as the real thing.
 let _zzzPendingTasks = 0;
+const _zzzLiveTimers = new Set();
 let _zzzQuietWaiters = [];
 function _zzzNotifyIfQuiet() {
     if (_zzzPendingTasks !== 0) return;
@@ -509,8 +513,12 @@ globalThis.__mini.settleTracker = {
         _zzzPendingTasks--;
         _zzzNotifyIfQuiet();
     },
-    startTimer: () => _zzzPendingTasks++,
-    endTimer: () => {
+    startTimer: (id) => {
+        _zzzLiveTimers.add(id);
+        _zzzPendingTasks++;
+    },
+    endTimer: (id) => {
+        if (!_zzzLiveTimers.delete(id)) return;
         _zzzPendingTasks--;
         _zzzNotifyIfQuiet();
     },
