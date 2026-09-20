@@ -138,13 +138,6 @@ class CrossCheck:
     async def create(
         cls, wsgi_app: WSGIApplication, page: Page, mode: Literal["htmx", "plain"] = "htmx"
     ) -> "CrossCheck":
-        client_talk = Talk()
-        capturing_transport = _CapturingTransport(WSGITransport(wsgi_app), client_talk)
-        client = await AsyncPage(
-            httpx_transport=capturing_transport,
-            mounts={"http://testserver/htmx.js": _VENDOR_HTMX_SRC},
-        )
-
         def _wrapped_wsgi(environ, start_response):
             if environ["PATH_INFO"] == "/htmx.js":
                 start_response(
@@ -152,6 +145,10 @@ class CrossCheck:
                 )
                 return [_HTMX_JS]
             return wsgi_app(environ, start_response)
+
+        client_talk = Talk()
+        capturing_transport = _CapturingTransport(WSGITransport(_wrapped_wsgi), client_talk)
+        client = await AsyncPage(httpx_transport=capturing_transport)
 
         server = make_server("127.0.0.1", 0, _wrapped_wsgi, handler_class=_SilentHandler)
         port = server.server_address[1]
