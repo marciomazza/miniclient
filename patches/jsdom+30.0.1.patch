@@ -313,3 +313,109 @@ index 18ce4a3..0b5ac09 100644
  }
 
  // https://url.spec.whatwg.org/#concept-url-equals
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+index df45819..2eaa8bd 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+@@ -10,6 +10,8 @@ const { wrapperForImpl } = require("../../../generated/idl/utils.js");
+ class CSSStyleSheetImpl extends StyleSheetImpl {
+   #constructed;
+   #disallowModification;
++  #cssRules;
++  #pendingParse = null;
+
+   constructor(globalObject, args, privateData = {}) {
+     super(globalObject, args, privateData);
+@@ -17,7 +19,22 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+     this.#constructed = "constructed" in privateData ? privateData.constructed : true;
+     this.#disallowModification = false;
+     this.ownerRule = privateData.ownerRule || null;
+-    this.cssRules = CSSRuleList.createImpl(globalObject);
++    this.#cssRules = CSSRuleList.createImpl(globalObject);
++  }
++
++  // Sheets created with _deferParse() are only parsed on first access: most linked sheets are
++  // never read, and parsing dominates their cost. Parse errors are reported at that point.
++  get cssRules() {
++    if (this.#pendingParse) {
++      const { text, onError } = this.#pendingParse;
++      this.#pendingParse = null;
++      cssParser.parseIntoStyleSheet(text, this._globalObject, this, onError);
++    }
++    return this.#cssRules;
++  }
++
++  _deferParse(text, onError) {
++    this.#pendingParse = { text, onError };
+   }
+
+   // Legacy alias for cssRules
+@@ -80,6 +97,7 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+     }
+
+     // Clear existing rules
++    this.#pendingParse = null;
+     this.cssRules._clear();
+
+     // Parse and populate
+@@ -109,6 +127,7 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+     // promise settling.
+     return new Promise(resolve => {
+       queueMicrotask(() => {
++        this.#pendingParse = null;
+         this.cssRules._clear();
+         cssParser.parseIntoStyleSheet(text, this._globalObject, this);
+         this.#disallowModification = false;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+index f56fcf4..9d76a2e 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+@@ -94,7 +94,7 @@ function parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError) {
+  * @param {Function} [options.onError] - Error callback.
+  * @returns {object} CSSStyleSheet impl.
+  */
+-function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerRule, mediaText, onError } = {}) {
++function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerRule, mediaText, onError, defer } = {}) {
+   const sheetImpl = CSSStyleSheet.createImpl(globalObject, [], {
+     href: href ?? null,
+     title: title ?? null,
+@@ -104,7 +104,11 @@ function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerR
+     constructed: false
+   });
+
+-  parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError);
++  if (defer) {
++    sheetImpl._deferParse(cssText, onError);
++  } else {
++    parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError);
++  }
+
+   return sheetImpl;
+ }
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+index 804c3db..eeddb8a 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+@@ -70,7 +70,11 @@ exports.createStyleSheetForElement = (cssText, elementImpl, href) => {
+   const globalObject = elementImpl._globalObject;
+   const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
+
++  // `@import` rules must be found (and fetched) at creation, so only sheets that cannot contain
++  // one -- including CSS-escaped spellings, hence `@\\` -- are parsed lazily.
++  const defer = !/@import|@\\/i.test(cssText);
+   const sheetImpl = parseStyleSheet(cssText, globalObject, {
++    defer,
+     href,
+     ownerNode: elementImpl,
+     mediaText: elementImpl.getAttributeNS(null, "media") || "",
+@@ -84,7 +88,9 @@ exports.createStyleSheetForElement = (cssText, elementImpl, href) => {
+     }
+   });
+
+-  scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
++  if (!defer) {
++    scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
++  }
+
+   return sheetImpl;
+ };
