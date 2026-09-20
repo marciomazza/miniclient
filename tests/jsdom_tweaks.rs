@@ -3,7 +3,8 @@
 
 mod common;
 
-use common::{EvalExt, runtime};
+use common::fetch_mock::{MockFetchBackend, runtime_with_mock};
+use common::{EvalExt, Runtime, runtime};
 
 #[test]
 fn innerhtml_radio_mutual_exclusion() {
@@ -133,6 +134,100 @@ fn history_length_counts_pushstate_entries() {
     assert_eq!(rt.eval::<i32>("history.length"), 2);
     rt.run("history.pushState(null, '', '/b')");
     assert_eq!(rt.eval::<i32>("history.length"), 3);
+}
+
+/// A runtime whose fetch serves a stub page at each of `paths` under http://localhost.
+fn runtime_serving(paths: &[&str]) -> Runtime {
+    let mock = MockFetchBackend::new();
+    for path in paths {
+        mock.text(
+            &format!("http://localhost{path}"),
+            &format!("<html><body><p>{path}</p></body></html>"),
+        );
+    }
+    runtime_with_mock(&mock)
+}
+
+fn goto(rt: &Runtime, url: &str) {
+    rt.run_async(&format!("__mini.fetchAndLoad('{url}')"));
+}
+
+fn history_go(rt: &Runtime, delta: i32) {
+    rt.run_async(&format!(
+        "history.go({delta}); __mini.settleTracker.whenQuiet()"
+    ));
+}
+
+fn href(rt: &Runtime) -> String {
+    rt.eval("location.href")
+}
+
+#[test]
+fn history_length_counts_same_document_entries_across_navigations() {
+    let rt = runtime_serving(&["/a", "/b"]);
+    goto(&rt, "http://localhost/a");
+    let before = rt.eval::<i32>("history.length");
+    rt.run("history.pushState(null, '', '/a2'); history.pushState(null, '', '/a3')");
+    goto(&rt, "http://localhost/b");
+    assert_eq!(rt.eval::<i32>("history.length"), before + 3);
+}
+
+#[test]
+fn history_back_restores_pushed_entry_and_state() {
+    let rt = runtime_serving(&["/a", "/a2", "/b"]);
+    goto(&rt, "http://localhost/a");
+    rt.run("history.pushState({n: 1}, '', '/a2')");
+    goto(&rt, "http://localhost/b");
+
+    history_go(&rt, -1);
+    assert_eq!(href(&rt), "http://localhost/a2");
+    assert_eq!(rt.eval::<i32>("history.state.n"), 1);
+
+    history_go(&rt, -1);
+    assert_eq!(href(&rt), "http://localhost/a");
+
+    history_go(&rt, 2);
+    assert_eq!(href(&rt), "http://localhost/b");
+}
+
+#[test]
+fn history_go_counts_entries_pushed_in_current_document() {
+    let rt = runtime_serving(&["/a", "/b"]);
+    goto(&rt, "http://localhost/a");
+    goto(&rt, "http://localhost/b");
+    rt.run("history.pushState(null, '', '/b2')");
+
+    history_go(&rt, -2);
+    assert_eq!(href(&rt), "http://localhost/a");
+}
+
+#[test]
+fn history_back_restores_hash_entry() {
+    let rt = runtime_serving(&["/a", "/b"]);
+    goto(&rt, "http://localhost/a");
+    rt.run("location.hash = '#x'");
+    goto(&rt, "http://localhost/b");
+
+    history_go(&rt, -1);
+    assert_eq!(href(&rt), "http://localhost/a#x");
+}
+
+#[test]
+fn history_replace_state_does_not_add_entry() {
+    let rt = runtime_serving(&["/a", "/b"]);
+    goto(&rt, "http://localhost/a");
+    let before = rt.eval::<i32>("history.length");
+    rt.run("history.replaceState({r: 1}, '', '/a-replaced')");
+    goto(&rt, "http://localhost/b");
+    assert_eq!(rt.eval::<i32>("history.length"), before + 1);
+}
+
+#[test]
+fn document_write_does_not_add_history_entry() {
+    let rt = runtime();
+    let before = rt.eval::<i32>("history.length");
+    rt.run_async("__mini.documentWrite('<p>x</p>')");
+    assert_eq!(rt.eval::<i32>("history.length"), before);
 }
 
 #[test]
