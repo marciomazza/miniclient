@@ -445,9 +445,13 @@ globalThis.__mini.navigateDocument = function (html, url, { fromHistoryTraversal
         _zzzHistoryEntries.push(url);
         _zzzHistoryIndex = _zzzHistoryEntries.length - 1;
     }
+    const previousWindow = win;
     dom = createDom(url);
     win = dom.window;
     registerWindowGlobals(win);
+    // After the global swap: closing first would delete `_document` from a window that
+    // globalThis still mirrors. jsdom keeps a closed window's whole tree alive otherwise.
+    previousWindow.close();
     // Only now, with globalThis already mirroring `win`, is it safe to parse content and
     // let its <script> tags run (see createDom's comment above). open() resets the
     // just-constructed, already-"complete" empty document back to "loading", so

@@ -116,18 +116,22 @@
     // queue is never drained; these replace it entirely.
     {
         let _nextId = 1;
-        const _active = {}; // timerId -> true
-        const _intervals = {}; // intervalId -> current timerId
+        // The pending op_sleep promise outlives a cancelled timer until `ms` elapses, so the
+        // callback lives in these tables (dropped on cancel), never in that promise's closure:
+        // a cleared 60s request timeout would otherwise pin its whole page for a minute.
+        const _active = {}; // timerId -> { fn, args }
+        const _intervals = {}; // intervalId -> { timerId, fn, args }
 
         const _wait = (ms) => Deno.core.ops.op_sleep(ms || 0);
 
         globalThis.setTimeout = (fn, ms = 0, ...args) => {
             const id = _nextId++;
-            _active[id] = true;
+            _active[id] = { fn, args };
             _wait(ms).then(() => {
-                if (_active[id]) {
+                const timer = _active[id];
+                if (timer) {
                     delete _active[id];
-                    fn(...args);
+                    timer.fn(...timer.args);
                 }
             });
             return id;
@@ -137,28 +141,32 @@
             if (id != null) delete _active[id];
         };
 
+        const _scheduleInterval = (intervalId, ms) => {
+            const timerId = _nextId++;
+            _intervals[intervalId].timerId = timerId;
+            _active[timerId] = true;
+            _wait(ms).then(() => {
+                delete _active[timerId];
+                const interval = _intervals[intervalId];
+                if (interval) {
+                    interval.fn(...interval.args);
+                    // The callback may have cleared its own interval.
+                    if (_intervals[intervalId]) _scheduleInterval(intervalId, ms);
+                }
+            });
+        };
+
         globalThis.setInterval = (fn, ms = 0, ...args) => {
             const intervalId = _nextId++;
-            const schedule = () => {
-                const timerId = _nextId++;
-                _intervals[intervalId] = timerId;
-                _active[timerId] = true;
-                _wait(ms).then(() => {
-                    delete _active[timerId];
-                    if (intervalId in _intervals) {
-                        fn(...args);
-                        schedule();
-                    }
-                });
-            };
-            schedule();
+            _intervals[intervalId] = { timerId: 0, fn, args };
+            _scheduleInterval(intervalId, ms);
             return intervalId;
         };
 
         globalThis.clearInterval = (intervalId) => {
-            const timerId = _intervals[intervalId];
+            const interval = _intervals[intervalId];
             delete _intervals[intervalId];
-            if (timerId != null) delete _active[timerId];
+            if (interval) delete _active[interval.timerId];
         };
 
         // Silently drop all pending timer callbacks — used between tests to prevent
