@@ -224,16 +224,18 @@ index 68c8e6f..56aef05 100644
    const document = element.ownerDocument;
    const window = document && document._global;
 
-@@ -227,6 +227,14 @@ function processJavaScript(element, code, filename) {
+@@ -227,6 +227,16 @@ function processJavaScript(element, code, filename) {
        }
      }
 
 +    // Module scripts are always strict-mode, per spec. This isn't a real ESM loader (no
 +    // import/export resolution) -- it only covers already-bundled module scripts (e.g. Vite
-+    // output) that have no remaining static imports to resolve.
++    // output) that have no remaining static imports to resolve. A function wrapper (not a
++    // "use strict" script directive) keeps V8's eval cache hittable: the lookup key uses the
++    // caller's sloppy mode, so a strict-directive source never matches its own stored entry.
++    // No newline after the opener keeps line numbers unchanged.
 +    if (isModule) {
-+      code = `"use strict";\n${code}`;
-+      lineOffset -= 1;
++      code = `(function(){"use strict";${code}\n}).call(undefined)`;
 +    }
 +
      try {
