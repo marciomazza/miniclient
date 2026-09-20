@@ -136,6 +136,35 @@ index 9b315a3..2f232e3 100644
  }
 
  // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+index b85d6b0..7eac08d 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+@@ -221,7 +221,8 @@ class DocumentImpl extends NodeImpl {
+     if (!this.#domSelector) {
+       this.#domSelector = new DOMSelector(this._globalObject, this._ownerDocument, {
+         domSymbolTree,
+-        idlUtils
++        idlUtils,
++        cacheSize: 256
+       });
+     }
+     return this.#domSelector;
+@@ -922,6 +922,14 @@ class DocumentImpl extends NodeImpl {
+           inclusiveDescendant._adoptingSteps(oldDocument);
+         }
+       }
++
++      for (const inclusiveDescendant of shadowIncludingInclusiveDescendantsIterator(node)) {
++        for (const attribute of inclusiveDescendant._attributeList ?? []) {
++          if (attribute._qualifiedName.startsWith("on")) {
++            inclusiveDescendant._globalEventChanged?.(attribute._qualifiedName.substring(2));
++          }
++        }
++      }
+     }
+   }
+
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 index 30afbde..396fb20 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
@@ -195,16 +224,18 @@ index 68c8e6f..56aef05 100644
    const document = element.ownerDocument;
    const window = document && document._global;
 
-@@ -227,6 +227,14 @@ function processJavaScript(element, code, filename) {
+@@ -227,6 +227,16 @@ function processJavaScript(element, code, filename) {
        }
      }
 
 +    // Module scripts are always strict-mode, per spec. This isn't a real ESM loader (no
 +    // import/export resolution) -- it only covers already-bundled module scripts (e.g. Vite
-+    // output) that have no remaining static imports to resolve.
++    // output) that have no remaining static imports to resolve. A function wrapper (not a
++    // "use strict" script directive) keeps V8's eval cache hittable: the lookup key uses the
++    // caller's sloppy mode, so a strict-directive source never matches its own stored entry.
++    // No newline after the opener keeps line numbers unchanged.
 +    if (isModule) {
-+      code = `"use strict";\n${code}`;
-+      lineOffset -= 1;
++      code = `(function(){"use strict";${code}\n}).call(undefined)`;
 +    }
 +
      try {
@@ -294,3 +325,125 @@ index 18ce4a3..0b5ac09 100644
  }
 
  // https://url.spec.whatwg.org/#concept-url-equals
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+index df45819..2eaa8bd 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+@@ -10,6 +10,8 @@ const { wrapperForImpl } = require("../../../generated/idl/utils.js");
+ class CSSStyleSheetImpl extends StyleSheetImpl {
+   #constructed;
+   #disallowModification;
++  #cssRules;
++  #pendingParse = null;
+
+   constructor(globalObject, args, privateData = {}) {
+     super(globalObject, args, privateData);
+@@ -17,7 +19,22 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+     this.#constructed = "constructed" in privateData ? privateData.constructed : true;
+     this.#disallowModification = false;
+     this.ownerRule = privateData.ownerRule || null;
+-    this.cssRules = CSSRuleList.createImpl(globalObject);
++    this.#cssRules = CSSRuleList.createImpl(globalObject);
++  }
++
++  // Sheets created with _deferParse() are only parsed on first access: most linked sheets are
++  // never read, and parsing dominates their cost. Parse errors are reported at that point.
++  get cssRules() {
++    if (this.#pendingParse) {
++      const { text, onError } = this.#pendingParse;
++      this.#pendingParse = null;
++      cssParser.parseIntoStyleSheet(text, this._globalObject, this, onError);
++    }
++    return this.#cssRules;
++  }
++
++  _deferParse(text, onError) {
++    this.#pendingParse = { text, onError };
+   }
+
+   // Legacy alias for cssRules
+@@ -80,6 +97,7 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+     }
+
+     // Clear existing rules
++    this.#pendingParse = null;
+     this.cssRules._clear();
+
+     // Parse and populate
+@@ -109,6 +127,7 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+     // promise settling.
+     return new Promise(resolve => {
+       queueMicrotask(() => {
++        this.#pendingParse = null;
+         this.cssRules._clear();
+         cssParser.parseIntoStyleSheet(text, this._globalObject, this);
+         this.#disallowModification = false;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+index f56fcf4..9d76a2e 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+@@ -94,7 +94,7 @@ function parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError) {
+  * @param {Function} [options.onError] - Error callback.
+  * @returns {object} CSSStyleSheet impl.
+  */
+-function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerRule, mediaText, onError } = {}) {
++function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerRule, mediaText, onError, defer } = {}) {
+   const sheetImpl = CSSStyleSheet.createImpl(globalObject, [], {
+     href: href ?? null,
+     title: title ?? null,
+@@ -104,7 +104,11 @@ function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerR
+     constructed: false
+   });
+
+-  parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError);
++  if (defer) {
++    sheetImpl._deferParse(cssText, onError);
++  } else {
++    parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError);
++  }
+
+   return sheetImpl;
+ }
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+index 804c3db..eeddb8a 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+@@ -70,7 +70,11 @@ exports.createStyleSheetForElement = (cssText, elementImpl, href) => {
+   const globalObject = elementImpl._globalObject;
+   const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
+
++  // `@import` rules must be found (and fetched) at creation, so only sheets that cannot contain
++  // one -- including CSS-escaped spellings, hence `@\\` -- are parsed lazily.
++  const defer = !/@import|@\\/i.test(cssText);
+   const sheetImpl = parseStyleSheet(cssText, globalObject, {
++    defer,
+     href,
+     ownerNode: elementImpl,
+     mediaText: elementImpl.getAttributeNS(null, "media") || "",
+@@ -84,7 +88,9 @@ exports.createStyleSheetForElement = (cssText, elementImpl, href) => {
+     }
+   });
+
+-  scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
++  if (!defer) {
++    scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
++  }
+
+   return sheetImpl;
+ };
+diff --git a/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js b/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js
+index 8ea8266..9a66504 100644
+--- a/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js
++++ b/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js
+@@ -367,6 +367,11 @@ class ProxyHandler {
+     if (typeof P === "symbol") {
+       return Reflect.get(target, P, receiver);
+     }
++    // Skips the named/indexed lookup and the proxied brand check that the getter would repeat.
++    // Only for the wrapper itself: another receiver must still reach the getter's own checks.
++    if (P === "length" && receiver === target[implSymbol][utils.wrapperSymbol]) {
++      return target[implSymbol].length;
++    }
+     const desc = this.getOwnPropertyDescriptor(target, P);
+     if (desc === undefined) {
+       const parent = Object.getPrototypeOf(target);

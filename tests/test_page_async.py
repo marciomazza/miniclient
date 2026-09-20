@@ -540,3 +540,19 @@ async def test_page_goto_module_script_executes(tmp_path: Path, httpx_mock: HTTP
     await b.goto("http://localhost/")
     assert b.runtime.eval("window.__ran") == 1
     await b.aclose()
+
+
+async def test_page_module_script_scope_and_strictness(page: AsyncPage) -> None:
+    await page.load(
+        """<script type="module">
+        var leaked = 1;
+        function hoisted() { return 2; }
+        window.__mod = { self: this, strict: (function () { return this; })(), h: hoisted() };
+        try { undeclared = 1; window.__mod.err = "none"; }
+        catch (e) { window.__mod.err = e.name; }
+        </script>"""
+    )
+    assert page.runtime.eval("typeof leaked + typeof hoisted") == "undefinedundefined"
+    assert page.runtime.eval("__mod.self === undefined && __mod.strict === undefined") is True
+    assert page.runtime.eval("__mod.h") == 2
+    assert page.runtime.eval("__mod.err") == "ReferenceError"
