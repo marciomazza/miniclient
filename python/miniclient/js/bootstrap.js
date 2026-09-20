@@ -433,21 +433,45 @@ globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
 // the only way to get a new Window/Document pair is a brand new JSDOM instance. Used
 // directly by submit.js for every kind of navigation (document.write, goto, and
 // post-submit).
-// Visited-URL stack surviving navigateDocument's Window replacement below, unlike jsdom's own
-// window._sessionHistory -- history.go()'s embedder hook (navigateHistory) traverses this
-// instead, re-fetching rather than restoring a cached document.
-let _zzzHistoryEntries = [globalThis.__BASE_URL__];
-let _zzzHistoryIndex = 0;
+// Session history entries ({url, state}) outside the current Window: jsdom's own
+// window._sessionHistory only ever holds the current document's entries (a fresh Window per
+// navigation), so the rest are parked here and re-joined with it in sessionEntries().
+let _historyBefore = [];
+let _historyAfter = [];
 
-globalThis.__mini.navigateDocument = function (html, url, { fromHistoryTraversal = false } = {}) {
-    if (!fromHistoryTraversal) {
-        _zzzHistoryEntries.length = _zzzHistoryIndex + 1;
-        _zzzHistoryEntries.push(url);
-        _zzzHistoryIndex = _zzzHistoryEntries.length - 1;
+function sessionEntries() {
+    const local = win._sessionHistory._entries.map((e) => ({
+        url: globalThis.__serializeURL(e.url),
+        state: e.stateObject,
+    }));
+    return {
+        entries: [..._historyBefore, ...local, ..._historyAfter],
+        current: _historyBefore.length + win._sessionHistory._currentIndex,
+    };
+}
+
+// `history`: "push" (new entry), "replace" (current entry, e.g. document.write) or
+// { traverseTo: index } (restore that entry's state, no new entry).
+globalThis.__mini.navigateDocument = function (html, url, { history = "push" } = {}) {
+    const { entries, current } = sessionEntries();
+    let target = current;
+    let state = null;
+    if (history === "push") {
+        entries.length = current + 1;
+        target = entries.push({ url }) - 1;
+    } else if (history === "replace") {
+        entries[current] = { url };
+    } else {
+        target = history.traverseTo;
+        state = entries[target].state;
     }
+    _historyBefore = entries.slice(0, target);
+    _historyAfter = entries.slice(target + 1);
+
     dom = createDom(url);
     win = dom.window;
     registerWindowGlobals(win);
+    if (state !== null) win.history.replaceState(state, "");
     // Only now, with globalThis already mirroring `win`, is it safe to parse content and
     // let its <script> tags run (see createDom's comment above). open() resets the
     // just-constructed, already-"complete" empty document back to "loading", so
@@ -458,22 +482,22 @@ globalThis.__mini.navigateDocument = function (html, url, { fromHistoryTraversal
     win.document.close();
 };
 
-// Patched into jsdom's History#length getter (see patches/jsdom+30.0.1.patch): the total
-// count across every full navigation so far, position-independent (unlike _zzzHistoryIndex).
+// Patched into jsdom's History#length getter (see patches/jsdom+30.0.1.patch), which adds the
+// current window's own entries to this count of the ones outside it, minus the shared current one.
 globalThis.__mini.historyLength = function () {
-    return _zzzHistoryEntries.length;
+    return _historyBefore.length + _historyAfter.length + 1;
 };
 
 // Patched into jsdom's History#go() (see patches/jsdom+30.0.1.patch): the hook it calls once
 // a delta runs past the current window's own (always-fresh) session history. Fire-and-forget
 // like navigateFetch (navigate.js) -- fetchAndNavigate's fetch is still tracked by settleTracker.
 globalThis.__mini.navigateHistory = function (delta) {
-    const targetIndex = _zzzHistoryIndex + delta;
-    if (targetIndex < 0 || targetIndex >= _zzzHistoryEntries.length) return;
+    const { entries, current } = sessionEntries();
+    const target = current + delta;
+    if (target < 0 || target >= entries.length) return;
     __clearAllTimers();
-    _zzzHistoryIndex = targetIndex;
     globalThis.__mini
-        .fetchAndNavigate(_zzzHistoryEntries[targetIndex], { fromHistoryTraversal: true })
+        .fetchAndNavigate(entries[target].url, { history: { traverseTo: target } })
         .catch((err) => console.error("history navigation failed:", err));
 };
 

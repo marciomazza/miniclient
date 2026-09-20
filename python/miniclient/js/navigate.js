@@ -24,16 +24,20 @@ globalThis.__mini ??= {};
     // action="/path", ...) resolve the same way a real in-place document.write() would.
     __mini.documentWrite = async function (html) {
         __clearAllTimers();
-        __mini.navigateDocument(html, location.href);
+        __mini.navigateDocument(html, location.href, { history: "replace" });
         return __mini.finishLoad();
     };
 
     // Fetches url and loads the response body as the new document. Shared by fetchAndLoad,
     // navigateFetch below, submit.js's GET form submission, and bootstrap.js's navigateHistory.
-    // navigateOptions is forwarded to navigateDocument as-is (e.g. { fromHistoryTraversal }).
+    // navigateOptions is forwarded to navigateDocument as-is (e.g. { history }).
     __mini.fetchAndNavigate = async function (url, navigateOptions) {
-        const res = await fetch(url);
-        __mini.navigateDocument(await res.text(), res.url, navigateOptions);
+        // Fragments are never sent over the wire, but stay on the document's URL.
+        const target = new URL(url, location.href);
+        const { hash } = target;
+        target.hash = "";
+        const res = await fetch(target.href);
+        __mini.navigateDocument(await res.text(), res.url + hash, navigateOptions);
     };
 
     // Fetches url and loads the response body as the new document. Backs Page.goto()

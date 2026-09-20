@@ -6,6 +6,7 @@
 import "buffer";
 import { CookieJar, JSDOM, requestInterceptor } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
+import { serializeURL } from "whatwg-url";
 import "./patch-jsdom-hxon-index.js";
 import { patchJsdom } from "./patch-jsdom.js";
 // jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
@@ -37,6 +38,7 @@ import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileLis
 // else (bootstrap.js, snapshot_warmup.js, ...) just references the bare `JSDOM` global.
 globalThis.JSDOM = JSDOM;
 globalThis.__JSDOMCookieJar = CookieJar;
+globalThis.__serializeURL = serializeURL;
 globalThis.Request = Request;
 globalThis.Response = Response;
 globalThis.__jsdomRequestInterceptor = requestInterceptor;
