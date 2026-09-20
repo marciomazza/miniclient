@@ -545,6 +545,14 @@ globalThis.clearTimeout = (id) => {
     _zzzRawClearTimeout(id);
 };
 
+const _zzzRawClearAllTimers = globalThis.__clearAllTimers;
+// The raw sweep forgets timers without firing them, so tell the tracker too -- otherwise a
+// timer pending at navigation time (e.g. a hash change's queued hashchange) stays "live" forever.
+globalThis.__clearAllTimers = () => {
+    _zzzRawClearAllTimers();
+    for (const id of [..._zzzLiveTimers]) globalThis.__mini.settleTracker.endTimer(id);
+};
+
 globalThis.fetch = async (input, init = {}) => {
     const signal = input instanceof Request ? input.signal : init.signal;
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");

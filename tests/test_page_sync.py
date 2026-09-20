@@ -180,3 +180,13 @@ async def test_page_rejects_running_event_loop() -> None:
     # inside one that's already running (e.g. this test coroutine's own loop).
     with pytest.raises(RuntimeError, match="running event loop"):
         Page()
+
+
+def test_goto_after_hash_change_does_not_hang(page: Page, httpx_mock: HTTPXMock) -> None:
+    """The hash change queues a timer; goto()'s timer sweep must not leave it counted as live."""
+    for path in ("/a", "/b"):
+        httpx_mock.add_response(url=f"http://localhost{path}", text=f"<p>{path}</p>")
+    page.goto("http://localhost/a")
+    page.eval("location.hash = '#x'")
+    page.goto("http://localhost/b")
+    assert page.eval("location.href") == "http://localhost/b"
