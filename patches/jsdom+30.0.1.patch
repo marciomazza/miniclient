@@ -136,6 +136,25 @@ index 9b315a3..2f232e3 100644
  }
 
  // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+index b85d6b0..7eac08d 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+@@ -922,6 +922,14 @@ class DocumentImpl extends NodeImpl {
+           inclusiveDescendant._adoptingSteps(oldDocument);
+         }
+       }
++
++      for (const inclusiveDescendant of shadowIncludingInclusiveDescendantsIterator(node)) {
++        for (const attribute of inclusiveDescendant._attributeList ?? []) {
++          if (attribute._qualifiedName.startsWith("on")) {
++            inclusiveDescendant._globalEventChanged?.(attribute._qualifiedName.substring(2));
++          }
++        }
++      }
+     }
+   }
+
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 index 30afbde..396fb20 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
