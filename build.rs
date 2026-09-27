@@ -44,6 +44,9 @@ fn watch_js_sources(js: &Path) {
 }
 
 fn main() {
+    // cargo test strips DYLD_*; bake libpython's rpath so non-system Python (mise/pyenv/brew) loads.
+    pyo3_build_config::add_libpython_rpath_link_args();
+
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let js = root.join("python/miniclient/js");
     let node_modules = root.join("node_modules");

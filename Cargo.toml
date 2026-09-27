@@ -48,6 +48,9 @@ serde_json = "1"
 deno_core = "0.412.0"
 deno_web = "0.290.0"
 deno_webidl = "0.259.0"
+# Pinned to match pyo3 0.29 -- add_libpython_rpath_link_args() bakes LC_RPATH into the
+# test binary so `cargo test` finds libpython on macOS (mise-installed Python).
+pyo3-build-config = "=0.29.2"
 
 [lints.clippy]
 todo = "warn"
