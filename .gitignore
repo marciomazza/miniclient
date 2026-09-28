@@ -24,3 +24,4 @@ site
 # Rust
 /target
 /dist
+lcov.info
