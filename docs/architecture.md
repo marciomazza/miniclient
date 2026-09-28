@@ -47,6 +47,11 @@ execution just stops there — it still counts as "loaded"). A Vite production b
 this the same way it sidesteps `require()` above: bundling resolves the whole import graph at
 build time, so the emitted `<script type="module">` has no `import`/`export` left to resolve.
 
+**`XMLHttpRequest` is not supported.** The constructor exists for feature-detection, but
+every method that would actually do I/O (`open`, `send`, `setRequestHeader`, etc.) throws
+synchronously. Use `fetch()` for HTTP from page code — it routes through this runtime's
+`httpx`-backed client.
+
 **Reduced hardening against malicious page JS.** This project disables one of V8's memory-safety
 defenses (Memory Protection Keys) process-wide, to work around a V8 threading bug. This makes V8
 somewhat easier to exploit if it ever mishandles memory while running untrusted JavaScript. If
