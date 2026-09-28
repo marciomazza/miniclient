@@ -12,10 +12,7 @@ use crate::ops;
 /// resolver or loader op). Embedded at compile time rather than read from disk: a wheel's
 /// `env!("CARGO_MANIFEST_DIR")` is the build machine's path, absent at runtime. Cargo tracks
 /// this file as a build input, so a checkout still rebuilds on edits.
-const BOOTSTRAP_JS: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/python/miniclient/js/bootstrap.js"
-));
+const BOOTSTRAP_JS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/js/bootstrap.js"));
 
 /// Initializes V8 once per process, before any isolate exists. Snapshot builders must call
 /// this too -- their isolates are bound by the same rule.

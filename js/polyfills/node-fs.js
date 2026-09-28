@@ -3,7 +3,7 @@
 // `fs.readFileSync(path.resolve(__dirname, ...))` at module scope, a real disk read that
 // would otherwise need op_fs_read registered during the snapshot build (it isn't) for a
 // file whose content never changes at runtime anyway.
-import jsdomDefaultStylesheet from "../../../../node_modules/jsdom/lib/jsdom/browser/default-stylesheet.css";
+import jsdomDefaultStylesheet from "../../node_modules/jsdom/lib/jsdom/browser/default-stylesheet.css";
 
 function statSync(path) {
     const info = Deno.core.ops.op_fs_stat(path);

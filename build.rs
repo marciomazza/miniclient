@@ -48,7 +48,7 @@ fn main() {
     pyo3_build_config::add_libpython_rpath_link_args();
 
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let js = root.join("python/miniclient/js");
+    let js = root.join("js");
     let node_modules = root.join("node_modules");
 
     println!("cargo::rerun-if-changed=package-lock.json");

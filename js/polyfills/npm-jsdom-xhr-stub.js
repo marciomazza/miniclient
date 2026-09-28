@@ -5,7 +5,7 @@
 // both fetch-based. window.XMLHttpRequest still needs to exist as a constructor for
 // feature-detection scripts; every actual method throws instead of pretending to work.
 const XMLHttpRequestEventTargetImpl =
-    require("../../../../node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl").implementation;
+    require("../../node_modules/jsdom/lib/jsdom/living/events/EventTarget-impl").implementation;
 
 const _unsupported = () => {
     throw new Error("XMLHttpRequest is not supported in this runtime; use fetch() instead");

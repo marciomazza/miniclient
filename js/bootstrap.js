@@ -154,7 +154,7 @@ function createDom(url) {
     return d;
 }
 let dom = createDom(globalThis.__BASE_URL__);
-let win = dom.window;
+const win = dom.window;
 
 // Make window behave like the global object: copy every own property (and symbol) of
 // the window instance onto globalThis, redirecting any self-reference (window.window/
