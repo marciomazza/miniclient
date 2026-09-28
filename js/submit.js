@@ -62,9 +62,8 @@ globalThis.__mini ??= {};
         navigate().catch((err) => console.error("form submission failed:", err));
     };
 
-    // __mini.submit is form-only. FormElement.requestSubmit() (page.py) calls it. jsdom's own
-    // requestSubmit() (patched above) already does validation, event dispatch and the actual
-    // navigation; this just drives it and waits for the page to settle.
+    // Drives jsdom's patched requestSubmit() (which already does validation, dispatch, and
+    // navigation); this only awaits settle.
     __mini.submit = async function (handle) {
         const el = __mini.deref(handle);
         if (!el) throw new Error("Element not found (handle " + handle + ")");

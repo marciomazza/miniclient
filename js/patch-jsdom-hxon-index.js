@@ -28,11 +28,8 @@ import { implementation as ElementImpl } from "jsdom/lib/jsdom/living/nodes/Elem
 export const HXON_INDEX_KEY = Symbol.for("miniclient.hxOnIndex");
 
 // The index must be a superset of every attribute name the recognised XPath queries can
-// select: htmx's #hxOnQuery matches `hx-on*` / `data-hx-on*`, hx-live's scan matches
-// `hx-live*` / `data-hx-live*` and its bindPrefix. The real prefixes derive from
-// htmx.config (`prefix` default `data-hx-`, `live.bindPrefix` default `:` -- `hx:` in
-// some setups, `metaCharacter` default `:`), which isn't loaded this early: the index is built
-// during HTML parse, before htmx. So this assumes those defaults plus a `hx:` bindPrefix.
+// select. The real prefixes derive from htmx.config (loaded after this runs), so this
+// assumes defaults plus a `hx:` bindPrefix.
 // A consumer that sets a non-default `prefix`, or a `live.bindPrefix` outside {`:`, `hx:`},
 // silently gets a stale index and its hx-on / hx-live handlers won't bind. Kept this narrow
 // on purpose -- widening to all `hx-*` roughly halves the win, because the evaluator's

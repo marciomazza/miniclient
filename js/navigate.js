@@ -28,9 +28,7 @@ globalThis.__mini ??= {};
         return __mini.finishLoad();
     };
 
-    // Fetches url and loads the response body as the new document. Shared by fetchAndLoad,
-    // navigateFetch below, submit.js's GET form submission, and bootstrap.js's navigateHistory.
-    // navigateOptions is forwarded to navigateDocument as-is (e.g. { history }).
+    // navigateOptions forwards as-is to navigateDocument (e.g. { history }).
     __mini.fetchAndNavigate = async function (url, navigateOptions) {
         // Fragments are never sent over the wire, but stay on the document's URL.
         const target = new URL(url, location.href);

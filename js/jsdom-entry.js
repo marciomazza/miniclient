@@ -33,8 +33,7 @@ import innerText from "styleless-innertext";
 import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileList.js";
 
 // The esbuild bundle wraps this entry point in an anonymous IIFE, so the import above stays
-// scoped to it -- this is the one explicit hand-off point to the shared realm. Everywhere
-// else (bootstrap.js, snapshot_warmup.js, ...) just references the bare `JSDOM` global.
+// scoped to it -- this is the one explicit hand-off point to the shared realm.
 globalThis.JSDOM = JSDOM;
 globalThis.__JSDOMCookieJar = CookieJar;
 globalThis.__serializeURL = serializeURL;

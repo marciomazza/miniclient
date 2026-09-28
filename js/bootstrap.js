@@ -1,13 +1,12 @@
 // JSDOM comes from globalThis.JSDOM instead of `import`, because that class (bundled by
 // build-jsdom-bundle.mjs) is baked into the V8 snapshot: importing jsdom's module graph
 // fresh on every Runtime() startup would cost the same kind of parse/compile time on every
-// call. Measured (release build, steady-state): Runtime() construction from the snapshot
-// is ~33ms with jsdom -- still well inside the deserialize-a-blob budget, but jsdom's larger
-// bundle (~5.2MB minified) does cost real snapshot-restore time, not just disk space.
+// call. jsdom's larger bundle does cost real snapshot-restore time, not just disk space.
 //
 // Patches applied to this Window: XPath's ANY_TYPE default and the hx-on index
-// short-circuit (below), plus real navigation (__mini.navigateDocument). Still unported:
-// the MutationObserver WeakRef-GC fix and cookie-jar/CORS handling in the fetch override.
+// short-circuit (below), plus real navigation (__mini.navigateDocument).
+//
+// TODO: port the MutationObserver WeakRef-GC fix and cookie-jar/CORS handling in the fetch override.
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the polyfills
@@ -86,14 +85,8 @@ function contentTypeFor(path) {
     return "application/octet-stream";
 }
 
-// `runScripts: "dangerously"` enables execution of inline/loaded <script> tags;
-// `pretendToBeVisual` turns on requestAnimationFrame/getComputedStyle/etc.
-// The initial URL is passed directly to the JSDOM constructor.
-//
-// Factored out because real navigation (__mini.navigateDocument, below) has no jsdom
-// equivalent -- window.location only handles same-document hash changes, and
-// HTMLFormElement's own submission algorithm is unimplemented (notImplementedMethod) --
-// so a navigation is a brand new JSDOM instance, built the same way as the first one.
+// Real navigation has no jsdom equivalent (location only does hash, HTMLFormElement's submit
+// is notImplementedMethod) -- a nav is a new JSDOM instance, built the same way as the first.
 //
 // Built empty, without html, on purpose: this runtime has one real V8 global object, so a
 // page's own scripts (executed by jsdom via indirect eval) write to whatever globalThis is
@@ -400,12 +393,9 @@ function registerWindowGlobals(win) {
     // node as a short collapsed tag, never eagerly walking its full property graph. Deno's
     // console (installed in pre_globals.js) has no such special case and falls back to its
     // generic object formatter, which recurses through every own property a node exposes
-    // (internal caches, parent/child backrefs, ...). That's expensive enough to matter:
-    // htmx logs `*:error` events via console.error(..., {elt, detail}) by default, and elt
-    // is the live element — each such call was costing ~150ms, enough by itself to blow
-    // through a reconnect-loop test's real-time assertion window (see hx-sse.js's
-    // "reconnectMaxAttempts"/"reconnectMaxDelay" tests). Set per-window, not once globally:
-    // each new Window gets its own fresh Node class.
+    // (internal caches, parent/child backrefs, ...) — expensive enough to matter given how
+    // often htmx logs `{elt, detail}` from `*:error` handlers. Set per-window, not once
+    // globally: each new Window gets its own fresh Node class.
     {
         const customInspect = Symbol.for("Deno.customInspect");
         win.Node.prototype[customInspect] = function () {
@@ -426,9 +416,7 @@ globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
 // Real navigation (window.location only handles same-document hash changes;
 // HTMLFormElement's own submission algorithm is unimplemented, see
 // notImplementedMethod in jsdom's HTMLFormElement-impl.js) has no jsdom equivalent --
-// the only way to get a new Window/Document pair is a brand new JSDOM instance. Used
-// directly by submit.js for every kind of navigation (document.write, goto, and
-// post-submit).
+// the only way to get a new Window/Document pair is a brand new JSDOM instance.
 // Session history entries ({url, state}) outside the current Window: jsdom's own
 // window._sessionHistory only ever holds the current document's entries (a fresh Window per
 // navigation), so the rest are parked here and re-joined with it in sessionEntries().
@@ -503,9 +491,7 @@ globalThis.__mini.navigateHistory = function (delta) {
 
 registerWindowGlobals(win);
 
-// Minimal task drain tracker (used by submit.js's __mini.awaitSettle to know when a
-// click/submit's follow-on work -- fetches, timers -- has drained). A single counter
-// for tasks (fetches) is enough, since
+// Minimal task drain tracker. A single counter for tasks (fetches) is enough, since
 // those start*/end* pairs are 1:1 at their call site. Timers aren't: code commonly keeps a
 // timer id around after it has already fired (debounce patterns store it in a variable that
 // only gets reassigned, never cleared) and later calls clearTimeout() on that stale id --

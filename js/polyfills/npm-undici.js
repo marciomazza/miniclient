@@ -1,17 +1,10 @@
-// The real network client/pool/agent machinery goes unused here: mini's JSDOMDispatcher
-// (jsdom-dispatcher.js, wired from bootstrap.js's `resources.interceptors`) always answers
-// through mini's own op_fetch transport or a local resource mount, never real undici sockets --
-// this stub's `dispatch()` is consequently never called, only inherited by JSDOMDispatcher.
+// Dispatcher.dispatch() is never called: JSDOMDispatcher (jsdom-dispatcher.js,
+// wired from bootstrap.js's `resources.interceptors`) intercepts first via op_fetch.
 //
-// `.request()` IS needed: jsdom-dispatcher.js's `fetchCollected()` calls it directly on the
-// dispatcher instance, expecting the promise-returning convenience wrapper real undici's full
-// package provides by mixing an `api` object onto `Dispatcher.prototype` as an index.js side
-// effect (`Object.assign(Dispatcher.prototype, api)`) -- a side effect this bundle skips by
-// importing jsdom's individual source files instead of undici's package entry point. This is a
-// minimal reimplementation: collect the handler-protocol callbacks (onRequestStart/
-// onResponseStart/onResponseData/onResponseEnd/onResponseError) into the
-// `{statusCode, headers, context, body: {bytes()}}` shape fetchCollected expects, with no
-// pause/resume/streaming support since nothing here reads the body incrementally.
+// .request() IS needed: fetchCollected() calls it directly, expecting undici's full
+// package's wrapper installed on Dispatcher.prototype via its entry-point side effect.
+// Importing jsdom's individual source files skips that side effect; the stub below
+// reimplements just the {statusCode, headers, body: {bytes()}} shape fetchCollected reads.
 export class Dispatcher {
     dispatch() {
         throw new Error("Dispatcher.dispatch: not implemented");
