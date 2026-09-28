@@ -1,10 +1,9 @@
 // JSDOM comes from globalThis.JSDOM instead of `import`, because that class (bundled by
 // build-jsdom-bundle.mjs) is baked into the V8 snapshot: importing jsdom's module graph
-// fresh on every Runtime() startup would cost the same kind of parse/compile time that
-// happy-dom's graph used to. Measured (release build, steady-state): Runtime() construction
-// from the snapshot is ~33ms with jsdom, vs. ~10ms on the same machine with happy-dom's
-// snapshot -- still well inside the deserialize-a-blob budget, but jsdom's larger bundle
-// (~6x happy-dom's minified size) does cost real snapshot-restore time, not just disk space.
+// fresh on every Runtime() startup would cost the same kind of parse/compile time on every
+// call. Measured (release build, steady-state): Runtime() construction from the snapshot
+// is ~33ms with jsdom -- still well inside the deserialize-a-blob budget, but jsdom's larger
+// bundle (~5.2MB minified) does cost real snapshot-restore time, not just disk space.
 //
 // Patches applied to this Window: XPath's ANY_TYPE default and the hx-on index
 // short-circuit (below), plus real navigation (__mini.navigateDocument). Still unported:
@@ -87,10 +86,9 @@ function contentTypeFor(path) {
     return "application/octet-stream";
 }
 
-// `runScripts: "dangerously"` matches happy-dom's default of executing inline/loaded
-// <script> tags; `pretendToBeVisual` turns on requestAnimationFrame/getComputedStyle/etc.
-// jsdom takes the initial URL directly at construction, unlike happy-dom's Browser/Page
-// API, which needed a Window built first and its location patched in separately.
+// `runScripts: "dangerously"` enables execution of inline/loaded <script> tags;
+// `pretendToBeVisual` turns on requestAnimationFrame/getComputedStyle/etc.
+// The initial URL is passed directly to the JSDOM constructor.
 //
 // Factored out because real navigation (__mini.navigateDocument, below) has no jsdom
 // equivalent -- window.location only handles same-document hash changes, and
@@ -223,12 +221,11 @@ function registerWindowGlobals(win) {
     // construct for real navigation from `document.defaultView.constructor`, which only
     // resolves correctly against the real win instance.
 
-    // Copy prototype-chain Symbol-keyed methods: a couple of internal happy-dom code
-    // paths (dispatchError, evaluateScript) call pseudo-private Symbol methods directly
-    // on the bare `window` global, which is now globalThis, not the win instance they're
-    // defined on (Window/BrowserWindow.prototype). Own-property copying above misses
-    // them. Restricted to symbols only — those are invisible to normal enumeration, so
-    // this can't leak public API surface onto globalThis.
+    // Copy prototype-chain Symbol-keyed methods: jsdom internally calls pseudo-private
+    // Symbol methods directly on the bare `window` global, which is globalThis, not the
+    // win instance they're defined on. Own-property copying above misses them.
+    // Restricted to symbols only — those are invisible to normal enumeration, so this
+    // can't leak public API surface onto globalThis.
     // Re-bound every call since these close over `win` and the deletion pass above
     // just wiped the previous window's bindings.
     for (
@@ -253,11 +250,10 @@ function registerWindowGlobals(win) {
         globalThis[key] = win[key].bind(win);
     }
 
-    // Legacy `window.event` current-event global: happy-dom's fork maintains `win.event`
-    // natively for the duration of each dispatch. Bridge bare `event` references (and the
-    // fork's own `window.event = event` write, which lands on globalThis here because
-    // self-references are redirected above) straight through to `win.event`, so there's no
-    // separate mirror to keep in sync and no dispatch-time wrapper re-entering per phase.
+    // Legacy `window.event` current-event global: jsdom maintains `win.event` natively for
+    // the duration of each dispatch. Bridge bare `event` references straight through to
+    // `win.event`, so there's no separate mirror to keep in sync and no dispatch-time
+    // wrapper re-entering per phase.
     Object.defineProperty(globalThis, "event", {
         get: () => win.event,
         set: (value) => {
@@ -403,11 +399,11 @@ function registerWindowGlobals(win) {
     // Node[Deno.customInspect] — a real browser's devtools console renders a logged DOM
     // node as a short collapsed tag, never eagerly walking its full property graph. Deno's
     // console (installed in pre_globals.js) has no such special case and falls back to its
-    // generic object formatter, which recurses through every own property happy-dom puts
-    // on a node (internal caches, parent/child backrefs, ...). That's expensive enough to
-    // matter: htmx logs `*:error` events via console.error(..., {elt, detail}) by default,
-    // and elt is the live element — each such call was costing ~150ms, enough by itself to
-    // blow through a reconnect-loop test's real-time assertion window (see hx-sse.js's
+    // generic object formatter, which recurses through every own property a node exposes
+    // (internal caches, parent/child backrefs, ...). That's expensive enough to matter:
+    // htmx logs `*:error` events via console.error(..., {elt, detail}) by default, and elt
+    // is the live element — each such call was costing ~150ms, enough by itself to blow
+    // through a reconnect-loop test's real-time assertion window (see hx-sse.js's
     // "reconnectMaxAttempts"/"reconnectMaxDelay" tests). Set per-window, not once globally:
     // each new Window gets its own fresh Node class.
     {
@@ -507,9 +503,9 @@ globalThis.__mini.navigateHistory = function (delta) {
 
 registerWindowGlobals(win);
 
-// Minimal replacement for happy-dom's AsyncTaskManager / window.happyDOM.waitUntilComplete()
-// (used by submit.js's __mini.awaitSettle to know when a click/submit's follow-on work --
-// fetches, timers -- has drained). A single counter for tasks (fetches) is enough, since
+// Minimal task drain tracker (used by submit.js's __mini.awaitSettle to know when a
+// click/submit's follow-on work -- fetches, timers -- has drained). A single counter
+// for tasks (fetches) is enough, since
 // those start*/end* pairs are 1:1 at their call site. Timers aren't: code commonly keeps a
 // timer id around after it has already fired (debounce patterns store it in a variable that
 // only gets reassigned, never cleared) and later calls clearTimeout() on that stale id --
@@ -557,8 +553,7 @@ const _zzzRawClearTimeout = globalThis.clearTimeout;
 globalThis.setTimeout = (fn, ms = 0, ...args) => {
     const id = _zzzRawSetTimeout(
         (...cbArgs) => {
-            // endTimer() before the callback, not after: mirrors happy-dom's own
-            // BrowserWindow.setTimeout ordering (the callback might throw).
+            // endTimer() before the callback, not after: the callback might throw.
             globalThis.__mini.settleTracker.endTimer(id);
             fn(...cbArgs);
         },

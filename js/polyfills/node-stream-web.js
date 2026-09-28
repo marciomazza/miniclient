@@ -1,7 +1,8 @@
-// The `stream/web` bundle alias. happy-dom's FetchBodyUtility does
-// `body instanceof ReadableStream` against this import, so it must resolve to the exact
-// global class. pre_globals.js loads deno_web's 06_streams.js and assigns these onto
-// globalThis in the cold snapshot pass, before the happy-dom bundle evals.
+// The `stream/web` bundle alias. undici's web/fetch/body.js does
+// `require('node:stream/web')` and pulls `ReadableStreamTee` from it (downstream
+// `instanceof ReadableStream` checks need the exact global). The real classes come
+// from deno_web's 06_streams.js, assigned onto globalThis by pre_globals.js in the
+// cold snapshot pass.
 export const ReadableStream = globalThis.ReadableStream;
 export const WritableStream = globalThis.WritableStream;
 export const TransformStream = globalThis.TransformStream;

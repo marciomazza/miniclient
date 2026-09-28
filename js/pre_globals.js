@@ -5,10 +5,10 @@
     // survive into the snapshot's residual lazy table.
     //
     // URL/URLSearchParams — deno_web's WHATWG impl (Servo `url` crate). Assigned here in the
-    // cold pass so happy-dom's bundle captures them as the globals when it evals; node-url.js
-    // re-exports them for the `url` bundle alias, which happy-dom's URL/URLSearchParams import
-    // from. searchParams mutations propagate back to href, and URLSearchParams accepts an
-    // iterable (incl. our FormData) as init -- both former patch-happy-dom-url.js jobs.
+    // cold pass so the bundle's `require('node:url')` imports resolve to the same globals;
+    // node-url.js re-exports them for the `url` bundle alias, which undici's
+    // socks5-proxy-agent pulls in. searchParams mutations propagate back to href, and
+    // URLSearchParams accepts an iterable (incl. our FormData) as init.
     {
         const url = Deno.core.loadExtScript("ext:deno_web/00_url.js");
         const { Console } = Deno.core.loadExtScript("ext:deno_web/01_console.js");
@@ -17,9 +17,10 @@
         Object.assign(globalThis, { URL: url.URL, URLSearchParams: url.URLSearchParams });
     }
 
-    // TextEncoder/TextDecoder — deno_web's, backed by encoding_rs ops. Force-loaded here (cold
-    // snapshot pass) so happy-dom captures the native classes when its bundle evals. webidl
-    // must be touched too: only ext scripts loaded in the cold pass survive the snapshot.
+    // TextEncoder/TextDecoder — deno_web's, backed by encoding_rs ops. Force-loaded here
+    // (cold snapshot pass) so the classes land on globalThis for the bundle's import
+    // resolution. webidl must be touched too: only ext scripts loaded in the cold pass
+    // survive the snapshot's residual lazy table.
     {
         Deno.core.loadExtScript("ext:deno_webidl/00_webidl.js");
         const te = Deno.core.loadExtScript("ext:deno_web/08_text_encoding.js");
@@ -48,9 +49,9 @@
     };
 
     // performance — deno_web's real implementation: monotonic now() (op_now), working
-    // marks/measures/observers. Force-loaded here (cold snapshot pass) so happy-dom's bundle
-    // captures the native classes and the singleton when it evals; node-perf-hooks.js re-exports
-    // PerformanceObserver/PerformanceEntry from the globals set below.
+    // marks/measures/observers. Force-loaded here (cold snapshot pass) so the bundle's
+    // `require('node:perf_hooks')` resolves to the same singleton and classes; node-perf-hooks.js
+    // re-exports PerformanceObserver/PerformanceEntry from the globals set below.
     {
         // 15_performance lazy-loads structured_clone for mark/measure detail; force it into
         // the snapshot's residual table here since nothing else touches it in the cold pass.
@@ -70,10 +71,11 @@
         });
     }
 
-    // crypto — CSPRNG backed by native ops (getrandom + the uuid crate). Must exist before
-    // happy-dom is imported: its BrowserWindow does `import { webcrypto } from 'crypto';
-    // crypto = webcrypto`, which resolves through node-crypto.js's `globalThis.crypto`
-    // forwarding. Only getRandomValues + randomUUID are used anywhere; no crypto.subtle.
+    // crypto — CSPRNG backed by native ops (getrandom + the uuid crate). Required for
+    // `require('node:crypto')` resolution: jsdom's Crypto-impl and undici's WebSocket /
+    // formdata paths pull randomUUID / randomFillSync / randomInt from there. The polyfill
+    // forwards this global as `webcrypto`. Only getRandomValues + randomUUID are used
+    // anywhere; no crypto.subtle.
     globalThis.crypto ??= {
         getRandomValues(arr) {
             const bytes = new Uint8Array(Deno.core.ops.op_crypto_random_bytes(arr.byteLength));
@@ -109,11 +111,11 @@
         }
     };
 
-    // Must exist before happy-dom is imported: its modules do
-    // `globalThis.setTimeout.bind(globalThis)` at import time and keep that bound
-    // reference forever, so happy-dom's internal timers run on whatever is defined here.
-    // win.setTimeout (happy-dom) never fires in this runtime because its internal timer
-    // queue is never drained; these replace it entirely.
+    // jsdom calls bare `setTimeout(...)` from a handful of impl files (Storage events,
+    // HTMLInputElement/HTMLTextAreaElement select events, AbortSignal, SessionHistory).
+    // Those resolve through globalThis.setTimeout; if it were deno_core's no-op stub the
+    // queued work would never run. This is the single source of truth for the whole
+    // bundle, with deno ops providing the actual sleep.
     {
         let _nextId = 1;
         // The pending op_sleep promise outlives a cancelled timer until `ms` elapses, so the
@@ -190,9 +192,9 @@
     // WHATWG Streams — deno_web's spec reference implementation: real backpressure
     // (desiredSize) and correct EOF (a pending read() waits for a later enqueue()/close()
     // rather than resolving done when the queue drains). Force-loaded here (cold snapshot
-    // pass) so happy-dom's bundle captures these as the global classes; node-stream-web.js
-    // re-exports them for the `stream/web` bundle alias, and FetchBodyUtility's
-    // `body instanceof ReadableStream` check needs that to be the exact global.
+    // pass) so the bundle's `require('node:stream/web')` imports resolve to the same
+    // global classes -- undici's Request body does an `instanceof ReadableStream` check
+    // that needs the exact identity.
     // 06_streams.js lazy-loads 03_abort_signal.js + 00_infra.js, pulled in transitively here.
     {
         const s = Deno.core.loadExtScript("ext:deno_web/06_streams.js");

@@ -1,4 +1,4 @@
-# Rebuild the native extension into the venv, picking up Rust / JS / vendor/happy-dom changes.
+# Rebuild the native extension into the venv, picking up Rust / JS / jsdom-bundle changes.
 develop:
     uvx maturin develop --uv
 
@@ -6,7 +6,7 @@ develop:
 test-rust:
     cargo nextest run
 
-# Python tests -- rebuilds the extension first so the bundled happy-dom is current.
+# Python tests -- rebuilds the extension first so the bundled jsdom is current.
 test-py: develop
     uv run pytest -n4
 

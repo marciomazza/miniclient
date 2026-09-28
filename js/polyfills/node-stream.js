@@ -152,9 +152,12 @@ function pump(src, dest) {
     });
 }
 
-// ponytail: only chains src -> dest pairs sequentially, no real Transform support —
-// nothing in this codebase's Fetch usage needs one (gzip/deflate response bodies
-// never reach here, see the content-encoding stripping in runtime.py's _fetch_op_impl).
+// Sequential src -> dest chain only: pump() can wire a Node-style source to a PassThrough
+// sink, but can't apply a true Transform in the middle (no _transform/_flush hooks).
+// undici's pipeline() callers in this bundle (eventsource, fetch decoder chain, HTTP/2
+// dispatcher, decompress interceptor) all fit src->dest in practice; the gzip/deflate
+// Transform paths aren't reachable because runtime.py's _fetch_op_impl strips
+// content-encoding before undici sees the response body.
 function pipeline(...args) {
     const cb = typeof args[args.length - 1] === "function" ? args.pop() : null;
     const streams = args;
@@ -171,9 +174,12 @@ function pipeline(...args) {
     return streams[streams.length - 1];
 }
 
-// Stub, never instantiated: only referenced by undici's `InflateStream extends Transform`
-// (gzip/deflate decoding), the same dead path the `pipeline()` comment above already covers --
-// content-encoding is stripped server-side, so this class body is unreachable at runtime.
+// Stub for undici's `class Foo extends Transform` declarations
+// (eventsource-stream.js:95, web/fetch/util.js:1248: InflateStream). The class body must
+// exist at module-load for the `extends` clauses to parse; no Transform instance is ever
+// constructed in mini's runtime (content-encoding is stripped server-side, so the
+// gzip/deflate decoder path is dead), but the subclasses would fail to load without a
+// constructor here. Same role as node-http.js: file needed, contents aren't exercised.
 class Transform extends Emitter {}
 
 // undici's body-extraction code checks these on the WHATWG `ReadableStream` it just created

@@ -19,9 +19,8 @@
 // attribute write goes through -- public setAttribute(NS)/setAttributeNode(NS)/
 // toggleAttribute, the parse5-backed HTML parser, and cloneNode -- is
 // ElementImpl.prototype._attrModified(name, value, oldValue) (value === null on removal).
-// Unlike happy-dom's per-Window Element class, this impl class is a CommonJS singleton
-// shared by every Window in the process, so the patch is applied once at import time
-// instead of per-navigation.
+// This impl class is a CommonJS singleton shared by every Window in the process, so the
+// patch is applied once at import time instead of per-navigation.
 import { implementation as ElementImpl } from "jsdom/lib/jsdom/living/nodes/Element-impl.js";
 
 // CONTRACT: same registry string as bootstrap.js's XPathEvaluator short-circuit, which is

@@ -1,8 +1,7 @@
-// happy-dom's module graph required "buffer" eagerly, which is what actually replaced
-// pre_globals.js's placeholder `globalThis.Buffer` with the real polyfill; jsdom's minimal
-// construction path (empty HTML, no scripts) never reaches a require for it. Import it here,
-// before jsdom, purely for that side effect -- ESM evaluates imports in declaration order, so
-// this runs (and installs the real Buffer) before any of jsdom's own module graph does.
+// Some modules in the bundle (notably undici) require "buffer" eagerly at module top
+// level. Importing it here installs the real polyfill on globalThis.Buffer before any
+// of those modules do their require resolution; ESM evaluates imports in declaration
+// order, so this runs first.
 import "buffer";
 import { CookieJar, JSDOM, requestInterceptor } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
