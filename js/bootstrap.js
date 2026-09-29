@@ -43,37 +43,26 @@ _preExistingGlobals.add("__zzz_get_browser_frame");
 // HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch
 // transport the Python side controls.
 const resourceInterceptor = __jsdomRequestInterceptor(async (request, { element }) => {
-    // Tracked synchronously at the moment jsdom invokes the interceptor (not just inside
-    // the fetch() branch below): jsdom schedules subresource fetches asynchronously after
-    // navigation returns, so __mini.settleTracker's "settled" check has to see this as
-    // pending from the instant jsdom starts it, or a fast check could race ahead of it
-    // ever starting.
-    const settleTracker = globalThis.__mini.settleTracker;
-    settleTracker.startTask();
-    try {
-        const mounts = globalThis.__RESOURCE_MOUNTS__;
-        const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
-        if (prefix === undefined) {
-            try {
-                return await globalThis.fetch(request);
-            } catch (error) {
-                // jsdom reports stylesheet failures through the link element. Convert a
-                // transport failure to that path without weakening script failures.
-                if (element?.localName !== "link" || !element.relList?.contains("stylesheet"))
-                    throw error;
-                return new Response(null, { status: 404, statusText: "Not Found" });
-            }
-        }
-
-        const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
+    const mounts = globalThis.__RESOURCE_MOUNTS__;
+    const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
+    if (prefix === undefined) {
         try {
-            const bytes = Deno.core.ops.op_fs_read(path);
-            return new Response(bytes, { headers: { "content-type": contentTypeFor(path) } });
-        } catch {
+            return await globalThis.fetch(request);
+        } catch (error) {
+            // jsdom reports stylesheet failures through the link element. Convert a
+            // transport failure to that path without weakening script failures.
+            if (element?.localName !== "link" || !element.relList?.contains("stylesheet"))
+                throw error;
             return new Response(null, { status: 404, statusText: "Not Found" });
         }
-    } finally {
-        settleTracker.endTask();
+    }
+
+    const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
+    try {
+        const bytes = Deno.core.ops.op_fs_read(path);
+        return new Response(bytes, { headers: { "content-type": contentTypeFor(path) } });
+    } catch {
+        return new Response(null, { status: 404, statusText: "Not Found" });
     }
 });
 
@@ -483,7 +472,8 @@ globalThis.__mini.historyLength = function () {
 
 // Patched into jsdom's History#go() (see patches/jsdom+30.0.1.patch): the hook it calls once
 // a delta runs past the current window's own (always-fresh) session history. Fire-and-forget
-// like navigateFetch (navigate.js) -- fetchAndNavigate's fetch is still tracked by settleTracker.
+// like navigateFetch (navigate.js) -- the native event loop drain (runtime.rs) waits for its
+// fetch regardless.
 globalThis.__mini.navigateHistory = function (delta) {
     const { entries, current } = sessionEntries();
     const target = current + delta;
@@ -496,76 +486,8 @@ globalThis.__mini.navigateHistory = function (delta) {
 
 registerWindowGlobals(win);
 
-// Minimal task drain tracker. A single counter for tasks (fetches) is enough, since
-// those start*/end* pairs are 1:1 at their call site. Timers aren't: code commonly keeps a
-// timer id around after it has already fired (debounce patterns store it in a variable that
-// only gets reassigned, never cleared) and later calls clearTimeout() on that stale id --
-// a harmless no-op on a real timer, but it would double-decrement a bare counter here. Track
-// live timer ids in a set instead, so a clearTimeout() on an id that already fired (or never
-// existed) is a no-op, same as the real thing.
-let _zzzPendingTasks = 0;
-const _zzzLiveTimers = new Set();
-let _zzzQuietWaiters = [];
-function _zzzNotifyIfQuiet() {
-    if (_zzzPendingTasks !== 0) return;
-    const waiters = _zzzQuietWaiters;
-    _zzzQuietWaiters = [];
-    for (const resolve of waiters) resolve();
-}
-async function _zzzWhenQuiet() {
-    while (_zzzPendingTasks > 0) {
-        await new Promise((resolve) => _zzzQuietWaiters.push(resolve));
-    }
-    // A task that just finished (e.g. a fetch's own .then()) can synchronously start the
-    // next one after its endTask()/endTimer() already fired below -- give it one raw
-    // macrotask to do so before declaring the page settled, then recheck.
-    await new Promise((resolve) => _zzzRawSetTimeout(resolve, 0));
-    if (_zzzPendingTasks > 0) return _zzzWhenQuiet();
-}
-globalThis.__mini.settleTracker = {
-    startTask: () => _zzzPendingTasks++,
-    endTask: () => {
-        _zzzPendingTasks--;
-        _zzzNotifyIfQuiet();
-    },
-    startTimer: (id) => {
-        _zzzLiveTimers.add(id);
-        _zzzPendingTasks++;
-    },
-    endTimer: (id) => {
-        if (!_zzzLiveTimers.delete(id)) return;
-        _zzzPendingTasks--;
-        _zzzNotifyIfQuiet();
-    },
-    whenQuiet: _zzzWhenQuiet,
-};
-const _zzzRawSetTimeout = globalThis.setTimeout;
-const _zzzRawClearTimeout = globalThis.clearTimeout;
-globalThis.setTimeout = (fn, ms = 0, ...args) => {
-    const id = _zzzRawSetTimeout(
-        (...cbArgs) => {
-            // endTimer() before the callback, not after: the callback might throw.
-            globalThis.__mini.settleTracker.endTimer(id);
-            fn(...cbArgs);
-        },
-        ms,
-        ...args,
-    );
-    globalThis.__mini.settleTracker.startTimer(id);
-    return id;
-};
-globalThis.clearTimeout = (id) => {
-    if (id != null) globalThis.__mini.settleTracker.endTimer(id);
-    _zzzRawClearTimeout(id);
-};
-
-const _zzzRawClearAllTimers = globalThis.__clearAllTimers;
-// The raw sweep forgets timers without firing them, so tell the tracker too -- otherwise a
-// timer pending at navigation time (e.g. a hash change's queued hashchange) stays "live" forever.
-globalThis.__clearAllTimers = () => {
-    _zzzRawClearAllTimers();
-    for (const id of [..._zzzLiveTimers]) globalThis.__mini.settleTracker.endTimer(id);
-};
+// setTimeout/clearTimeout/__clearAllTimers stay whatever pre_globals.js already installed --
+// settle detection is the isolate's real event loop (runtime.rs), not a JS-side task counter.
 
 globalThis.fetch = async (input, init = {}) => {
     const signal = input instanceof Request ? input.signal : init.signal;
@@ -623,8 +545,6 @@ globalThis.fetch = async (input, init = {}) => {
         }
     }
 
-    const settleTracker = globalThis.__mini.settleTracker;
-    settleTracker.startTask();
     const requestId = crypto.randomUUID();
     const onAbort = () => Deno.core.ops.op_fetch_abort(requestId);
     signal?.addEventListener("abort", onAbort);
@@ -637,7 +557,6 @@ globalThis.fetch = async (input, init = {}) => {
         if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
         throw err;
     } finally {
-        settleTracker.endTask();
         signal?.removeEventListener("abort", onAbort);
     }
 

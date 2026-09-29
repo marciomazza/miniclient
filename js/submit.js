@@ -1,19 +1,17 @@
 globalThis.__mini ??= {};
 
-// Form submission. Navigation primitives (fetchAndNavigate, navigateDocument, finishLoad,
-// ...) live in navigate.js.
+// Form submission. Navigation primitives (fetchAndNavigate, navigateDocument, ...) live in
+// navigate.js.
 (function () {
     const __mini = globalThis.__mini;
 
-    // Runs `doAction(el)`, then resolves once the page settles: every pending fetch/timer
-    // started as a result (tracked via __mini.settleTracker, wired into fetch()/setTimeout() in
-    // bootstrap.js) has drained. Shared by Element.trigger()/click() (page.py) and
-    // __mini.submit below.
+    // Runs `doAction(el)` against the element. Settle wait now happens natively in runtime.rs
+    // after every eval_async. Shared by Element.trigger()/click() (page.py) and __mini.submit
+    // below.
     __mini.awaitSettle = async function (handle, doAction) {
         const el = __mini.deref(handle);
         if (!el) throw new Error("Element not found (handle " + handle + ")");
         await doAction(el);
-        await __mini.settleTracker.whenQuiet();
     };
 
     // Patched into jsdom's HTMLFormElement#requestSubmit (see patches/jsdom+30.0.1.patch):
@@ -57,8 +55,8 @@ globalThis.__mini ??= {};
 
         // Not awaited by the caller (jsdom's own requestSubmit() isn't async either) --
         // catch here so a network failure surfaces on the console instead of as an
-        // unhandled rejection. The fetch is still tracked by settleTracker, so
-        // __mini.awaitSettle/__mini.submit's whenQuiet() below waits for it correctly.
+        // unhandled rejection. The native event-loop drain (runtime.rs) waits for this
+        // fetch regardless of who started it.
         navigate().catch((err) => console.error("form submission failed:", err));
     };
 
@@ -73,7 +71,5 @@ globalThis.__mini ??= {};
             );
         }
         el.requestSubmit();
-        await __mini.settleTracker.whenQuiet();
-        return __mini.finishLoad();
     };
 })();

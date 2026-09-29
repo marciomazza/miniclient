@@ -139,10 +139,10 @@ async def test_history_back_spans_full_navigations(page: AsyncPage, httpx_mock: 
     # `history.length > 1 ? history.back() : (location.href = '/')`.
     assert page.runtime.eval("history.length") > 1
 
-    await page.eval_async("history.back(); __mini.settleTracker.whenQuiet()")
+    await page.eval_async("history.back()")
     assert page.runtime.eval("location.href") == "http://localhost/a"
 
-    await page.eval_async("history.forward(); __mini.settleTracker.whenQuiet()")
+    await page.eval_async("history.forward()")
     assert page.runtime.eval("location.href") == "http://localhost/b"
 
 

@@ -9,14 +9,9 @@ globalThis.__mini ??= {};
 
     // __mini.navigateDocument() (bootstrap.js) returns as soon as the new JSDOM instance is
     // constructed, but parser-inserted defer/type=module scripts fetch (and, per the DOM spec,
-    // run) asynchronously after that -- jsdom's own Document#close() dispatches DOMContentLoaded
-    // natively once its defer queue drains, but nothing awaits that internally. Wait for the
-    // page to go quiet (every resource fetch tracked via __mini.settleTracker, see the
-    // resourceInterceptor in bootstrap.js) before handing control back, so callers never
-    // race a still-loading page.
-    __mini.finishLoad = async function () {
-        await __mini.settleTracker.whenQuiet();
-    };
+    // run) asynchronously after that. No explicit wait needed here: every caller below runs
+    // inside an `eval_async`, and runtime.rs drains the isolate's real event loop to idle after
+    // that call's own promise resolves, which covers those deferred fetches too.
 
     // Loads html as a fresh document. Used directly by Page.load() (page.py) and
     // by the initial test-page setup (see conftest.py's HTMX_BASE_HTML). Keeps the current
@@ -25,7 +20,6 @@ globalThis.__mini ??= {};
     __mini.documentWrite = async function (html) {
         __clearAllTimers();
         __mini.navigateDocument(html, location.href, { history: "replace" });
-        return __mini.finishLoad();
     };
 
     // navigateOptions forwards as-is to navigateDocument (e.g. { history }).
@@ -43,7 +37,6 @@ globalThis.__mini ??= {};
     __mini.fetchAndLoad = async function (url) {
         __clearAllTimers();
         await __mini.fetchAndNavigate(url);
-        return __mini.finishLoad();
     };
 
     // Patched into jsdom's navigateFetch (see patches/jsdom+30.0.1.patch), the shared
@@ -51,9 +44,8 @@ globalThis.__mini ??= {};
     // .assign()/.replace()/component setters) and clicking a plain <a> both funnel into
     // jsdom's own navigate(), which already handles same-document fragment scrolling and
     // javascript: URLs correctly -- this only fires for the case jsdom leaves unimplemented.
-    // Fire-and-forget from jsdom's side (mirroring its own setTimeout-deferred link click),
-    // but the fetch is still tracked by settleTracker, so awaitSettle()'s whenQuiet() (in
-    // Element.trigger()/click(), page.py) already waits for it correctly.
+    // Fire-and-forget from jsdom's side (mirroring its own setTimeout-deferred link click), but
+    // the native event-loop drain (runtime.rs) waits for this fetch regardless of who started it.
     __mini.navigateFetch = function (_window, url) {
         __clearAllTimers();
         // Not awaited by the caller (jsdom's own navigate() isn't async either) -- catch

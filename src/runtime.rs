@@ -206,7 +206,13 @@ async fn eval(
     let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
     let value = if is_async {
         let resolve = Box::pin(js.resolve(value));
-        run_with_interleaved_commands(js, marshal, resolve, rx, stop).await?
+        let value = run_with_interleaved_commands(js, marshal, resolve, rx, stop).await?;
+        // Settle wait: the returned promise resolving only means *that* chain is done, not
+        // that the page has gone quiet (a click handler can fire a fetch it never returns,
+        // htmx's own dispatch does this routinely). Drain the isolate's real event loop -- not
+        // a JS-side task counter -- to idle before handing control back.
+        run_event_loop_to_idle(js, marshal, rx, stop).await?;
+        value
     } else {
         value
     };
@@ -240,6 +246,36 @@ where
                 }
             }
             result = js.with_event_loop_promise(&mut resolve, PollEventLoopOptions::default()) => {
+                return result.map_err(|e| match e.into_kind() {
+                    CoreErrorKind::Js(js_error) => EvalError::Js(js_error),
+                    other => EvalError::Other(other.to_string()),
+                });
+            }
+        }
+    }
+}
+
+/// Drains the isolate's event loop to idle (`run_event_loop`, not `with_event_loop_promise`:
+/// no specific promise to resolve, just every pending op/timer), same interleaving as
+/// `run_with_interleaved_commands` for the same reentrancy reason.
+async fn run_event_loop_to_idle(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
+) -> Result<(), EvalError> {
+    loop {
+        tokio::select! {
+            biased;
+            Some(command) = rx.recv() => {
+                Box::pin(handle_command(js, marshal, command, rx, stop)).await;
+                if *stop {
+                    return Err(EvalError::Other(
+                        "runtime closed while a request was in flight".into(),
+                    ));
+                }
+            }
+            result = js.run_event_loop(PollEventLoopOptions::default()) => {
                 return result.map_err(|e| match e.into_kind() {
                     CoreErrorKind::Js(js_error) => EvalError::Js(js_error),
                     other => EvalError::Other(other.to_string()),
@@ -452,5 +488,38 @@ mod tests {
         for thread in threads {
             thread.join().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod settle_regression {
+    use super::Runtime;
+
+    // A cancelled setTimeout's underlying op_sleep promise used to stay refed until its
+    // original delay elapsed (pre_globals.js only dropped the JS callback on clearTimeout(),
+    // never unrefed the op), so a page that cleared a long timer -- e.g. htmx's own 60s
+    // per-request timeout, cleared the instant the response arrives -- would silently pin
+    // every subsequent eval_async's native settle-wait until that timer's original delay ran
+    // out. Regression test for that fix: clearTimeout() must unref immediately.
+    #[test]
+    fn clearing_a_long_timeout_does_not_pin_native_settle_wait() {
+        let rt = Runtime::new("http://localhost/", "{}");
+        rt.send_eval(
+            "const id = setTimeout(() => {}, 60000); clearTimeout(id); void 0;".into(),
+            false,
+        )
+        .blocking_recv()
+        .expect("channel must not drop")
+        .expect("script must not error");
+
+        let started = std::time::Instant::now();
+        rt.send_eval("Promise.resolve(1)".into(), true)
+            .blocking_recv()
+            .expect("channel must not drop")
+            .expect("eval_async must not error");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "eval_async waited on a cleared timer's original delay instead of returning immediately"
+        );
     }
 }

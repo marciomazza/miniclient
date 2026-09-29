@@ -119,17 +119,23 @@
     {
         let _nextId = 1;
         // The pending op_sleep promise outlives a cancelled timer until `ms` elapses, so the
-        // callback lives in these tables (dropped on cancel), never in that promise's closure:
-        // a cleared 60s request timeout would otherwise pin its whole page for a minute.
-        const _active = {}; // timerId -> { fn, args }
+        // callback lives in these tables (dropped on cancel), never in that promise's closure.
+        // Cancelling also unrefs the promise (Deno.core.unrefOpPromise): a cleared timer must
+        // stop counting as pending work for the native settle-wait (run_event_loop in
+        // runtime.rs) the instant it's cleared, not up to `ms` later when it happens to fire --
+        // htmx's own 60s per-request timeout (__initTimeout), cleared as soon as the response
+        // arrives, would otherwise pin every eval_async for up to a minute after a request
+        // that already finished.
+        const _active = {}; // timerId -> { fn, args, promise }
         const _intervals = {}; // intervalId -> { timerId, fn, args }
 
         const _wait = (ms) => Deno.core.ops.op_sleep(ms || 0);
 
         globalThis.setTimeout = (fn, ms = 0, ...args) => {
             const id = _nextId++;
-            _active[id] = { fn, args };
-            _wait(ms).then(() => {
+            const promise = _wait(ms);
+            _active[id] = { fn, args, promise };
+            promise.then(() => {
                 const timer = _active[id];
                 if (timer) {
                     delete _active[id];
@@ -140,14 +146,20 @@
         };
 
         globalThis.clearTimeout = (id) => {
-            if (id != null) delete _active[id];
+            const timer = _active[id];
+            if (!timer) return;
+            Deno.core.unrefOpPromise(timer.promise);
+            delete _active[id];
         };
 
         const _scheduleInterval = (intervalId, ms) => {
             const timerId = _nextId++;
+            const promise = _wait(ms);
             _intervals[intervalId].timerId = timerId;
-            _active[timerId] = true;
-            _wait(ms).then(() => {
+            // Always unrefed: this interval never resolves on its own.
+            Deno.core.unrefOpPromise(promise);
+            _active[timerId] = { promise };
+            promise.then(() => {
                 delete _active[timerId];
                 const interval = _intervals[intervalId];
                 if (interval) {
@@ -174,7 +186,10 @@
         // Silently drop all pending timer callbacks — used between tests to prevent
         // stale timers from a previous test firing into the next one's context.
         globalThis.__clearAllTimers = () => {
-            for (const k of Object.keys(_active)) delete _active[k];
+            for (const [k, timer] of Object.entries(_active)) {
+                Deno.core.unrefOpPromise(timer.promise);
+                delete _active[k];
+            }
             for (const k of Object.keys(_intervals)) delete _intervals[k];
         };
     }
