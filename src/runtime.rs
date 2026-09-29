@@ -66,7 +66,6 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_fs_stat(),
             ops::op_fs_read(),
             ops::op_call_rust(),
-            ops::op_sleep(),
             ops::op_crypto_random_bytes(),
             ops::op_crypto_random_uuid(),
         ]),

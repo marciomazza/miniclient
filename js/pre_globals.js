@@ -115,82 +115,50 @@
     // HTMLInputElement/HTMLTextAreaElement select events, AbortSignal, SessionHistory).
     // Those resolve through globalThis.setTimeout; if it were deno_core's no-op stub the
     // queued work would never run. This is the single source of truth for the whole
-    // bundle, with deno ops providing the actual sleep.
+    // bundle: deno_web's own timer implementation, force-loaded like atob/btoa below. Its
+    // ref-counting is left untouched: run_event_loop only drains currently-resolvable work,
+    // never blocks on a future-scheduled tick regardless of ref state, so a forever htmx
+    // poller (hx-trigger="every Ns") already can't pin click()/submit()'s post-eval drain --
+    // confirmed by test_click_not_blocked_by_unrelated_poller.
     {
-        let _nextId = 1;
-        // The pending op_sleep promise outlives a cancelled timer until `ms` elapses, so the
-        // callback lives in these tables (dropped on cancel), never in that promise's closure.
-        // Cancelling also unrefs the promise (Deno.core.unrefOpPromise): a cleared timer must
-        // stop counting as pending work for the native settle-wait (run_event_loop in
-        // runtime.rs) the instant it's cleared, not up to `ms` later when it happens to fire --
-        // htmx's own 60s per-request timeout (__initTimeout), cleared as soon as the response
-        // arrives, would otherwise pin every eval_async for up to a minute after a request
-        // that already finished.
-        const _active = {}; // timerId -> { fn, args, promise }
-        const _intervals = {}; // intervalId -> { timerId, fn, args }
+        // Destructured, not called as `timers.setTimeout(...)`: 02_timers.js's own
+        // `checkThis` rejects any `this` other than undefined/globalThis, which a
+        // method-call would bind to `timers` itself.
+        const {
+            setTimeout: _setTimeout,
+            setInterval: _setInterval,
+            clearTimeout: _clearTimeout,
+            clearInterval: _clearInterval,
+        } = Deno.core.loadExtScript("ext:deno_web/02_timers.js");
+        const _liveTimers = new Set(); // ids created here, for __clearAllTimers below
 
-        const _wait = (ms) => Deno.core.ops.op_sleep(ms || 0);
+        globalThis.setTimeout = (fn, ms, ...args) => {
+            const id = _setTimeout(fn, ms, ...args);
+            _liveTimers.add(id);
+            return id;
+        };
 
-        globalThis.setTimeout = (fn, ms = 0, ...args) => {
-            const id = _nextId++;
-            const promise = _wait(ms);
-            _active[id] = { fn, args, promise };
-            promise.then(() => {
-                const timer = _active[id];
-                if (timer) {
-                    delete _active[id];
-                    timer.fn(...timer.args);
-                }
-            });
+        globalThis.setInterval = (fn, ms, ...args) => {
+            const id = _setInterval(fn, ms, ...args);
+            _liveTimers.add(id);
             return id;
         };
 
         globalThis.clearTimeout = (id) => {
-            const timer = _active[id];
-            if (!timer) return;
-            Deno.core.unrefOpPromise(timer.promise);
-            delete _active[id];
+            _clearTimeout(id);
+            _liveTimers.delete(id);
         };
 
-        const _scheduleInterval = (intervalId, ms) => {
-            const timerId = _nextId++;
-            const promise = _wait(ms);
-            _intervals[intervalId].timerId = timerId;
-            // Always unrefed: this interval never resolves on its own.
-            Deno.core.unrefOpPromise(promise);
-            _active[timerId] = { promise };
-            promise.then(() => {
-                delete _active[timerId];
-                const interval = _intervals[intervalId];
-                if (interval) {
-                    interval.fn(...interval.args);
-                    // The callback may have cleared its own interval.
-                    if (_intervals[intervalId]) _scheduleInterval(intervalId, ms);
-                }
-            });
-        };
-
-        globalThis.setInterval = (fn, ms = 0, ...args) => {
-            const intervalId = _nextId++;
-            _intervals[intervalId] = { timerId: 0, fn, args };
-            _scheduleInterval(intervalId, ms);
-            return intervalId;
-        };
-
-        globalThis.clearInterval = (intervalId) => {
-            const interval = _intervals[intervalId];
-            delete _intervals[intervalId];
-            if (interval) delete _active[interval.timerId];
+        globalThis.clearInterval = (id) => {
+            _clearInterval(id);
+            _liveTimers.delete(id);
         };
 
         // Silently drop all pending timer callbacks — used between tests to prevent
         // stale timers from a previous test firing into the next one's context.
         globalThis.__clearAllTimers = () => {
-            for (const [k, timer] of Object.entries(_active)) {
-                Deno.core.unrefOpPromise(timer.promise);
-                delete _active[k];
-            }
-            for (const k of Object.keys(_intervals)) delete _intervals[k];
+            for (const id of _liveTimers) _clearTimeout(id);
+            _liveTimers.clear();
         };
     }
     globalThis.setImmediate ??= (fn, ...a) => setTimeout(fn, 0, ...a);

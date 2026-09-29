@@ -153,9 +153,8 @@ fn goto(rt: &Runtime, url: &str) {
 }
 
 fn history_go(rt: &Runtime, delta: i32) {
-    rt.run_async(&format!(
-        "history.go({delta}); __mini.settleTracker.whenQuiet()"
-    ));
+    // run_async already drains to idle natively -- no settle tracker to await.
+    rt.run_async(&format!("history.go({delta})"));
 }
 
 fn href(rt: &Runtime) -> String {
