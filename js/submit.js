@@ -38,25 +38,33 @@ globalThis.__mini ??= {};
 
             let body, headers;
             if (enctype === "multipart/form-data") {
-                body = formData; // bootstrap.js's fetch() already serializes FormData bodies.
-                headers = undefined;
+                const serialized = __mini.serializeMultipart(formData);
+                body = serialized.body;
+                headers = {
+                    "content-type": `multipart/form-data; boundary=${serialized.boundary}`,
+                };
             } else if (enctype === "text/plain") {
                 body = [...formData].map(([k, v]) => `${k}=${v}\r\n`).join("");
                 headers = { "content-type": "text/plain" };
             } else {
-                body = new URLSearchParams(formData);
+                body = new URLSearchParams(formData).toString();
                 // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8"; real
                 // browsers send the bare mime type for form submissions.
                 headers = { "content-type": "application/x-www-form-urlencoded" };
             }
-            const res = await fetch(form.action, { method: "post", body, headers });
-            __mini.navigateDocument(await res.text(), res.url);
+            Deno.core.ops.op_request_navigation(
+                new URL(form.action).href,
+                "push",
+                "post",
+                body,
+                headers,
+            );
         }
 
         // Not awaited by the caller (jsdom's own requestSubmit() isn't async either) --
-        // catch here so a network failure surfaces on the console instead of as an
-        // unhandled rejection. The native event-loop drain (runtime.rs) waits for this
-        // fetch regardless of who started it.
+        // catch here so a bad enctype/URL surfaces on the console instead of as an
+        // unhandled rejection. The actual self-fetch runs later, in the fresh realm
+        // op_request_navigation navigates once this eval settles (runtime.rs).
         navigate().catch((err) => console.error("form submission failed:", err));
     };
 

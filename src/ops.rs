@@ -256,13 +256,16 @@ pub fn op_call_rust(
     Ok(callable(args))
 }
 
-/// `{url, mode}` a navigation is requesting, parked in `OpState` until `runtime::eval`'s
-/// top-level promise settles -- see that function's own navigate check. `mode` mirrors the HTML
-/// Standard's own session-history vocabulary, already used by `bootstrap.js`'s `history`
-/// parameter (`navigateDocument`'s `push`/`replace`/`{traverseTo}`).
+/// `{url, mode, method, body, headers}` a navigation is requesting, parked in `OpState` until
+/// `runtime::eval`'s top-level promise settles -- see that function's own navigate check. `mode`
+/// mirrors the HTML Standard's own session-history vocabulary, already used by `bootstrap.js`'s
+/// `history` parameter (`navigateDocument`'s `push`/`replace`/`{traverseTo}`).
 pub struct PendingNavigation {
     pub url: String,
     pub mode: NavigationMode,
+    pub method: String,
+    pub body: Option<String>,
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -282,8 +285,17 @@ pub fn op_request_navigation(
     state: &mut OpState,
     #[string] url: String,
     #[serde] mode: NavigationMode,
+    #[string] method: Option<String>,
+    #[string] body: Option<String>,
+    #[serde] headers: Option<HashMap<String, String>>,
 ) {
-    state.put(PendingNavigation { url, mode });
+    state.put(PendingNavigation {
+        url,
+        mode,
+        method: method.unwrap_or_else(|| "GET".to_string()),
+        body,
+        headers: headers.unwrap_or_default(),
+    });
 }
 
 /// CSPRNG bytes for `crypto.getRandomValues` -- this runtime has no other entropy source.

@@ -220,6 +220,7 @@ enum EvalStep {
     Navigate {
         url: String,
         host_state_json: String,
+        request_json: String,
     },
 }
 
@@ -266,9 +267,11 @@ async fn eval(
         // `value` belongs to a document about to be thrown away -- dropped, not marshaled.
         drop(value);
         let host_state_json = capture_navigation_host_state(js, marshal, &nav);
+        let request_json = navigation_request_json(&nav);
         return Ok(EvalStep::Navigate {
             url: nav.url,
             host_state_json,
+            request_json,
         });
     }
 
@@ -312,6 +315,16 @@ fn capture_json(
         .execute_script("<navigate-capture>", source.to_string())
         .unwrap_or_else(|e| panic!("{source} failed: {e}"));
     to_json(js, marshal, value).unwrap_or_else(|e| panic!("{source} failed to marshal: {e:?}"))
+}
+
+/// The request the self-fetch in `bootstrap.js`'s `__NAVIGATION_BOOT__` block reissues.
+fn navigation_request_json(nav: &ops::PendingNavigation) -> String {
+    deno_core::serde_json::json!({
+        "method": nav.method,
+        "body": nav.body,
+        "headers": nav.headers,
+    })
+    .to_string()
 }
 
 /// Applies `nav.mode` to `sessionEntries()`'s `{entries, current}` JSON the way
@@ -420,6 +433,7 @@ async fn run_event_loop_to_idle(
 struct PendingNavigate {
     url: String,
     host_state_json: String,
+    request_json: String,
     reply: oneshot::Sender<EvalOutcome>,
 }
 
@@ -521,10 +535,12 @@ async fn handle_command(
                 Ok(EvalStep::Navigate {
                     url,
                     host_state_json,
+                    request_json,
                 }) => {
                     return Some(PendingNavigate {
                         url,
                         host_state_json,
+                        request_json,
                         reply,
                     });
                 }
@@ -565,10 +581,12 @@ async fn handle_command(
 /// operation shared by initial construction and every navigation alike: a realm isn't actually ready
 /// until its `defer`/`type=module` bootstrap scripts (which run asynchronously) have settled, not
 /// just after `boot_jsruntime`'s own synchronous scripts return.
+#[allow(clippy::too_many_arguments)]
 async fn boot_and_settle(
     url: &str,
     resource_mounts_json: &str,
     host_state_json: Option<&str>,
+    request_json: Option<&str>,
     is_navigation_boot: bool,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
@@ -578,6 +596,7 @@ async fn boot_and_settle(
         url,
         resource_mounts_json,
         host_state_json,
+        request_json,
         is_navigation_boot,
         replay.fetch_backend.clone(),
     );
@@ -586,13 +605,15 @@ async fn boot_and_settle(
 }
 
 /// Boots a fresh isolate up through `bootstrap.js`, injecting `__BASE_URL__`/
-/// `__RESOURCE_MOUNTS__`/`__HOST_STATE__`/`__NAVIGATION_BOOT__` (the last true only for the navigation
-/// `op_request_navigation` drives) first. `fetch_backend` must land before `bootstrap.js` runs,
-/// not after: a navigation boot's self-fetch calls `fetch()` the instant its first `await` runs.
+/// `__RESOURCE_MOUNTS__`/`__HOST_STATE__`/`__NAVIGATION_REQUEST__`/`__NAVIGATION_BOOT__` (the
+/// last true only for the navigation `op_request_navigation` drives) first. `fetch_backend` must
+/// land before `bootstrap.js` runs, not after: a navigation boot's self-fetch calls `fetch()`
+/// the instant its first `await` runs.
 fn boot_jsruntime(
     url: &str,
     resource_mounts_json: &str,
     host_state_json: Option<&str>,
+    request_json: Option<&str>,
     is_navigation_boot: bool,
     fetch_backend: Option<Arc<dyn ops::FetchBackend + Send + Sync>>,
 ) -> (JsRuntime, v8::Global<v8::Value>) {
@@ -623,6 +644,14 @@ fn boot_jsruntime(
         ),
     )
     .expect("failed to install __HOST_STATE__");
+    js.execute_script(
+        "<runtime-config>",
+        format!(
+            "globalThis.__NAVIGATION_REQUEST__ = {};",
+            request_json.unwrap_or(r#"{"method":"GET"}"#)
+        ),
+    )
+    .expect("failed to install __NAVIGATION_REQUEST__");
     js.execute_script(
         "<runtime-config>",
         format!("globalThis.__NAVIGATION_BOOT__ = {is_navigation_boot};"),
@@ -671,6 +700,7 @@ impl Runtime {
                     &url,
                     &resource_mounts_json,
                     None,
+                    None,
                     false,
                     &mut rx,
                     &mut stop,
@@ -709,6 +739,7 @@ impl Runtime {
                         if let Some(PendingNavigate {
                             url: nav_url,
                             host_state_json,
+                            request_json,
                             reply,
                         }) = handle_command(
                             &mut js,
@@ -727,6 +758,7 @@ impl Runtime {
                                 &nav_url,
                                 &resource_mounts_json,
                                 Some(&host_state_json),
+                                Some(&request_json),
                                 true,
                                 &mut rx,
                                 &mut stop,
@@ -747,6 +779,7 @@ impl Runtime {
                         &new_url,
                         &new_mounts,
                         Some(&host_state_json),
+                        None,
                         false,
                         &mut rx,
                         &mut stop,

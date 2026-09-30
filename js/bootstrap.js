@@ -508,6 +508,17 @@ if (_hostHistory) {
 // setTimeout/clearTimeout/__clearAllTimers stay whatever pre_globals.js already installed --
 // settle detection is the isolate's real event loop (runtime.rs), not a JS-side task counter.
 
+// Shared by fetch()'s own FormData handling below and submit.js's POST branch.
+globalThis.__mini.serializeMultipart = function (formData) {
+    const boundary = "----HxClientBoundary" + Math.random().toString(36).slice(2, 18);
+    let body = "";
+    for (const [name, value] of formData) {
+        body += `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+    }
+    body += `--${boundary}--`;
+    return { boundary, body };
+};
+
 globalThis.fetch = async (input, init = {}) => {
     const signal = input instanceof Request ? input.signal : init.signal;
     if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
@@ -518,24 +529,8 @@ globalThis.fetch = async (input, init = {}) => {
         // internal brand check), not jsdom's native one exposed as the global `FormData`
         // here -- it would serialise as "[object Object]" with content-type text/plain.
         // Serialize manually as multipart/form-data so the wire format matches browsers.
-        const boundary = "----HxClientBoundary" + Math.random().toString(36).slice(2, 18);
-        const enc = new TextEncoder();
-        const chunks = [];
-        for (const [name, value] of init.body) {
-            chunks.push(
-                enc.encode(
-                    `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
-                ),
-            );
-        }
-        chunks.push(enc.encode(`--${boundary}--`));
-        const total = chunks.reduce((s, c) => s + c.length, 0);
-        body = new Uint8Array(total);
-        let off = 0;
-        for (const c of chunks) {
-            body.set(c, off);
-            off += c.length;
-        }
+        const { boundary, body: multipart } = globalThis.__mini.serializeMultipart(init.body);
+        body = new TextEncoder().encode(multipart);
         url = new URL(typeof input === "string" ? input : String(input), location.href).href;
         method = (init.method ?? "GET").toUpperCase();
         headers = {
@@ -612,6 +607,7 @@ _preExistingGlobals.add("fetch");
 // Page::navigate already bring their own document). This realm's createDom above was built
 // empty -- it must fetch its own content, since the old realm (and its document) is already
 // gone.
+// __NAVIGATION_REQUEST__ (also set by boot_jsruntime) carries the method/body/headers to reissue.
 // Fire-and-forget, not top-level await (bootstrap.js is a plain script, not a module): the
 // isolate's real event loop (runtime.rs) drains to idle after this script returns, same as
 // every other fire-and-forget fetch in this file.
@@ -619,7 +615,7 @@ if (globalThis.__NAVIGATION_BOOT__) {
     (async () => {
         let html;
         try {
-            const res = await fetch(__BASE_URL__);
+            const res = await fetch(__BASE_URL__, __NAVIGATION_REQUEST__);
             if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
             html = await res.text();
         } catch (err) {

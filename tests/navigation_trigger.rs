@@ -122,6 +122,31 @@ fn navigation_trigger_replace_keeps_history_length() {
 }
 
 #[test]
+fn navigation_trigger_carries_a_post_body_and_headers_across_the_navigation() {
+    // A POST form submission (submit.js) drives the same op, just with method/body/headers
+    // set -- the self-fetch in the new realm must reissue them verbatim, not fall back to GET.
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/next", "");
+    let rt = runtime_with_mock(&mock);
+
+    rt.run(
+        "Deno.core.ops.op_request_navigation(\
+           'http://localhost/next', 'push', 'post', 'a=1', \
+           {'content-type': 'application/x-www-form-urlencoded'}\
+         ); void 0",
+    );
+
+    assert_eq!(rt.eval::<String>("location.href"), "http://localhost/next");
+    let req = mock.last_request();
+    assert_eq!(req.method, "POST");
+    assert_eq!(req.body, b"a=1");
+    assert_eq!(
+        req.header("content-type"),
+        Some("application/x-www-form-urlencoded")
+    );
+}
+
+#[test]
 fn navigation_trigger_traverse_to_restores_an_earlier_entry() {
     let rt = runtime_with_route("http://localhost/a");
     rt.run("history.pushState({n: 1}, '', '/a')");
