@@ -1,9 +1,11 @@
 # IMPORTANT - strictly follow this
 
-- **Commit messages and code in English**
-- The project uses **pyrefly** as a type checker.
-
 ## Agent skills
+
+### Coding standards
+
+Commit messages and code in English; comment rules; naming
+and quoting conventions for JS eval strings. See [docs/coding-standards.md](docs/coding-standards.md).
 
 ### Issue tracker
 
@@ -68,16 +70,8 @@ All DOM interaction (click, submit, dispatchEvent, query selectors, etc.) is don
 
 When adding DOM interaction methods, implement them in Python using `runtime.eval()` / `runtime.eval_async()` to execute JS against the jsdom `document` already initialized in `bootstrap.js`.
 
-In js code strings (e.g. in evals) try to avoid using escaped quotes:
-use triple quotes around instead. E.g.:
-
-```
-  runtime.eval(f"""\
-    const html = "<div><p id='x'></p></div>"
-  """)
-```
-
-When you make a variable that contains a string with javascript code, name it either `js` or with the suffix `_js`.
+For naming and quoting conventions in these JS eval strings, see
+[docs/coding-standards.md](docs/coding-standards.md).
 
 # Build and release
 
