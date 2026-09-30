@@ -446,29 +446,20 @@ function sessionEntries() {
     };
 }
 
-// `history`: "push" (new entry), "replace" (current entry, e.g. document.write) or
-// { traverseTo: index } (restore that entry's state, no new entry).
-globalThis.__mini.navigateDocument = function (html, url, { history = "push" } = {}) {
+// Only ever called with the current entry replaced (Page.load()'s in-realm rewrite has no
+// URL of its own to push, and no target entry to traverse to) -- every navigation that pushes
+// a new entry or traverses history goes through op_request_navigation's isolate navigation
+// instead (runtime.rs's apply_navigation_mode), never through here.
+globalThis.__mini.navigateDocument = function (html, url) {
     const { entries, current } = sessionEntries();
-    let target = current;
-    let state = null;
-    if (history === "push") {
-        entries.length = current + 1;
-        target = entries.push({ url }) - 1;
-    } else if (history === "replace") {
-        entries[current] = { url };
-    } else {
-        target = history.traverseTo;
-        state = entries[target].state;
-    }
-    _historyBefore = entries.slice(0, target);
-    _historyAfter = entries.slice(target + 1);
+    entries[current] = { url };
+    _historyBefore = entries.slice(0, current);
+    _historyAfter = entries.slice(current + 1);
 
     const previousWindow = win;
     dom = createDom(url);
     win = dom.window;
     registerWindowGlobals(win);
-    if (state !== null) win.history.replaceState(state, "");
     // After the global swap: closing first would delete `_document` from a window that
     // globalThis still mirrors. jsdom keeps a closed window's whole tree alive otherwise.
     previousWindow.close();

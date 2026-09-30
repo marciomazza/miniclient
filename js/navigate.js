@@ -13,7 +13,7 @@ globalThis.__mini ??= {};
     // action="/path", ...) resolve the same way a real in-place document.write() would.
     __mini.documentWrite = async function (html) {
         __clearAllTimers();
-        __mini.navigateDocument(html, location.href, { history: "replace" });
+        __mini.navigateDocument(html, location.href);
     };
 
     // Patched into jsdom's navigateFetch (see patches/jsdom+30.0.1.patch), the shared
