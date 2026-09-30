@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 import httpx2 as httpx
 
-from miniclient._miniclient import Runtime
+from miniclient._miniclient import Page
 
 
 def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
@@ -142,11 +142,11 @@ async def open_runtime(
     before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
     resource_mounts: dict[str, str] | None = None,
-) -> AsyncGenerator[Runtime]:
-    """Build a Runtime, pooling one httpx.AsyncClient for every fetch made during
+) -> AsyncGenerator[Page]:
+    """Build a Page, pooling one httpx.AsyncClient for every fetch made during
     the context, and tear both the client and the runtime down on exit."""
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Runtime(url, json.dumps(resource_mounts or {}))
+        r = Page(url, json.dumps(resource_mounts or {}))
 
         _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
         r.install_host_ops(

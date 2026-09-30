@@ -6,7 +6,7 @@ class JavaScriptError(Exception):
     message: str
     stack: str | None
 
-class Runtime:
+class Page:
     # Not set by Rust; page.py's sync Page stashes its driving loop here for Element to read.
     _loop: asyncio.AbstractEventLoop
 

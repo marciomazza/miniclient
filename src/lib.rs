@@ -37,22 +37,24 @@ fn closed<E>(_: E) -> PyErr {
     PyRuntimeError::new_err("the runtime is closed")
 }
 
-/// A V8 isolate with its own thread. JS values cross as JSON in both directions:
-/// `undefined` and `null` both arrive as `None`, and anything JSON cannot carry raises.
+/// Thin pyo3 wrapper around [`runtime::Page`], the host-state container that owns one
+/// isolate at a time: every method delegates straight to the isolate it currently owns. JS
+/// values cross as JSON in both directions: `undefined` and `null` both arrive as `None`, and
+/// anything JSON cannot carry raises.
 #[pyclass(module = "miniclient._miniclient", dict)]
-struct Runtime(runtime::Runtime);
+struct Page(runtime::Page);
 
 #[pymethods]
-impl Runtime {
+impl Page {
     #[new]
     #[pyo3(signature = (url="http://localhost/", resource_mounts_json="{}"))]
     fn new(url: &str, resource_mounts_json: &str) -> Self {
-        Self(runtime::Runtime::new(url, resource_mounts_json))
+        Self(runtime::Page::new(url, resource_mounts_json))
     }
 
     /// Detaches from the interpreter while waiting: the script may call back into Python.
     fn eval(&self, py: Python<'_>, source: String) -> PyResult<Py<PyAny>> {
-        let rx = self.0.send_eval(source, false);
+        let rx = self.0.runtime().send_eval(source, false);
         let outcome = py.detach(|| rx.blocking_recv());
         to_python(py, outcome.map_err(closed)?)
     }
@@ -60,7 +62,12 @@ impl Runtime {
     /// Awaits the script's result -- a promise is resolved and the event loop pumped -- while
     /// leaving Python's own loop free to serve whatever that script is waiting on.
     async fn eval_async(&self, source: String) -> PyResult<Py<PyAny>> {
-        let outcome = self.0.send_eval(source, true).await.map_err(closed)?;
+        let outcome = self
+            .0
+            .runtime()
+            .send_eval(source, true)
+            .await
+            .map_err(closed)?;
         Python::attach(|py| to_python(py, outcome))
     }
 
@@ -69,7 +76,7 @@ impl Runtime {
     /// callable still held in `OpState` (the fetch backend) or to finish an in-flight
     /// `op_fetch` await -- holding the GIL here would deadlock against that.
     fn close(&self, py: Python<'_>) {
-        py.detach(|| self.0.close());
+        py.detach(|| self.0.runtime().close());
     }
 
     /// Installs the 3 fetch callables `op_fetch` and friends dispatch to (spec §4). `fetch`
@@ -93,6 +100,7 @@ impl Runtime {
         };
         let rx = self
             .0
+            .runtime()
             .send_install_fetch_backend(std::sync::Arc::new(backend));
         py.detach(|| rx.blocking_recv()).map_err(closed)
     }
@@ -101,5 +109,5 @@ impl Runtime {
 #[pymodule]
 fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("JavaScriptError", m.py().get_type::<JavaScriptError>())?;
-    m.add_class::<Runtime>()
+    m.add_class::<Page>()
 }

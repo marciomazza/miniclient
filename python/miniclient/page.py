@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Generic, Self, TypeVar, cast
 
 import httpx2 as httpx
 
-from miniclient.runtime import Runtime, open_runtime
+from miniclient.runtime import Page as RuntimePage, open_runtime
 
 
 def _event_class(event_type: str) -> str:
@@ -78,7 +78,7 @@ _E = TypeVar("_E", bound="AsyncElementBase", default="AsyncElement")
 class _FindMixin(Generic[_E]):
     """Shared find()/find_all(), scoped to whatever `_root_js` resolves to in JS."""
 
-    _runtime: Runtime
+    _runtime: RuntimePage
     _root_js: str
     _element_cls: type[_E]
 
@@ -143,7 +143,7 @@ class AsyncElementBase(Generic[_E]):
     def __init__(
         self,
         handle: int,
-        runtime: Runtime,
+        runtime: RuntimePage,
     ) -> None:
         self.handle = handle
         self._runtime = runtime
@@ -247,7 +247,7 @@ class AsyncFormElementBase:
     """
 
     handle: int
-    _runtime: Runtime
+    _runtime: RuntimePage
 
     async def requestSubmit(self) -> None:
         """Submit this form and wait for it to settle.
@@ -271,7 +271,7 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
         *,
-        runtime: Runtime | None = None,
+        runtime: RuntimePage | None = None,
     ) -> None:
         self._httpx_transport = httpx_transport
         self._mounts = mounts
@@ -279,7 +279,7 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
         self._stack: AsyncExitStack | None = None
 
     @property
-    def runtime(self) -> Runtime:
+    def runtime(self) -> RuntimePage:
         assert self._runtime is not None, "AsyncPage not built yet — use `await` or `async with`"
         return self._runtime
 
@@ -355,7 +355,7 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 
 # --- Synchronous facade ---
 #
-# Page needs *a* loop to drive Runtime's async-facing calls (eval_async,
+# Page needs *a* loop to drive RuntimePage's async-facing calls (eval_async,
 # fill, click, ...) through `loop.run_until_complete()`. It uses a private
 # event loop on the caller's own thread rather than spinning up a separate
 # thread, purely because asyncio can't nest `run_until_complete` on a thread
@@ -363,7 +363,7 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 # up front instead of letting the violation surface later as a cryptic
 # RuntimeError. Async callers should use AsyncPage instead.
 #
-# Runtime itself has no thread affinity: it owns a dedicated OS thread
+# RuntimePage itself has no thread affinity: it owns a dedicated OS thread
 # internally and every call crosses to it over a channel, so this has
 # nothing to do with which thread drives the loop above.
 
@@ -378,7 +378,7 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     def __init__(
         self,
         handle: int,
-        runtime: Runtime,
+        runtime: RuntimePage,
     ) -> None:
         super().__init__(handle, runtime)
         # Set once in Page.__init__; not otherwise passed through the shared

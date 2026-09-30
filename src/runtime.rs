@@ -897,8 +897,8 @@ impl Drop for Runtime {
 /// life; only the `JsRuntime` underneath that thread changes. A running isolate can't be torn
 /// down from inside its own currently-executing call (e.g. a click handler's promise chain
 /// requesting navigation), which rules out destroying and respawning the thread itself.
-/// Plain and pyo3-agnostic, mirroring the `Runtime`/pyclass `Runtime` split -- a future
-/// pyclass wraps this the same way.
+/// Plain and pyo3-agnostic, mirroring the `Runtime`/pyclass `Page` split in `src/lib.rs`,
+/// which wraps this the same way.
 pub struct Page {
     runtime: Runtime,
     cookies: Option<String>,

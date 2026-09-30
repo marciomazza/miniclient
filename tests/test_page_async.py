@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 from pytest_httpx2 import HTTPXMock
 
+from miniclient._miniclient import JavaScriptError
 from miniclient.page import AsyncElement, AsyncFormElement, AsyncPage
 
 # ---------------------------------------------------------------------------
@@ -48,6 +49,21 @@ async def test_goto_head_and_title_body(page: AsyncPage, httpx_mock: HTTPXMock) 
     el = page.find("#s")
     assert el is not None
     assert el.innerHTML == "ok"
+
+
+async def test_goto_raises_javascript_error_on_failed_navigation(
+    page: AsyncPage, httpx_mock: HTTPXMock
+) -> None:
+    """The pyo3 boundary must surface a failed fetch as `JavaScriptError`, carrying the
+    underlying JS error's name/message/stack -- everything else about how goto() gets there
+    is covered by the Rust-level navigation tests, not here."""
+    httpx_mock.add_exception(httpx.ConnectError("boom"), url="http://localhost/unreachable")
+    with pytest.raises(JavaScriptError) as exc_info:
+        await page.goto("http://localhost/unreachable")
+    error = exc_info.value
+    assert error.name
+    assert error.message
+    assert error.stack
 
 
 async def test_goto_navigates_to_different_domain(page: AsyncPage, httpx_mock: HTTPXMock) -> None:
