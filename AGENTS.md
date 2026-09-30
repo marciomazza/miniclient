@@ -59,7 +59,7 @@ app too. Prefer spec-correct behavior over the minimum needed to turn mini's own
 - A JavaScript runtime provide by deno_core. It is NOT Node.js and NOT QuickJS.
 - **jsdom** runs INSIDE that runtime, loaded with custom module polyfills for Node modules (`node:buffer`, `node:stream`, `node:crypto`, etc.).
 - **htmx** runs inside the same context, initialized after jsdom's `Window` is set up. It uses the polyfilled `fetch` and timers. `fetch` is done via `httpx`
-- The Python `Page` class in `python/miniclient/page.py` wraps a `Runtime` — one window/document/frame, no tabs, mirroring what Playwright's own `Browser.newPage()` returns.
+- The Python `Page` class in `python/miniclient/page.py` wraps a `Page` pyo3 class (imported there as `RuntimePage` to avoid colliding with the facade's own name) — one window/document/frame, no tabs, mirroring what Playwright's own `Browser.newPage()` returns.
 
 More details about htmx:
 @vendor/htmx/src/skills/htmx-guidance.md
