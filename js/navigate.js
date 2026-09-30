@@ -44,10 +44,11 @@ globalThis.__mini ??= {};
     // .assign()/.replace()/component setters) and clicking a plain <a> both funnel into
     // jsdom's own navigate(), which already handles same-document fragment scrolling and
     // javascript: URLs correctly -- this only fires for the case jsdom leaves unimplemented.
-    // Only records the request; runtime.rs drives the actual isolate navigation and self-fetch
-    // once the current top-level eval settles (see op_request_navigation, src/ops.rs).
+    // Also backs Page.goto() (page.py). Only records the request; runtime.rs drives the
+    // actual isolate navigation and self-fetch once the current top-level eval settles (see
+    // op_request_navigation, src/ops.rs) -- the old isolate, and every timer on it, is
+    // dropped as part of that navigation, so there's nothing to clear here.
     __mini.navigateFetch = function (_window, url) {
-        __clearAllTimers();
         Deno.core.ops.op_request_navigation(new URL(url, location.href).href, "push");
     };
 })();

@@ -22,8 +22,9 @@ globalThis.__mini ??= {};
     // (jsdom's own activation behaviour calls requestSubmit(submitter) internally too), so a
     // plain, unintercepted form now navigates the same way regardless of which one
     // triggered it.
+    // Every branch below ends in op_request_navigation -- the old isolate (and its timers)
+    // is dropped as part of that navigation, so there's nothing to clear here.
     __mini.formSubmitFetch = function (form, submitter) {
-        __clearAllTimers();
         const method = form.method; // already normalized/defaulted by jsdom: "get" or "post"
         const enctype = form.enctype; // already normalized/defaulted to urlencoded
         const formData = new FormData(form, submitter); // includes submitter's name/value

@@ -323,8 +323,13 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
     # --- Page operations ---
 
     async def goto(self, url: str) -> None:
-        """Fetch url, load the full document, and process htmx."""
-        await self.runtime.eval_async(f"__mini.fetchAndLoad({json.dumps(url)})")
+        """Navigate to url in a fresh isolate, fetching and loading the document.
+
+        Same mechanism as an in-page link click or `location.href =` (op_request_navigation):
+        a failed fetch commits an error-state document rather than raising, matching what a
+        real browser does on a failed top-level navigation.
+        """
+        await self.runtime.eval_async(f"__mini.navigateFetch(null, {json.dumps(url)})")
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""

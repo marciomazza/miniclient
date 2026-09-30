@@ -495,7 +495,6 @@ globalThis.__mini.navigateHistory = function (delta) {
     const { entries, current } = sessionEntries();
     const target = current + delta;
     if (target < 0 || target >= entries.length) return;
-    __clearAllTimers();
     Deno.core.ops.op_request_navigation(entries[target].url, { traverseTo: target });
 };
 
@@ -603,10 +602,10 @@ globalThis.fetch = async (input, init = {}) => {
 _preExistingGlobals.add("fetch");
 
 // Set by boot_jsruntime (src/runtime.rs): true only for the navigation op_request_navigation
-// drives, never the first boot or an externally-triggered Command::Navigate (Page.goto()/
-// Page::navigate already bring their own document). This realm's createDom above was built
-// empty -- it must fetch its own content, since the old realm (and its document) is already
-// gone.
+// drives (Page.goto()/link click/form submit), never the first boot or an externally-triggered
+// Command::Navigate (Page::navigate already brings its own document). This realm's createDom
+// above was built empty -- it must fetch its own content, since the old realm (and its
+// document) is already gone.
 // __NAVIGATION_REQUEST__ (also set by boot_jsruntime) carries the method/body/headers to reissue.
 // Fire-and-forget, not top-level await (bootstrap.js is a plain script, not a module): the
 // isolate's real event loop (runtime.rs) drains to idle after this script returns, same as

@@ -7,7 +7,6 @@ import pytest
 import pytest_asyncio
 from pytest_httpx2 import HTTPXMock
 
-from miniclient._miniclient import JavaScriptError
 from miniclient.page import AsyncElement, AsyncFormElement, AsyncPage
 
 # ---------------------------------------------------------------------------
@@ -51,19 +50,16 @@ async def test_goto_head_and_title_body(page: AsyncPage, httpx_mock: HTTPXMock) 
     assert el.innerHTML == "ok"
 
 
-async def test_goto_raises_javascript_error_on_failed_navigation(
+async def test_goto_commits_error_document_on_failed_navigation(
     page: AsyncPage, httpx_mock: HTTPXMock
 ) -> None:
-    """The pyo3 boundary must surface a failed fetch as `JavaScriptError`, carrying the
-    underlying JS error's name/message/stack -- everything else about how goto() gets there
-    is covered by the Rust-level navigation tests, not here."""
+    """A failed fetch must not raise -- the new realm is already committed and the old
+    document is gone, so goto() surfaces the failure as an error-state document, same as a
+    real browser's top-level navigation. Error-document shape itself is a Rust-level concern
+    (tests/navigation_fetch.rs); this only checks the pyo3 boundary doesn't raise."""
     httpx_mock.add_exception(httpx.ConnectError("boom"), url="http://localhost/unreachable")
-    with pytest.raises(JavaScriptError) as exc_info:
-        await page.goto("http://localhost/unreachable")
-    error = exc_info.value
-    assert error.name
-    assert error.message
-    assert error.stack
+    await page.goto("http://localhost/unreachable")
+    assert page.find("[data-mini-navigation-error]") is not None
 
 
 async def test_goto_navigates_to_different_domain(page: AsyncPage, httpx_mock: HTTPXMock) -> None:
