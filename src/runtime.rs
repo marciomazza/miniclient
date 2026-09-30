@@ -66,6 +66,7 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_fs_stat(),
             ops::op_fs_read(),
             ops::op_call_rust(),
+            ops::op_request_navigation(),
             ops::op_crypto_random_bytes(),
             ops::op_crypto_random_uuid(),
         ]),
@@ -210,6 +211,22 @@ fn refusal_message(
     )
 }
 
+/// What handling an eval produced: either its answer, or -- only when `allow_navigate` was true and
+/// JS requested a navigation -- everything needed to perform it. Returned rather than
+/// performed here: `eval` only ever holds `js`/`marshal` as a borrowed `&mut JsRuntime`/
+/// `&mut Global`, several calls deep from `Runtime::new`'s own loop, which is the sole place
+/// that actually *owns* them and can safely drop the old isolate before constructing the new one
+/// (see that loop's identical handling of `Command::Navigate`). Doing the drop-then-construct here
+/// instead would build a second `JsRuntime` while the first -- still referenced by the caller's
+/// borrow -- is alive, corrupting V8's handle-scope bookkeeping.
+enum EvalStep {
+    Done(Option<String>),
+    Navigate {
+        url: String,
+        host_state_json: String,
+    },
+}
+
 async fn eval(
     js: &mut JsRuntime,
     marshal: &v8::Global<v8::Value>,
@@ -217,7 +234,8 @@ async fn eval(
     is_async: bool,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
-) -> EvalOutcome {
+    allow_navigate: bool,
+) -> Result<EvalStep, EvalError> {
     let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
     let value = if is_async {
         let resolve = Box::pin(js.resolve(value));
@@ -231,7 +249,105 @@ async fn eval(
     } else {
         value
     };
-    to_json(js, marshal, value)
+
+    // Checked here, once the top-level promise (or the plain script, for a sync eval) is fully
+    // settled -- whether `op_request_navigation` was called from a plain top-level script or
+    // from deep inside that promise chain, this is the first safe point to act on it.
+    //
+    // `allow_navigate` is false only for a *reentrant* eval -- one dispatched from inside
+    // `run_with_interleaved_commands`/`run_event_loop_to_idle` while another eval further up
+    // the Rust call stack is still suspended mid-await, still holding v8 handles into this same
+    // isolate. Navigating there would drop the isolate out from under that suspended frame. Left
+    // untaken, the flag simply waits in `OpState` for whichever eval *is* at the top level to
+    // finish and find it there instead -- deferred, never lost.
+    if allow_navigate
+        && let Some(nav) = js
+            .op_state()
+            .borrow_mut()
+            .try_take::<ops::PendingNavigation>()
+    {
+        // `value` belongs to a document about to be thrown away -- dropped, not marshaled.
+        drop(value);
+        let host_state_json = capture_navigation_host_state(js, marshal, &nav);
+        return Ok(EvalStep::Navigate {
+            url: nav.url,
+            host_state_json,
+        });
+    }
+
+    to_json(js, marshal, value).map(EvalStep::Done)
+}
+
+/// Captures the host state the realm being replaced carries forward -- cookies, and session
+/// history folded through `nav.mode` the same way `bootstrap.js`'s own `navigateDocument` used
+/// to before a navigation replaced that in-realm mechanism. Only reads from the still-alive old
+/// isolate; the navigation itself (dropping it) happens elsewhere, see `EvalStep::Navigate`.
+fn capture_navigation_host_state(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    nav: &ops::PendingNavigation,
+) -> String {
+    let cookies = capture_json(js, marshal, "cookieJar.serializeSync()");
+    let history = capture_json(js, marshal, "sessionEntries()");
+    let history = history.as_deref().map(|h| apply_navigation_mode(h, nav));
+    host_state_json(cookies.as_deref(), history.as_deref())
+}
+
+/// The `{cookies, history}` shell `__HOST_STATE__` expects, shared by every place that captures
+/// a realm's host state before replacing it (`Page::navigate`, `capture_navigation_host_state`).
+/// `cookies`/`history` are already-valid JSON text (marshaled by `eval`'s own `JSON.stringify`
+/// round trip), so splicing them into the shell is safe without a parse-then-reserialize round
+/// trip through `serde_json::Value`.
+fn host_state_json(cookies: Option<&str>, history: Option<&str>) -> String {
+    format!(
+        r#"{{"cookies":{},"history":{}}}"#,
+        cookies.unwrap_or("null"),
+        history.unwrap_or("null"),
+    )
+}
+
+/// Runs `source` (a mini-authored script, never page content) and returns its marshaled JSON --
+/// panics on failure, since a throw here is a bug in that script, not something to recover from.
+fn capture_json(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    source: &str,
+) -> Option<String> {
+    let value = js
+        .execute_script("<navigate-capture>", source.to_string())
+        .unwrap_or_else(|e| panic!("{source} failed: {e}"));
+    to_json(js, marshal, value).unwrap_or_else(|e| panic!("{source} failed to marshal: {e:?}"))
+}
+
+/// Applies `nav.mode` to `sessionEntries()`'s `{entries, current}` JSON exactly the way
+/// `bootstrap.js`'s `navigateDocument` used to before a navigation replaced that in-realm mechanism:
+/// `push` appends a fresh entry (dropping anything ahead of `current`), `replace` overwrites the
+/// current entry, `traverseTo(idx)` just moves `current` -- the entries themselves, and whatever
+/// state a `pushState` call stored on them, are left alone.
+fn apply_navigation_mode(history_json: &str, nav: &ops::PendingNavigation) -> String {
+    let mut history: deno_core::serde_json::Value = deno_core::serde_json::from_str(history_json)
+        .expect("sessionEntries() must return valid JSON");
+    let current = history["current"]
+        .as_u64()
+        .expect("sessionEntries().current must be a number") as usize;
+    match &nav.mode {
+        ops::NavigationMode::Push => {
+            let entries = history["entries"]
+                .as_array_mut()
+                .expect("sessionEntries().entries must be an array");
+            entries.truncate(current + 1);
+            entries.push(deno_core::serde_json::json!({"url": nav.url, "state": null}));
+            history["current"] = deno_core::serde_json::json!(current + 1);
+        }
+        ops::NavigationMode::Replace => {
+            history["entries"][current] =
+                deno_core::serde_json::json!({"url": nav.url, "state": null});
+        }
+        ops::NavigationMode::TraverseTo(idx) => {
+            history["current"] = deno_core::serde_json::json!(idx);
+        }
+    }
+    history.to_string()
 }
 
 /// Polls `resolve` to completion the same way a plain `.await` on `with_event_loop_promise`
@@ -253,7 +369,9 @@ where
         tokio::select! {
             biased;
             Some(command) = rx.recv() => {
-                Box::pin(handle_command(js, marshal, command, rx, stop)).await;
+                // `allow_navigate: false` -- reentrant, guarantees `None` back (see `handle_command`).
+                let pending = Box::pin(handle_command(js, marshal, command, rx, stop, false)).await;
+                debug_assert!(pending.is_none(), "a reentrant eval must never request a navigation");
                 if *stop {
                     return Err(EvalError::Other(
                         "runtime closed while a request was in flight".into(),
@@ -283,7 +401,8 @@ async fn run_event_loop_to_idle(
         tokio::select! {
             biased;
             Some(command) = rx.recv() => {
-                Box::pin(handle_command(js, marshal, command, rx, stop)).await;
+                let pending = Box::pin(handle_command(js, marshal, command, rx, stop, false)).await;
+                debug_assert!(pending.is_none(), "a reentrant eval must never request a navigation");
                 if *stop {
                     return Err(EvalError::Other(
                         "runtime closed while a request was in flight".into(),
@@ -300,17 +419,29 @@ async fn run_event_loop_to_idle(
     }
 }
 
+/// Everything needed to answer a `Command::Eval`'s caller once the top-level loop has performed
+/// the navigation `handle_command` couldn't safely do itself -- see `EvalStep`'s own doc comment.
+struct PendingNavigate {
+    url: String,
+    host_state_json: String,
+    reply: oneshot::Sender<EvalOutcome>,
+}
+
 /// One command's worth of work, shared between the top-level command loop and the reentrant
 /// path in `run_with_interleaved_commands` so both dispatch the same way -- except `Navigate`,
 /// which the top-level loop intercepts and handles itself (see its own comment) before a
-/// command ever reaches here.
+/// command ever reaches here. Returns `Some` only when a `Command::Eval` (`allow_navigate: true`)
+/// requested a navigation -- the top-level loop must then perform it itself and answer
+/// the returned `reply` afterward; every other case answers its own `reply` here and returns
+/// `None`.
 async fn handle_command(
     js: &mut JsRuntime,
     marshal: &v8::Global<v8::Value>,
     command: Command,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
-) {
+    allow_navigate: bool,
+) -> Option<PendingNavigate> {
     match command {
         Command::Close => *stop = true,
         Command::Eval {
@@ -318,10 +449,25 @@ async fn handle_command(
             is_async,
             reply,
         } => {
-            // A dropped receiver just means Python stopped caring.
-            reply
-                .send(eval(js, marshal, source, is_async, rx, stop).await)
-                .ok();
+            match eval(js, marshal, source, is_async, rx, stop, allow_navigate).await {
+                // A dropped receiver just means Python stopped caring.
+                Ok(EvalStep::Done(value)) => {
+                    reply.send(Ok(value)).ok();
+                }
+                Ok(EvalStep::Navigate {
+                    url,
+                    host_state_json,
+                }) => {
+                    return Some(PendingNavigate {
+                        url,
+                        host_state_json,
+                        reply,
+                    });
+                }
+                Err(e) => {
+                    reply.send(Err(e)).ok();
+                }
+            }
         }
         Command::RegisterRustFunction {
             name,
@@ -338,9 +484,14 @@ async fn handle_command(
   Deno.core.ops.op_call_rust({index}, args);
 void 0;"
             );
-            reply
-                .send(eval(js, marshal, binding_js, false, rx, stop).await)
-                .ok();
+            // `allow_navigate: false` -- this is mini's own plumbing script, not a caller-visible
+            // eval; a pending navigation just waits for the next real one to find it.
+            let outcome = match eval(js, marshal, binding_js, false, rx, stop, false).await {
+                Ok(EvalStep::Done(value)) => Ok(value),
+                Ok(EvalStep::Navigate { .. }) => unreachable!("allow_navigate: false never yields Navigate"),
+                Err(e) => Err(e),
+            };
+            reply.send(outcome).ok();
         }
         Command::InstallFetchBackend { backend, reply } => {
             let backend: Rc<dyn ops::FetchBackend> = Rc::from(backend);
@@ -351,12 +502,28 @@ void 0;"
         // handle-scope bookkeeping (only one isolate may be current on a thread at a time), so
         // a navigation needs `js`/`marshal` dropped, not just borrowed -- see the top-level
         // loop's own handling of this variant. Reaching here means `Navigate` arrived while an
-        // eval was still in flight (the reentrant path), which nothing sends yet -- the
-        // safe-point-only timing ticket 11's navigation trigger is responsible for guaranteeing.
+        // eval was still in flight (the reentrant path), which nothing sends yet.
         Command::Navigate { .. } => unreachable!(
             "Command::Navigate must be intercepted by the top-level command loop, never reach handle_command"
         ),
     }
+    None
+}
+
+/// Boots a fresh isolate and drains its event loop to idle before handing it back -- the one
+/// operation shared by initial construction and every navigation alike: a realm isn't actually ready
+/// until its `defer`/`type=module` bootstrap scripts (which run asynchronously) have settled, not
+/// just after `boot_jsruntime`'s own synchronous scripts return.
+async fn boot_and_settle(
+    url: &str,
+    resource_mounts_json: &str,
+    host_state_json: Option<&str>,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
+) -> (JsRuntime, v8::Global<v8::Value>, Result<(), EvalError>) {
+    let (mut js, marshal) = boot_jsruntime(url, resource_mounts_json, host_state_json);
+    let outcome = run_event_loop_to_idle(&mut js, &marshal, rx, stop).await;
+    (js, marshal, outcome)
 }
 
 /// Boots a fresh isolate up through `bootstrap.js`: a new `JsRuntime`, the marshaling helper,
@@ -431,10 +598,16 @@ impl Runtime {
                 .build()
                 .expect("failed to build the isolate thread's tokio runtime");
             tokio.block_on(async move {
-                let (mut js, mut marshal) = boot_jsruntime(&url, &resource_mounts_json, None);
+                let mut stop = false;
+                let (mut js, mut marshal, outcome) =
+                    boot_and_settle(&url, &resource_mounts_json, None, &mut rx, &mut stop).await;
+                outcome.unwrap_or_else(|e| panic!("bootstrap.js failed to settle: {e:?}"));
                 ready_tx.send(()).ok();
 
-                let mut stop = false;
+                // Mutable, not just the constructor's argument: an externally-driven `Navigate`
+                // (below) can change it, and a later navigation-triggered navigation reuses
+                // whatever it was most recently set to.
+                let mut resource_mounts_json = resource_mounts_json;
                 while !stop {
                     let Some(command) = rx.recv().await else {
                         break;
@@ -446,18 +619,58 @@ impl Runtime {
                     // constructed. Building a second `JsRuntime` while the first is still alive
                     // corrupts V8's handle-scope bookkeeping and aborts the process.
                     let Command::Navigate {
-                        url,
-                        resource_mounts_json,
+                        url: new_url,
+                        resource_mounts_json: new_mounts,
                         host_state_json,
                         reply,
                     } = command
                     else {
-                        handle_command(&mut js, &marshal, command, &mut rx, &mut stop).await;
+                        // A JS-triggered navigation (`EvalStep::Navigate`, from `op_request_navigation`)
+                        // comes back the same way: `handle_command` couldn't safely perform it from
+                        // inside a borrowed `&mut JsRuntime`, so it's done here instead, right where
+                        // `Command::Navigate` above is -- the one place that owns `js`/`marshal` outright.
+                        //
+                        // Same contract as `Command::Navigate`/`Runtime::send_navigate`: `FetchBackend`/
+                        // `RustFunctions` are *not* reinstalled into the new realm here. For a
+                        // `Page`-driven runtime, `Page::navigate` is what replays those after an
+                        // externally-triggered navigation -- but `Page` has no visibility into a
+                        // JS-triggered one this loop performs on its own, so that replay
+                        // doesn't happen for this path yet. Ticket 12 (navigation fetch in the new
+                        // realm) needs a `FetchBackend` to be there for its own `fetch()` to work,
+                        // so it -- or a ticket before it -- will need to close this gap.
+                        if let Some(PendingNavigate {
+                            url: nav_url,
+                            host_state_json,
+                            reply,
+                        }) = handle_command(&mut js, &marshal, command, &mut rx, &mut stop, true)
+                            .await
+                        {
+                            drop(js);
+                            let outcome;
+                            (js, marshal, outcome) = boot_and_settle(
+                                &nav_url,
+                                &resource_mounts_json,
+                                Some(&host_state_json),
+                                &mut rx,
+                                &mut stop,
+                            )
+                            .await;
+                            reply.send(outcome.map(|()| None)).ok();
+                        }
                         continue;
                     };
                     drop(js);
-                    (js, marshal) =
-                        boot_jsruntime(&url, &resource_mounts_json, Some(&host_state_json));
+                    let outcome;
+                    (js, marshal, outcome) = boot_and_settle(
+                        &new_url,
+                        &new_mounts,
+                        Some(&host_state_json),
+                        &mut rx,
+                        &mut stop,
+                    )
+                    .await;
+                    resource_mounts_json = new_mounts;
+                    outcome.unwrap_or_else(|e| panic!("navigation failed to settle: {e:?}"));
                     reply.send(()).ok();
                 }
                 drop(js);
@@ -622,15 +835,7 @@ impl Page {
     pub fn navigate(&mut self, url: &str, resource_mounts_json: &str) {
         let cookies = eval_or_panic(&self.runtime, "cookieJar.serializeSync()");
         let history = eval_or_panic(&self.runtime, "sessionEntries()");
-
-        // Both fragments are already-valid JSON text (marshaled by `eval`'s own
-        // `JSON.stringify` round trip), so splicing them into the `{...}` shell is safe without
-        // a parse-then-reserialize round trip through `serde_json::Value`.
-        let host_state_json = format!(
-            "{{\"cookies\":{},\"history\":{}}}",
-            cookies.as_deref().unwrap_or("null"),
-            history.as_deref().unwrap_or("null"),
-        );
+        let host_state_json = host_state_json(cookies.as_deref(), history.as_deref());
         self.runtime
             .send_navigate(url, resource_mounts_json, &host_state_json)
             .blocking_recv()

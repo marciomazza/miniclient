@@ -256,6 +256,36 @@ pub fn op_call_rust(
     Ok(callable(args))
 }
 
+/// `{url, mode}` a navigation is requesting, parked in `OpState` until `runtime::eval`'s
+/// top-level promise settles -- see that function's own navigate check. `mode` mirrors the HTML
+/// Standard's own session-history vocabulary, already used by `bootstrap.js`'s `history`
+/// parameter (`navigateDocument`'s `push`/`replace`/`{traverseTo}`).
+pub struct PendingNavigation {
+    pub url: String,
+    pub mode: NavigationMode,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum NavigationMode {
+    Push,
+    Replace,
+    TraverseTo(i64),
+}
+
+/// Called by JS -- from a plain top-level script or mid-promise-chain, `runtime::eval`'s wrapper
+/// doesn't care which -- to request a navigation. Only records the request; the navigation itself runs
+/// once the current top-level promise settles, never here: constructing a second `JsRuntime`
+/// while this one is still executing corrupts V8's handle-scope bookkeeping.
+#[op2]
+pub fn op_request_navigation(
+    state: &mut OpState,
+    #[string] url: String,
+    #[serde] mode: NavigationMode,
+) {
+    state.put(PendingNavigation { url, mode });
+}
+
 /// CSPRNG bytes for `crypto.getRandomValues` -- this runtime has no other entropy source.
 #[op2]
 #[serde]
