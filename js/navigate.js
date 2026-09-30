@@ -1,17 +1,11 @@
 globalThis.__mini ??= {};
 
-// Navigation primitives -- element/form-agnostic. Everything here ends in
-// __mini.navigateDocument (bootstrap.js): fetch (or use given HTML) and replace the document.
-// Shared by Page.load()/goto() (page.py), jsdom's own navigate() (via the
-// patches/jsdom+30.0.1.patch hook) and form submission (submit.js).
+// Navigation primitives -- element/form-agnostic. A real navigation (goto/link
+// click/location.href=/form submit) goes through op_request_navigation and a fresh isolate
+// (runtime.rs); __mini.navigateDocument (bootstrap.js) is the one exception, for Page.load()
+// (no URL to fetch, so no isolate navigation to trigger).
 (function () {
     const __mini = globalThis.__mini;
-
-    // __mini.navigateDocument() (bootstrap.js) returns as soon as the new JSDOM instance is
-    // constructed, but parser-inserted defer/type=module scripts fetch (and, per the DOM spec,
-    // run) asynchronously after that. No explicit wait needed here: every caller below runs
-    // inside an `eval_async`, and runtime.rs drains the isolate's real event loop to idle after
-    // that call's own promise resolves, which covers those deferred fetches too.
 
     // Loads html as a fresh document. Used directly by Page.load() (page.py) and
     // by the initial test-page setup (see conftest.py's HTMX_BASE_HTML). Keeps the current
@@ -20,23 +14,6 @@ globalThis.__mini ??= {};
     __mini.documentWrite = async function (html) {
         __clearAllTimers();
         __mini.navigateDocument(html, location.href, { history: "replace" });
-    };
-
-    // navigateOptions forwards as-is to navigateDocument (e.g. { history }).
-    __mini.fetchAndNavigate = async function (url, navigateOptions) {
-        // Fragments are never sent over the wire, but stay on the document's URL.
-        const target = new URL(url, location.href);
-        const { hash } = target;
-        target.hash = "";
-        const res = await fetch(target.href);
-        __mini.navigateDocument(await res.text(), res.url + hash, navigateOptions);
-    };
-
-    // Fetches url and loads the response body as the new document. Backs Page.goto()
-    // (page.py).
-    __mini.fetchAndLoad = async function (url) {
-        __clearAllTimers();
-        await __mini.fetchAndNavigate(url);
     };
 
     // Patched into jsdom's navigateFetch (see patches/jsdom+30.0.1.patch), the shared

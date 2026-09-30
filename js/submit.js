@@ -1,7 +1,6 @@
 globalThis.__mini ??= {};
 
-// Form submission. Navigation primitives (fetchAndNavigate, navigateDocument, ...) live in
-// navigate.js.
+// Form submission. Navigation primitives (navigateDocument, ...) live in navigate.js.
 (function () {
     const __mini = globalThis.__mini;
 
