@@ -211,14 +211,11 @@ fn refusal_message(
     )
 }
 
-/// What handling an eval produced: either its answer, or -- only when `allow_navigate` was true and
-/// JS requested a navigation -- everything needed to perform it. Returned rather than
-/// performed here: `eval` only ever holds `js`/`marshal` as a borrowed `&mut JsRuntime`/
-/// `&mut Global`, several calls deep from `Runtime::new`'s own loop, which is the sole place
-/// that actually *owns* them and can safely drop the old isolate before constructing the new one
-/// (see that loop's identical handling of `Command::Navigate`). Doing the drop-then-construct here
-/// instead would build a second `JsRuntime` while the first -- still referenced by the caller's
-/// borrow -- is alive, corrupting V8's handle-scope bookkeeping.
+/// What handling an eval produced: either its answer, or -- under `allow_navigate`, when JS
+/// requested navigation -- what `Runtime::new`'s loop needs to perform it. Returned
+/// rather than performed here, since only that loop owns `js`/`marshal` outright and can drop
+/// the old isolate before building the new one; doing so here, mid-borrow, would leave two
+/// `JsRuntime`s alive at once and corrupt V8's handle-scope bookkeeping.
 enum EvalStep {
     Done(Option<String>),
     Navigate {
@@ -250,16 +247,13 @@ async fn eval(
         value
     };
 
-    // Checked here, once the top-level promise (or the plain script, for a sync eval) is fully
-    // settled -- whether `op_request_navigation` was called from a plain top-level script or
-    // from deep inside that promise chain, this is the first safe point to act on it.
+    // Checked here, once the top-level promise/script is fully settled -- the first safe
+    // point to act on `op_request_navigation`, regardless of where it was called from.
     //
-    // `allow_navigate` is false only for a *reentrant* eval -- one dispatched from inside
-    // `run_with_interleaved_commands`/`run_event_loop_to_idle` while another eval further up
-    // the Rust call stack is still suspended mid-await, still holding v8 handles into this same
-    // isolate. Navigating there would drop the isolate out from under that suspended frame. Left
-    // untaken, the flag simply waits in `OpState` for whichever eval *is* at the top level to
-    // finish and find it there instead -- deferred, never lost.
+    // `allow_navigate` is false only for a reentrant eval, dispatched while another eval further
+    // up the call stack is still suspended mid-await and holding v8 handles into this isolate
+    // -- navigating there would drop the isolate out from under that suspended frame. Left
+    // untaken, the flag just waits in `OpState` for the top-level eval to find it instead.
     if allow_navigate
         && let Some(nav) = js
             .op_state()
@@ -293,11 +287,9 @@ fn capture_navigation_host_state(
     host_state_json(cookies.as_deref(), history.as_deref())
 }
 
-/// The `{cookies, history}` shell `__HOST_STATE__` expects, shared by every place that captures
-/// a realm's host state before replacing it (`Page::navigate`, `capture_navigation_host_state`).
-/// `cookies`/`history` are already-valid JSON text (marshaled by `eval`'s own `JSON.stringify`
-/// round trip), so splicing them into the shell is safe without a parse-then-reserialize round
-/// trip through `serde_json::Value`.
+/// The `{cookies, history}` shell `__HOST_STATE__` expects, shared by every capture site
+/// (`Page::navigate`, `capture_navigation_host_state`). `cookies`/`history` are already
+/// marshaled JSON text, so splicing them in skips a parse-then-reserialize round trip.
 fn host_state_json(cookies: Option<&str>, history: Option<&str>) -> String {
     format!(
         r#"{{"cookies":{},"history":{}}}"#,
@@ -319,11 +311,10 @@ fn capture_json(
     to_json(js, marshal, value).unwrap_or_else(|e| panic!("{source} failed to marshal: {e:?}"))
 }
 
-/// Applies `nav.mode` to `sessionEntries()`'s `{entries, current}` JSON exactly the way
-/// `bootstrap.js`'s `navigateDocument` used to before a navigation replaced that in-realm mechanism:
-/// `push` appends a fresh entry (dropping anything ahead of `current`), `replace` overwrites the
-/// current entry, `traverseTo(idx)` just moves `current` -- the entries themselves, and whatever
-/// state a `pushState` call stored on them, are left alone.
+/// Applies `nav.mode` to `sessionEntries()`'s `{entries, current}` JSON the way
+/// `bootstrap.js`'s `navigateDocument` used to: `push` appends (dropping anything ahead of
+/// `current`), `replace` overwrites the current entry, `traverseTo(idx)` just moves `current`
+/// -- entries and any `pushState` state on them are left alone.
 fn apply_navigation_mode(history_json: &str, nav: &ops::PendingNavigation) -> String {
     let mut history: deno_core::serde_json::Value = deno_core::serde_json::from_str(history_json)
         .expect("sessionEntries() must return valid JSON");
@@ -427,13 +418,11 @@ struct PendingNavigate {
     reply: oneshot::Sender<EvalOutcome>,
 }
 
-/// One command's worth of work, shared between the top-level command loop and the reentrant
-/// path in `run_with_interleaved_commands` so both dispatch the same way -- except `Navigate`,
-/// which the top-level loop intercepts and handles itself (see its own comment) before a
-/// command ever reaches here. Returns `Some` only when a `Command::Eval` (`allow_navigate: true`)
-/// requested a navigation -- the top-level loop must then perform it itself and answer
-/// the returned `reply` afterward; every other case answers its own `reply` here and returns
-/// `None`.
+/// One command's worth of work, shared by the top-level command loop and the reentrant path
+/// in `run_with_interleaved_commands` -- except `Navigate`, which the top-level loop intercepts
+/// itself before reaching here. Returns `Some` only when a `Command::Eval` (`allow_navigate: true`)
+/// requested a navigation, for the top-level loop to perform it and answer `reply` itself; every
+/// other case answers its own `reply` and returns `None`.
 async fn handle_command(
     js: &mut JsRuntime,
     marshal: &v8::Global<v8::Value>,
@@ -528,10 +517,9 @@ async fn boot_and_settle(
 
 /// Boots a fresh isolate up through `bootstrap.js`: a new `JsRuntime`, the marshaling helper,
 /// `__BASE_URL__`/`__RESOURCE_MOUNTS__`, an empty `RustFunctions` table, and (if given)
-/// `__HOST_STATE__` -- the `{cookies, history}` blob a realm navigation carries forward from the realm
-/// it replaces, read once by `bootstrap.js` at top level to rehydrate the cookie jar and seed
-/// session history before anything else runs. `host_state_json` is already-encoded JSON, or
-/// `None` for a first boot with nothing to carry forward.
+/// `__HOST_STATE__` -- the `{cookies, history}` blob a navigation carries forward, read once by
+/// `bootstrap.js` to rehydrate the cookie jar and seed session history. `host_state_json` is
+/// already-encoded JSON, or `None` for a first boot.
 fn boot_jsruntime(
     url: &str,
     resource_mounts_json: &str,
@@ -631,13 +619,8 @@ impl Runtime {
                         // `Command::Navigate` above is -- the one place that owns `js`/`marshal` outright.
                         //
                         // Same contract as `Command::Navigate`/`Runtime::send_navigate`: `FetchBackend`/
-                        // `RustFunctions` are *not* reinstalled into the new realm here. For a
-                        // `Page`-driven runtime, `Page::navigate` is what replays those after an
-                        // externally-triggered navigation -- but `Page` has no visibility into a
-                        // JS-triggered one this loop performs on its own, so that replay
-                        // doesn't happen for this path yet. Ticket 12 (navigation fetch in the new
-                        // realm) needs a `FetchBackend` to be there for its own `fetch()` to work,
-                        // so it -- or a ticket before it -- will need to close this gap.
+                        // `RustFunctions` are *not* reinstalled into the new realm here, since
+                        // `Page` has no visibility into a navigation this loop triggers on its own.
                         if let Some(PendingNavigate {
                             url: nav_url,
                             host_state_json,
@@ -776,12 +759,12 @@ impl Drop for Runtime {
 
 /// Host-owned state that must survive a realm navigation, plus the [`Runtime`] it currently
 /// drives. Owns one `Runtime` at a time -- [`Page::navigate`] sends it a `Navigate` command
-/// rather than replacing it, so the same OS thread backs `self.runtime` for this `Page`'s whole life;
-/// only the `JsRuntime` underneath that thread changes (see `.scratch/browser-design/map.md`'s
-/// rejection of a full destroy-and-respawn-the-thread design: a running isolate can't be torn
-/// down from inside its own currently-executing call, e.g. a click handler's promise chain
-/// requesting navigation). Plain and pyo3-agnostic, mirroring the `Runtime`/pyclass `Runtime`
-/// split -- a future pyclass wraps this the same way.
+/// rather than replacing it, so the same OS thread backs `self.runtime` for this `Page`'s whole
+/// life; only the `JsRuntime` underneath that thread changes. A running isolate can't be torn
+/// down from inside its own currently-executing call (e.g. a click handler's promise chain
+/// requesting navigation), which rules out destroying and respawning the thread itself.
+/// Plain and pyo3-agnostic, mirroring the `Runtime`/pyclass `Runtime` split -- a future
+/// pyclass wraps this the same way.
 pub struct Page {
     runtime: Runtime,
     cookies: Option<String>,
@@ -818,8 +801,8 @@ impl Page {
 
     /// Binds `name` on the current realm and remembers the binding so [`Page::navigate`] can
     /// re-execute its `globalThis.name = ...` script on every realm that replaces this one --
-    /// today's `Runtime::send_register_rust_function` only runs that script once, at
-    /// registration time, which breaks the moment a navigation happens afterward.
+    /// `Runtime::send_register_rust_function` alone only runs that script once, at
+    /// registration time, and has no realm to re-run it on after a navigation.
     pub fn register_rust_function(&mut self, name: String, callable: Arc<RustCallable>) {
         replay_rust_function(&self.runtime, &name, &callable);
         self.rust_functions.push((name, callable));
