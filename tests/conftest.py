@@ -10,19 +10,6 @@ _VENDOR_HTMX_SRC = _ROOT / "vendor/htmx/src/htmx.js"
 
 HTMX_SCRIPT_TAG = '<script src="http://localhost/vendor/htmx.js"></script>'
 
-HTMX_BASE_HTML = f"""\
-    <!DOCTYPE html>
-    <html>
-      <head>
-        {HTMX_SCRIPT_TAG}
-      </head>
-      <body>
-        <div id="test-playground"></div>
-      </body>
-    </html>
-"""
-
-
 HTMX_RESOURCE_MOUNT: dict[str, str] = {"http://localhost/vendor/": str(_VENDOR_HTMX_SRC.parent)}
 
 

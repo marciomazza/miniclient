@@ -4,9 +4,7 @@
 // call. jsdom's larger bundle does cost real snapshot-restore time, not just disk space.
 //
 // Patches applied to this Window: XPath's ANY_TYPE default and the hx-on index
-// short-circuit (below), plus real navigation (__mini.navigateDocument).
-//
-// TODO: port the MutationObserver WeakRef-GC fix and cookie-jar/CORS handling in the fetch override.
+// short-circuit (below), plus __mini.documentWrite/navigateFetch for navigation.
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the polyfills
@@ -36,14 +34,6 @@ const _hostHistory = _hostState.history ?? null;
 const cookieJar = _hostState.cookies
     ? globalThis.__JSDOMCookieJar.deserializeSync(_hostState.cookies)
     : new globalThis.__JSDOMCookieJar();
-
-// Keep the old fixture cleanup path working while callers migrate to the jsdom cookie jar.
-globalThis.__zzz_get_browser_frame = () => ({
-    page: {
-        context: { cookieContainer: { clearCookies: () => cookieJar.removeAllCookiesSync() } },
-    },
-});
-_preExistingGlobals.add("__zzz_get_browser_frame");
 
 // `resources` wires every http(s) subresource fetch (<script src>, <link>, ...) through this
 // interceptor instead of jsdom's default (no automatic subresource fetching at all). `data:`
@@ -85,15 +75,10 @@ function contentTypeFor(path) {
 }
 
 // Real navigation has no jsdom equivalent (location only does hash, HTMLFormElement's submit
-// is notImplementedMethod) -- a nav is a new JSDOM instance, built the same way as the first.
-//
-// Built empty, without html, on purpose: this runtime has one real V8 global object, so a
-// page's own scripts (executed by jsdom via indirect eval) write to whatever globalThis is
-// at the time they run, not to the new Window instance -- if html were parsed here, its
-// scripts would run and write to the *previous* window's globalThis mirror, then get wiped
-// by registerWindowGlobals()'s reset-to-baseline sweep right after. Content is written
-// (triggering the real parse and script execution) only once globalThis already mirrors
-// this new window -- see __mini.navigateDocument below.
+// is notImplementedMethod) -- a nav boots a brand new isolate instead, replaying this same
+// createDom call. Built empty: a navigation boot only has a URL, fetching and writing its HTML
+// itself once this isolate is up (see __NAVIGATION_BOOT__ below); a first boot has no content
+// at all until a caller navigates or calls Page.load().
 function createDom(url) {
     const d = new JSDOM("", {
         url,
@@ -150,23 +135,8 @@ const win = dom.window;
 // the window instance onto globalThis, redirecting any self-reference (window.window/
 // self/top/parent) to point at globalThis instead of the original instance. Afterwards
 // `window === globalThis`, so code like `window.foo = x; foo` works as in a real
-// browser, and there's no need to keep the two objects in sync after this point.
-//
-// Real navigation (__mini.navigateDocument, below) replaces `win` with a brand new
-// Window instance, so this registration must be re-run after every navigation —
-// exposed via __mini (submit.js, a plain script, has no `import` access to the
-// bundle this module scope destructured above) and re-entrant:
-// - Deletes only the globalThis own-keys that are stale: not in the pre-Window
-//   baseline and not among the new win's own keys either. This still wipes an
-//   arbitrary global a loaded page's own <script> set directly on globalThis (e.g.
-//   `window.foo = 1`) — indirect eval means such scripts write straight to
-//   globalThis, never to the underlying Window instance object — while every key the
-//   new win does provide is overwritten in place below instead of deleted first.
-//   Deleting everything unconditionally (the previous approach) forced globalThis
-//   into V8 dictionary mode every navigation, since a fresh define-from-scratch on
-//   hundreds of properties never lets a stable hidden class form; overwriting in
-//   place lets repeat navigations hit plain, monomorphic property stores.
-// - Then copies the new win's own properties (+ prototype-chain symbols) on top.
+// browser, and there's no need to keep the two objects in sync after this point. Runs once,
+// right after this isolate's one and only Window is constructed above.
 
 // XPathEvaluator.prototype.createExpression — short-circuit the two XPath shapes htmx
 // actually compiles (#hxOnQuery and hx-live's bind scan, both
@@ -273,44 +243,17 @@ function installInnerText(win) {
 
 function registerWindowGlobals(win) {
     // `event` is re-installed as a live accessor below; skip the plain-value copy so it
-    // isn't churned accessor->value->accessor on every navigation.
+    // isn't churned accessor->value->accessor.
     const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis", "event"]);
-    const keys = [
-        ...Object.keys(Object.getOwnPropertyDescriptors(win)),
-        ...Object.getOwnPropertySymbols(win),
-    ];
-    const newKeys = new Set(keys);
-    for (const key of Reflect.ownKeys(globalThis)) {
-        if (_preExistingGlobals.has(key) || newKeys.has(key)) continue;
-        delete globalThis[key];
-    }
-
-    for (const key of keys) {
+    const descriptors = Object.getOwnPropertyDescriptors(win);
+    for (const key of Reflect.ownKeys(descriptors)) {
         if (_ignored.has(key) || _preExistingGlobals.has(key)) continue;
-        const winDescriptor = Object.getOwnPropertyDescriptor(win, key);
-        const globalDescriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-        if (globalDescriptor?.value !== undefined && globalDescriptor.value === winDescriptor.value)
-            continue;
+        const winDescriptor = descriptors[key];
         if (winDescriptor.value === win) {
             win[key] = globalThis;
             winDescriptor.value = globalThis;
         }
-        // A plain assignment on an existing, matching-shape property is a monomorphic
-        // store that keeps globalThis's hidden class stable; defineProperty always
-        // reconfigures the property and is only needed the first time a key shows up
-        // (new navigation-only globals) or when its attributes actually differ.
-        if (
-            globalDescriptor &&
-            "value" in globalDescriptor &&
-            "value" in winDescriptor &&
-            globalDescriptor.writable &&
-            globalDescriptor.enumerable === winDescriptor.enumerable &&
-            globalDescriptor.configurable
-        ) {
-            globalThis[key] = winDescriptor.value;
-        } else {
-            Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
-        }
+        Object.defineProperty(globalThis, key, { ...winDescriptor, configurable: true });
     }
     // document.defaultView is left at its own default (win) rather than redirected to
     // globalThis: HTMLFormElement's native submit handling derives the window class to
@@ -322,8 +265,6 @@ function registerWindowGlobals(win) {
     // win instance they're defined on. Own-property copying above misses them.
     // Restricted to symbols only — those are invisible to normal enumeration, so this
     // can't leak public API surface onto globalThis.
-    // Re-bound every call since these close over `win` and the deletion pass above
-    // just wiped the previous window's bindings.
     for (
         let proto = Object.getPrototypeOf(win);
         proto && proto !== Object.prototype;
@@ -411,24 +352,14 @@ function registerWindowGlobals(win) {
         };
     }
 }
-// Not per-window state, so exposed on __mini rather than copied in by
-// registerWindowGlobals' own reset-to-baseline sweep below -- must survive every
-// navigation (it's how submit.js — a plain script with no `import` of its own — reaches
-// this module's registerWindowGlobals at all).
-globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
 
-// Real navigation (window.location only handles same-document hash changes;
-// HTMLFormElement's own submission algorithm is unimplemented, see
-// notImplementedMethod in jsdom's HTMLFormElement-impl.js) has no jsdom equivalent --
-// the only way to get a new Window/Document pair is a brand new JSDOM instance.
-// Session history entries ({url, state}) outside the current Window: jsdom's own
-// window._sessionHistory only ever holds the current document's entries (a fresh Window per
-// navigation), so the rest are parked here and re-joined with it in sessionEntries().
+// jsdom can't navigate a Window in place, so real navigation always gets a fresh one.
+// window._sessionHistory only holds that Window's own entries; the rest are parked here and
+// rejoined in sessionEntries().
 let _historyBefore = [];
 let _historyAfter = [];
-// Seed from the injected host state (a navigation's carried-forward history), if any -- the current
-// entry's `state` is applied to `win.history` once `win` exists, right after
-// `registerWindowGlobals(win)` below.
+// Seeded from injected host state, if any; the current entry's `state` is applied to
+// `win.history` after `registerWindowGlobals(win)` below.
 if (_hostHistory) {
     const { entries, current } = _hostHistory;
     _historyBefore = entries.slice(0, current);
@@ -446,42 +377,30 @@ function sessionEntries() {
     };
 }
 
-// Only ever called with the current entry replaced (Page.load()'s in-realm rewrite has no
-// URL of its own to push, and no target entry to traverse to) -- every navigation that pushes
-// a new entry or traverses history goes through op_request_navigation's isolate navigation
-// instead (runtime.rs's apply_navigation_mode), never through here.
-globalThis.__mini.navigateDocument = function (html, url) {
-    const { entries, current } = sessionEntries();
-    entries[current] = { url };
-    _historyBefore = entries.slice(0, current);
-    _historyAfter = entries.slice(current + 1);
-
-    const previousWindow = win;
-    dom = createDom(url);
-    win = dom.window;
-    registerWindowGlobals(win);
-    // After the global swap: closing first would delete `_document` from a window that
-    // globalThis still mirrors. jsdom keeps a closed window's whole tree alive otherwise.
-    previousWindow.close();
-    // Only now, with globalThis already mirroring `win`, is it safe to parse content and
-    // let its <script> tags run (see createDom's comment above). open() resets the
-    // just-constructed, already-"complete" empty document back to "loading", so
-    // parser-inserted defer/external scripts get the right readyState and fetch
-    // synchronously mid-parse, same as ticket 19's script-loading tests rely on.
+// Same-document rewrite, same as a real document.write() -- no new Window, no history change.
+// Used directly by Page.load() (page.py).
+globalThis.__mini.documentWrite = async function (html) {
     win.document.open();
     win.document.write(html);
     win.document.close();
 };
 
-// Patched into jsdom's History#length getter (see patches/jsdom+30.0.1.patch), which adds the
-// current window's own entries to this count of the ones outside it, minus the shared current one.
+// Patched into jsdom's navigateFetch (patches/jsdom+30.0.1.patch) -- the catch-all for
+// location.href=/link clicks that jsdom itself can't finish. Also backs Page.goto() (page.py).
+// Just records the request; runtime.rs drives the actual isolate navigation once this eval settles.
+globalThis.__mini.navigateFetch = function (_window, url) {
+    Deno.core.ops.op_request_navigation(new URL(url, location.href).href, "push");
+};
+
+// Patched into jsdom's History#length getter (patches/jsdom+30.0.1.patch): current window's
+// own entries plus the ones outside it, minus the shared current one.
 globalThis.__mini.historyLength = function () {
     return _historyBefore.length + _historyAfter.length + 1;
 };
 
-// Patched into jsdom's History#go() (see patches/jsdom+30.0.1.patch): the hook it calls once
-// a delta runs past the current window's own (always-fresh) session history. Only records the
-// request; runtime.rs drives the isolate navigation and self-fetch once this eval settles.
+// Patched into jsdom's History#go() (patches/jsdom+30.0.1.patch) for deltas past the current
+// window's own session history. Just records the request; runtime.rs drives the actual
+// navigation once this eval settles.
 globalThis.__mini.navigateHistory = function (delta) {
     const { entries, current } = sessionEntries();
     const target = current + delta;
@@ -584,13 +503,6 @@ globalThis.fetch = async (input, init = {}) => {
     Object.defineProperty(response, "url", { value: res.url, configurable: true });
     return response;
 };
-// Protected from registerWindowGlobals' reset-to-baseline sweep: this closure already
-// re-resolves `window`/`location` dynamically on every call rather than capturing a
-// particular win, so it's valid for the lifetime of the runtime — it must survive every
-// navigation rather than being overwritten by the plain `win.fetch` the registration
-// copy loop would otherwise install. `fetch` itself can't live on `__mini` like the rest
-// of the bridge surface: it's real, page-visible browser API, not internal plumbing.
-_preExistingGlobals.add("fetch");
 
 // Set by boot_jsruntime (src/runtime.rs): true only for the navigation op_request_navigation
 // drives (Page.goto()/link click/form submit), never the first boot or an externally-triggered

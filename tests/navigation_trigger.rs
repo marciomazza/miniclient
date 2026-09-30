@@ -1,6 +1,6 @@
-//! `op_request_navigation` wired into `eval()`. Drives the op directly (no
-//! `navigate.js`/`bootstrap.js` wiring yet) to prove the trigger mechanism
-//! itself: a plain top-level call simulates an external `Page.goto()`-style trigger, an
+//! `op_request_navigation` wired into `eval()`. Drives the op directly (no `bootstrap.js`
+//! wiring yet) to prove the trigger mechanism itself: a plain top-level call simulates an
+//! external `Page.goto()`-style trigger, an
 //! `await`-then-call simulates JS requesting navigation mid-promise-chain. Both must land in a
 //! correctly settled new realm without corrupting the calling `eval`'s own reply.
 
