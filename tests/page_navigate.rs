@@ -16,7 +16,7 @@ fn navigate_carries_cookies_forward() {
     let mut page = Page::new("http://localhost/", "{}");
     page.runtime().run("document.cookie = 'a=1'; void 0");
 
-    page.navigate("http://localhost/", "{}");
+    page.navigate("http://localhost/");
 
     assert_eq!(page.runtime().eval::<String>("document.cookie"), "a=1");
 }
@@ -26,7 +26,7 @@ fn navigate_carries_session_history_forward() {
     let mut page = Page::new("http://localhost/", "{}");
     page.runtime().run("history.pushState({n: 1}, '', '/next')");
 
-    page.navigate("http://localhost/", "{}");
+    page.navigate("http://localhost/");
 
     assert_eq!(page.runtime().eval::<i32>("history.length"), 2);
     assert_eq!(page.runtime().eval::<i32>("history.state.n"), 1);
@@ -39,7 +39,7 @@ fn navigate_reinstalls_the_fetch_backend() {
     mock.text("http://localhost/ok", "hello");
     page.install_fetch_backend(Arc::new(mock));
 
-    page.navigate("http://localhost/", "{}");
+    page.navigate("http://localhost/");
 
     let body: String = page
         .runtime()
@@ -60,7 +60,7 @@ fn navigate_replays_rust_function_bindings() {
         }),
     );
 
-    page.navigate("http://localhost/", "{}");
+    page.navigate("http://localhost/");
 
     assert_eq!(page.runtime().eval::<String>("__testFn(42)"), "ok");
     assert_eq!(calls.lock().unwrap().len(), 1);

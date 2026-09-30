@@ -113,11 +113,12 @@ enum Command {
     /// Replaces `js`/`marshal` in place with a freshly booted realm -- the OS thread and
     /// command channel this `Runtime` was constructed with are untouched, only the isolate
     /// underneath them changes. `host_state_json` is the `{cookies, history}` blob the caller
-    /// captured from the realm being replaced. Unlike `EvalStep::Navigate`, this variant never
-    /// fetches -- the caller already has the document content it wants.
+    /// captured from the realm being replaced. `resource_mounts_json` is not carried here: it's
+    /// fixed for the `Runtime`'s whole life, set once at construction. Unlike
+    /// `EvalStep::Navigate`, this variant never fetches -- the caller already has the document
+    /// content it wants.
     Navigate {
         url: String,
-        resource_mounts_json: String,
         host_state_json: String,
         reply: oneshot::Sender<()>,
     },
@@ -710,10 +711,9 @@ impl Runtime {
                 outcome.unwrap_or_else(|e| panic!("bootstrap.js failed to settle: {e:?}"));
                 ready_tx.send(()).ok();
 
-                // Mutable, not just the constructor's argument: an externally-driven `Navigate`
-                // (below) can change it, and a later navigation-triggered navigation reuses
-                // whatever it was most recently set to.
-                let mut resource_mounts_json = resource_mounts_json;
+                // Fixed for the runtime's whole life: every navigation, external or
+                // in-page-triggered, reboots the new realm with this same mount table.
+                let resource_mounts_json = resource_mounts_json;
                 while !stop {
                     let Some(command) = rx.recv().await else {
                         break;
@@ -726,7 +726,6 @@ impl Runtime {
                     // corrupts V8's handle-scope bookkeeping and aborts the process.
                     let Command::Navigate {
                         url: new_url,
-                        resource_mounts_json: new_mounts,
                         host_state_json,
                         reply,
                     } = command
@@ -777,7 +776,7 @@ impl Runtime {
                     let outcome;
                     (js, marshal, outcome) = boot_and_settle(
                         &new_url,
-                        &new_mounts,
+                        &resource_mounts_json,
                         Some(&host_state_json),
                         None,
                         false,
@@ -786,7 +785,6 @@ impl Runtime {
                         &mut replay,
                     )
                     .await;
-                    resource_mounts_json = new_mounts;
                     outcome.unwrap_or_else(|e| panic!("navigation failed to settle: {e:?}"));
                     replay_into(&mut js, &marshal, &mut rx, &mut stop, &mut replay).await;
                     reply.send(()).ok();
@@ -854,20 +852,16 @@ impl Runtime {
         rx
     }
 
-    /// Navigates to a brand-new realm booted from `url`/`resource_mounts_json`, `host_state_json`
-    /// injected as `globalThis.__HOST_STATE__` -- same OS thread throughout, only the isolate
-    /// changes. Any installed `FetchBackend`/`RustFunctions` (`ReplayState`) replay automatically.
-    pub fn send_navigate(
-        &self,
-        url: &str,
-        resource_mounts_json: &str,
-        host_state_json: &str,
-    ) -> oneshot::Receiver<()> {
+    /// Navigates to a brand-new realm booted from `url`, `host_state_json` injected as
+    /// `globalThis.__HOST_STATE__` -- same OS thread throughout, only the isolate changes.
+    /// Reboots with the mount table this `Runtime` was constructed with; that table is fixed
+    /// for the `Runtime`'s whole life. Any installed `FetchBackend`/`RustFunctions`
+    /// (`ReplayState`) replay automatically.
+    pub fn send_navigate(&self, url: &str, host_state_json: &str) -> oneshot::Receiver<()> {
         let (reply, rx) = oneshot::channel();
         self.commands
             .send(Command::Navigate {
                 url: url.to_string(),
-                resource_mounts_json: resource_mounts_json.to_string(),
                 host_state_json: host_state_json.to_string(),
                 reply,
             })
@@ -907,7 +901,9 @@ pub struct Page {
 
 impl Page {
     /// `url`/`resource_mounts_json` boot the first realm exactly as [`Runtime::new`] would --
-    /// no host state to carry forward yet, nothing has been captured.
+    /// no host state to carry forward yet, nothing has been captured. `resource_mounts_json` is
+    /// fixed for this `Page`'s whole life: `Runtime` itself keeps it and reuses it on every
+    /// later navigation, so it's not accepted again by `navigate()`.
     pub fn new(url: &str, resource_mounts_json: &str) -> Self {
         Self {
             runtime: Runtime::new(url, resource_mounts_json),
@@ -943,14 +939,14 @@ impl Page {
     }
 
     /// Captures cookies/session history from the current realm and re-injects them into the
-    /// new one via `Runtime::send_navigate`. `FetchBackend`/`RustFunctions` replay is
-    /// `Runtime`'s own job now, not `Page`'s.
-    pub fn navigate(&mut self, url: &str, resource_mounts_json: &str) {
+    /// new one via `Runtime::send_navigate`, rebooted with this `Page`'s fixed mount table.
+    /// `FetchBackend`/`RustFunctions` replay is `Runtime`'s own job now, not `Page`'s.
+    pub fn navigate(&mut self, url: &str) {
         let cookies = eval_or_panic(&self.runtime, "cookieJar.serializeSync()");
         let history = eval_or_panic(&self.runtime, "sessionEntries()");
         let host_state_json = host_state_json(cookies.as_deref(), history.as_deref());
         self.runtime
-            .send_navigate(url, resource_mounts_json, &host_state_json)
+            .send_navigate(url, &host_state_json)
             .blocking_recv()
             .expect("navigate channel dropped");
 
