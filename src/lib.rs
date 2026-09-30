@@ -91,7 +91,9 @@ impl Runtime {
             fetch_abort,
             fetch_sync,
         };
-        let rx = self.0.send_install_fetch_backend(Box::new(backend));
+        let rx = self
+            .0
+            .send_install_fetch_backend(std::sync::Arc::new(backend));
         py.detach(|| rx.blocking_recv()).map_err(closed)
     }
 }

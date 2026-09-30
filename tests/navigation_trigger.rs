@@ -8,11 +8,19 @@ mod common;
 
 use common::EvalExt;
 use common::fetch_mock::{MockFetchBackend, runtime_with_mock};
-use common::runtime;
+
+/// A landed navigation self-fetches `__BASE_URL__` (see `js/bootstrap.js`'s `__NAVIGATION_BOOT__`
+/// branch), so every test below that actually lands a navigation needs a route for wherever it
+/// navigates to -- an empty body is enough, none of them assert on fetched content.
+fn runtime_with_route(url: &str) -> common::Runtime {
+    let mock = MockFetchBackend::new();
+    mock.text(url, "");
+    runtime_with_mock(&mock)
+}
 
 #[test]
 fn navigation_trigger_navigates_the_realm_from_a_plain_top_level_script() {
-    let rt = runtime();
+    let rt = runtime_with_route("http://localhost/next");
     rt.run("document.title = 'before'; void 0");
 
     // The triggering eval's own reply is `undefined` -- its script's completion value belonged
@@ -27,7 +35,7 @@ fn navigation_trigger_navigates_the_realm_from_a_plain_top_level_script() {
 
 #[test]
 fn navigation_trigger_navigates_the_realm_mid_promise_chain() {
-    let rt = runtime();
+    let rt = runtime_with_route("http://localhost/next");
     rt.run("document.title = 'before'; void 0");
 
     rt.run_async(
@@ -54,6 +62,7 @@ fn navigation_trigger_from_a_reentrant_eval_defers_until_the_outer_eval_settles(
     // top-level one -- itself settles.
     let mock = MockFetchBackend::new();
     mock.hang("http://localhost/slow");
+    mock.text("http://localhost/next", "");
     let rt = runtime_with_mock(&mock);
     rt.run("globalThis.__controller = new AbortController(); void 0");
 
@@ -81,7 +90,7 @@ fn navigation_trigger_from_a_reentrant_eval_defers_until_the_outer_eval_settles(
 
 #[test]
 fn navigation_trigger_carries_cookies_forward() {
-    let rt = runtime();
+    let rt = runtime_with_route("http://localhost/next");
     rt.run("document.cookie = 'a=1'");
 
     rt.run("Deno.core.ops.op_request_navigation('http://localhost/next', 'push'); void 0");
@@ -91,7 +100,7 @@ fn navigation_trigger_carries_cookies_forward() {
 
 #[test]
 fn navigation_trigger_push_appends_a_history_entry() {
-    let rt = runtime();
+    let rt = runtime_with_route("http://localhost/next");
     rt.run("history.pushState({n: 1}, '', '/prev')");
 
     rt.run("Deno.core.ops.op_request_navigation('http://localhost/next', 'push'); void 0");
@@ -103,7 +112,7 @@ fn navigation_trigger_push_appends_a_history_entry() {
 
 #[test]
 fn navigation_trigger_replace_keeps_history_length() {
-    let rt = runtime();
+    let rt = runtime_with_route("http://localhost/next");
     rt.run("history.pushState({n: 1}, '', '/prev')");
 
     rt.run("Deno.core.ops.op_request_navigation('http://localhost/next', 'replace'); void 0");
@@ -114,7 +123,7 @@ fn navigation_trigger_replace_keeps_history_length() {
 
 #[test]
 fn navigation_trigger_traverse_to_restores_an_earlier_entry() {
-    let rt = runtime();
+    let rt = runtime_with_route("http://localhost/a");
     rt.run("history.pushState({n: 1}, '', '/a')");
     rt.run("history.pushState({n: 2}, '', '/b')");
 

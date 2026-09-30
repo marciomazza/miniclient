@@ -232,28 +232,28 @@ impl HtmxFetchMock {
         for (name, f) in [
             (
                 "__mini_fm_register",
-                Box::new({
+                Arc::new({
                     let this = self.clone();
                     move |args: Vec<Value>| this.op_register(&args)
-                }) as Box<dyn Fn(Vec<Value>) -> Value + Send>,
+                }) as Arc<_miniclient::runtime::RustCallable>,
             ),
             (
                 "__mini_fm_reset",
-                Box::new({
+                Arc::new({
                     let this = self.clone();
                     move |args: Vec<Value>| this.op_reset(&args)
                 }),
             ),
             (
                 "__mini_fm_register_seq",
-                Box::new({
+                Arc::new({
                     let this = self.clone();
                     move |args: Vec<Value>| this.op_register_seq(&args)
                 }),
             ),
             (
                 "__mini_fm_next",
-                Box::new({
+                Arc::new({
                     let this = self.clone();
                     move |args: Vec<Value>| this.op_next(&args)
                 }),

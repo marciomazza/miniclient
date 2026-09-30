@@ -78,9 +78,8 @@ pub(crate) fn miniclient_extension() -> Extension {
 /// `undefined`/`null`.
 pub type EvalOutcome = Result<Option<String>, EvalError>;
 
-/// A callable `op_call_rust` can dispatch to, shared by `Runtime`'s one-shot registration and
-/// `Page`'s `Arc`-based storage (which needs `Sync` too, to survive being cloned into every
-/// realm a navigation creates).
+/// A callable `op_call_rust` can dispatch to -- `Sync`, not just `Send`, so `ReplayState` can
+/// clone it into every realm a navigation creates.
 pub type RustCallable =
     dyn Fn(Vec<deno_core::serde_json::Value>) -> deno_core::serde_json::Value + Send + Sync;
 
@@ -104,18 +103,18 @@ enum Command {
     },
     RegisterRustFunction {
         name: String,
-        callable:
-            Box<dyn Fn(Vec<deno_core::serde_json::Value>) -> deno_core::serde_json::Value + Send>,
+        callable: Arc<RustCallable>,
         reply: oneshot::Sender<EvalOutcome>,
     },
     InstallFetchBackend {
-        backend: Box<dyn ops::FetchBackend>,
+        backend: Arc<dyn ops::FetchBackend + Send + Sync>,
         reply: oneshot::Sender<()>,
     },
     /// Replaces `js`/`marshal` in place with a freshly booted realm -- the OS thread and
     /// command channel this `Runtime` was constructed with are untouched, only the isolate
     /// underneath them changes. `host_state_json` is the `{cookies, history}` blob the caller
-    /// captured from the realm being replaced.
+    /// captured from the realm being replaced. Unlike `EvalStep::Navigate`, this variant never
+    /// fetches -- the caller already has the document content it wants.
     Navigate {
         url: String,
         resource_mounts_json: String,
@@ -224,6 +223,9 @@ enum EvalStep {
     },
 }
 
+// `rx`/`stop`/`replay` are threaded straight through to the reentrant command loop below --
+// bundling them into a context struct would just move the sprawl, not remove it.
+#[allow(clippy::too_many_arguments)]
 async fn eval(
     js: &mut JsRuntime,
     marshal: &v8::Global<v8::Value>,
@@ -232,16 +234,17 @@ async fn eval(
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
     allow_navigate: bool,
+    replay: &mut ReplayState,
 ) -> Result<EvalStep, EvalError> {
     let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
     let value = if is_async {
         let resolve = Box::pin(js.resolve(value));
-        let value = run_with_interleaved_commands(js, marshal, resolve, rx, stop).await?;
+        let value = run_with_interleaved_commands(js, marshal, resolve, rx, stop, replay).await?;
         // Settle wait: the returned promise resolving only means *that* chain is done, not
         // that the page has gone quiet (a click handler can fire a fetch it never returns,
         // htmx's own dispatch does this routinely). Drain the isolate's real event loop -- not
         // a JS-side task counter -- to idle before handing control back.
-        run_event_loop_to_idle(js, marshal, rx, stop).await?;
+        run_event_loop_to_idle(js, marshal, rx, stop, replay).await?;
         value
     } else {
         value
@@ -352,6 +355,7 @@ async fn run_with_interleaved_commands<F>(
     mut resolve: std::pin::Pin<Box<F>>,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
+    replay: &mut ReplayState,
 ) -> Result<v8::Global<v8::Value>, EvalError>
 where
     F: std::future::Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>>,
@@ -361,7 +365,7 @@ where
             biased;
             Some(command) = rx.recv() => {
                 // `allow_navigate: false` -- reentrant, guarantees `None` back (see `handle_command`).
-                let pending = Box::pin(handle_command(js, marshal, command, rx, stop, false)).await;
+                let pending = Box::pin(handle_command(js, marshal, command, rx, stop, false, replay)).await;
                 debug_assert!(pending.is_none(), "a reentrant eval must never request a navigation");
                 if *stop {
                     return Err(EvalError::Other(
@@ -387,12 +391,13 @@ async fn run_event_loop_to_idle(
     marshal: &v8::Global<v8::Value>,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
+    replay: &mut ReplayState,
 ) -> Result<(), EvalError> {
     loop {
         tokio::select! {
             biased;
             Some(command) = rx.recv() => {
-                let pending = Box::pin(handle_command(js, marshal, command, rx, stop, false)).await;
+                let pending = Box::pin(handle_command(js, marshal, command, rx, stop, false, replay)).await;
                 debug_assert!(pending.is_none(), "a reentrant eval must never request a navigation");
                 if *stop {
                     return Err(EvalError::Other(
@@ -418,6 +423,75 @@ struct PendingNavigate {
     reply: oneshot::Sender<EvalOutcome>,
 }
 
+/// The installed `FetchBackend`/`RustFunctions`, remembered by `Runtime` itself (not `Page`)
+/// so every navigation -- whether an externally-triggered `Command::Navigate` or one requested
+/// from inside the page -- replays them into the fresh `OpState`, which starts empty regardless
+/// of which path built it.
+#[derive(Default)]
+struct ReplayState {
+    fetch_backend: Option<Arc<dyn ops::FetchBackend + Send + Sync>>,
+    rust_functions: Vec<(String, Arc<RustCallable>)>,
+}
+
+/// Installs `backend` into `js`'s current `OpState` -- shared by first installation
+/// (`Command::InstallFetchBackend`) and replaying `ReplayState::fetch_backend` after a navigation.
+fn install_fetch_backend_into(
+    js: &mut JsRuntime,
+    backend: &Arc<dyn ops::FetchBackend + Send + Sync>,
+) {
+    let backend: Rc<dyn ops::FetchBackend> = Rc::new(backend.clone());
+    js.op_state().borrow_mut().put(backend);
+}
+
+/// Registers `callable` in `js`'s current `RustFunctions` and evals the `globalThis.name = ...`
+/// binding script -- shared by first registration and navigation-replay. Doesn't touch `replay`
+/// itself: the caller decides whether this binding is worth remembering.
+async fn bind_rust_function(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    name: &str,
+    callable: &Arc<RustCallable>,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
+    replay: &mut ReplayState,
+) -> EvalOutcome {
+    let index = {
+        let state = js.op_state();
+        let mut state = state.borrow_mut();
+        let callable = callable.clone();
+        state
+            .borrow_mut::<ops::RustFunctions>()
+            .push(Box::new(move |args| (*callable)(args)))
+    };
+    let binding_js = format!(
+        "globalThis.{name} = (...args) => Deno.core.ops.op_call_rust({index}, args); void 0;"
+    );
+    // `allow_navigate: false` -- this is mini's own plumbing script, not a caller-visible eval; a
+    // pending navigation just waits for the next real one to find it.
+    match eval(js, marshal, binding_js, false, rx, stop, false, replay).await {
+        Ok(EvalStep::Done(value)) => Ok(value),
+        Ok(EvalStep::Navigate { .. }) => unreachable!("allow_navigate: false never yields Navigate"),
+        Err(e) => Err(e),
+    }
+}
+
+/// Replays every remembered `RustFunctions` binding into `js` -- run after every navigation. Not
+/// `fetch_backend`: `boot_jsruntime` already installs that before `bootstrap.js` runs, since a
+/// navigation boot's self-fetch needs it mid-script, before this function gets a turn.
+async fn replay_into(
+    js: &mut JsRuntime,
+    marshal: &v8::Global<v8::Value>,
+    rx: &mut mpsc::UnboundedReceiver<Command>,
+    stop: &mut bool,
+    replay: &mut ReplayState,
+) {
+    for (name, callable) in replay.rust_functions.clone() {
+        bind_rust_function(js, marshal, &name, &callable, rx, stop, replay)
+            .await
+            .unwrap_or_else(|e| panic!("replaying rust function {name} failed: {e:?}"));
+    }
+}
+
 /// One command's worth of work, shared by the top-level command loop and the reentrant path
 /// in `run_with_interleaved_commands` -- except `Navigate`, which the top-level loop intercepts
 /// itself before reaching here. Returns `Some` only when a `Command::Eval` (`allow_navigate: true`)
@@ -430,6 +504,7 @@ async fn handle_command(
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
     allow_navigate: bool,
+    replay: &mut ReplayState,
 ) -> Option<PendingNavigate> {
     match command {
         Command::Close => *stop = true,
@@ -438,7 +513,7 @@ async fn handle_command(
             is_async,
             reply,
         } => {
-            match eval(js, marshal, source, is_async, rx, stop, allow_navigate).await {
+            match eval(js, marshal, source, is_async, rx, stop, allow_navigate, replay).await {
                 // A dropped receiver just means Python stopped caring.
                 Ok(EvalStep::Done(value)) => {
                     reply.send(Ok(value)).ok();
@@ -463,28 +538,15 @@ async fn handle_command(
             callable,
             reply,
         } => {
-            let index = {
-                let state = js.op_state();
-                let mut state = state.borrow_mut();
-                state.borrow_mut::<ops::RustFunctions>().push(callable)
-            };
-            let binding_js = format!(
-                "globalThis.{name} = (...args) =>
-  Deno.core.ops.op_call_rust({index}, args);
-void 0;"
-            );
-            // `allow_navigate: false` -- this is mini's own plumbing script, not a caller-visible
-            // eval; a pending navigation just waits for the next real one to find it.
-            let outcome = match eval(js, marshal, binding_js, false, rx, stop, false).await {
-                Ok(EvalStep::Done(value)) => Ok(value),
-                Ok(EvalStep::Navigate { .. }) => unreachable!("allow_navigate: false never yields Navigate"),
-                Err(e) => Err(e),
-            };
+            let outcome = bind_rust_function(js, marshal, &name, &callable, rx, stop, replay).await;
+            if outcome.is_ok() {
+                replay.rust_functions.push((name, callable));
+            }
             reply.send(outcome).ok();
         }
         Command::InstallFetchBackend { backend, reply } => {
-            let backend: Rc<dyn ops::FetchBackend> = Rc::from(backend);
-            js.op_state().borrow_mut().put(backend);
+            install_fetch_backend_into(js, &backend);
+            replay.fetch_backend = Some(backend);
             reply.send(()).ok();
         }
         // Constructing a second `JsRuntime` while this one is still alive corrupts V8's
@@ -507,23 +569,32 @@ async fn boot_and_settle(
     url: &str,
     resource_mounts_json: &str,
     host_state_json: Option<&str>,
+    is_navigation_boot: bool,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
+    replay: &mut ReplayState,
 ) -> (JsRuntime, v8::Global<v8::Value>, Result<(), EvalError>) {
-    let (mut js, marshal) = boot_jsruntime(url, resource_mounts_json, host_state_json);
-    let outcome = run_event_loop_to_idle(&mut js, &marshal, rx, stop).await;
+    let (mut js, marshal) = boot_jsruntime(
+        url,
+        resource_mounts_json,
+        host_state_json,
+        is_navigation_boot,
+        replay.fetch_backend.clone(),
+    );
+    let outcome = run_event_loop_to_idle(&mut js, &marshal, rx, stop, replay).await;
     (js, marshal, outcome)
 }
 
-/// Boots a fresh isolate up through `bootstrap.js`: a new `JsRuntime`, the marshaling helper,
-/// `__BASE_URL__`/`__RESOURCE_MOUNTS__`, an empty `RustFunctions` table, and (if given)
-/// `__HOST_STATE__` -- the `{cookies, history}` blob a navigation carries forward, read once by
-/// `bootstrap.js` to rehydrate the cookie jar and seed session history. `host_state_json` is
-/// already-encoded JSON, or `None` for a first boot.
+/// Boots a fresh isolate up through `bootstrap.js`, injecting `__BASE_URL__`/
+/// `__RESOURCE_MOUNTS__`/`__HOST_STATE__`/`__NAVIGATION_BOOT__` (the last true only for the navigation
+/// `op_request_navigation` drives) first. `fetch_backend` must land before `bootstrap.js` runs,
+/// not after: a navigation boot's self-fetch calls `fetch()` the instant its first `await` runs.
 fn boot_jsruntime(
     url: &str,
     resource_mounts_json: &str,
     host_state_json: Option<&str>,
+    is_navigation_boot: bool,
+    fetch_backend: Option<Arc<dyn ops::FetchBackend + Send + Sync>>,
 ) -> (JsRuntime, v8::Global<v8::Value>) {
     let mut js = JsRuntime::new(RuntimeOptions {
         startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
@@ -552,9 +623,17 @@ fn boot_jsruntime(
         ),
     )
     .expect("failed to install __HOST_STATE__");
+    js.execute_script(
+        "<runtime-config>",
+        format!("globalThis.__NAVIGATION_BOOT__ = {is_navigation_boot};"),
+    )
+    .expect("failed to install __NAVIGATION_BOOT__");
     js.op_state()
         .borrow_mut()
         .put(ops::RustFunctions::default());
+    if let Some(backend) = &fetch_backend {
+        install_fetch_backend_into(&mut js, backend);
+    }
     js.execute_script("bootstrap.js", BOOTSTRAP_JS)
         .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
     (js, marshal)
@@ -587,8 +666,17 @@ impl Runtime {
                 .expect("failed to build the isolate thread's tokio runtime");
             tokio.block_on(async move {
                 let mut stop = false;
-                let (mut js, mut marshal, outcome) =
-                    boot_and_settle(&url, &resource_mounts_json, None, &mut rx, &mut stop).await;
+                let mut replay = ReplayState::default();
+                let (mut js, mut marshal, outcome) = boot_and_settle(
+                    &url,
+                    &resource_mounts_json,
+                    None,
+                    false,
+                    &mut rx,
+                    &mut stop,
+                    &mut replay,
+                )
+                .await;
                 outcome.unwrap_or_else(|e| panic!("bootstrap.js failed to settle: {e:?}"));
                 ready_tx.send(()).ok();
 
@@ -617,16 +705,21 @@ impl Runtime {
                         // comes back the same way: `handle_command` couldn't safely perform it from
                         // inside a borrowed `&mut JsRuntime`, so it's done here instead, right where
                         // `Command::Navigate` above is -- the one place that owns `js`/`marshal` outright.
-                        //
-                        // Same contract as `Command::Navigate`/`Runtime::send_navigate`: `FetchBackend`/
-                        // `RustFunctions` are *not* reinstalled into the new realm here, since
-                        // `Page` has no visibility into a navigation this loop triggers on its own.
+
                         if let Some(PendingNavigate {
                             url: nav_url,
                             host_state_json,
                             reply,
-                        }) = handle_command(&mut js, &marshal, command, &mut rx, &mut stop, true)
-                            .await
+                        }) = handle_command(
+                            &mut js,
+                            &marshal,
+                            command,
+                            &mut rx,
+                            &mut stop,
+                            true,
+                            &mut replay,
+                        )
+                        .await
                         {
                             drop(js);
                             let outcome;
@@ -634,10 +727,16 @@ impl Runtime {
                                 &nav_url,
                                 &resource_mounts_json,
                                 Some(&host_state_json),
+                                true,
                                 &mut rx,
                                 &mut stop,
+                                &mut replay,
                             )
                             .await;
+                            if outcome.is_ok() {
+                                replay_into(&mut js, &marshal, &mut rx, &mut stop, &mut replay)
+                                    .await;
+                            }
                             reply.send(outcome.map(|()| None)).ok();
                         }
                         continue;
@@ -648,12 +747,15 @@ impl Runtime {
                         &new_url,
                         &new_mounts,
                         Some(&host_state_json),
+                        false,
                         &mut rx,
                         &mut stop,
+                        &mut replay,
                     )
                     .await;
                     resource_mounts_json = new_mounts;
                     outcome.unwrap_or_else(|e| panic!("navigation failed to settle: {e:?}"));
+                    replay_into(&mut js, &marshal, &mut rx, &mut stop, &mut replay).await;
                     reply.send(()).ok();
                 }
                 drop(js);
@@ -683,13 +785,13 @@ impl Runtime {
     }
 
     /// Binds `name` to a Rust closure via `op_call_rust`, queuing the binding on the isolate
-    /// thread and handing back the channel its outcome will arrive on.
+    /// thread and handing back the channel its outcome will arrive on. Remembered on the
+    /// isolate thread's own `ReplayState`, so every later navigation (external or
+    /// in-page-triggered) re-binds it into the fresh realm without the caller doing anything.
     pub fn send_register_rust_function(
         &self,
         name: String,
-        callable: Box<
-            dyn Fn(Vec<deno_core::serde_json::Value>) -> deno_core::serde_json::Value + Send,
-        >,
+        callable: Arc<RustCallable>,
     ) -> oneshot::Receiver<EvalOutcome> {
         let (reply, rx) = oneshot::channel();
         self.commands
@@ -705,10 +807,12 @@ impl Runtime {
     /// Installs the backend `op_fetch`/`op_fetch_abort`/`op_fetch_sync` read from `OpState`.
     /// Safe to call any time before JS first reaches one of those ops -- `bootstrap.js`'s own
     /// top-level execution never does, only functions it defines for later, so this can run
-    /// after construction rather than needing to land before `bootstrap.js` loads.
+    /// after construction rather than needing to land before `bootstrap.js` loads. Remembered on
+    /// the isolate thread's own `ReplayState`, so every later navigation re-installs it
+    /// automatically.
     pub fn send_install_fetch_backend(
         &self,
-        backend: Box<dyn ops::FetchBackend>,
+        backend: Arc<dyn ops::FetchBackend + Send + Sync>,
     ) -> oneshot::Receiver<()> {
         let (reply, rx) = oneshot::channel();
         self.commands
@@ -717,12 +821,9 @@ impl Runtime {
         rx
     }
 
-    /// Navigates to a brand-new realm booted from `url`/`resource_mounts_json`, with
-    /// `host_state_json` (already JSON-encoded) injected as `globalThis.__HOST_STATE__` before
-    /// its `bootstrap.js` runs -- same OS thread and command channel throughout, only the
-    /// isolate underneath them changes. Callers must re-install any `FetchBackend`/
-    /// `RustFunctions` afterward: a fresh isolate means fresh `OpState`, nothing survives on
-    /// its own.
+    /// Navigates to a brand-new realm booted from `url`/`resource_mounts_json`, `host_state_json`
+    /// injected as `globalThis.__HOST_STATE__` -- same OS thread throughout, only the isolate
+    /// changes. Any installed `FetchBackend`/`RustFunctions` (`ReplayState`) replay automatically.
     pub fn send_navigate(
         &self,
         url: &str,
@@ -769,8 +870,6 @@ pub struct Page {
     runtime: Runtime,
     cookies: Option<String>,
     history: Option<String>,
-    fetch_backend: Option<Arc<dyn ops::FetchBackend + Send + Sync>>,
-    rust_functions: Vec<(String, Arc<RustCallable>)>,
 }
 
 impl Page {
@@ -781,8 +880,6 @@ impl Page {
             runtime: Runtime::new(url, resource_mounts_json),
             cookies: None,
             history: None,
-            fetch_backend: None,
-            rust_functions: Vec::new(),
         }
     }
 
@@ -792,29 +889,29 @@ impl Page {
         &self.runtime
     }
 
-    /// Installs `backend` on the current realm and remembers it so [`Page::navigate`] can
-    /// re-install it on every realm that replaces this one.
+    /// Installs `backend` on the current realm. `Runtime` itself remembers it (`ReplayState`)
+    /// and re-installs it into every realm that later replaces this one, whether that's from
+    /// `Page::navigate` or a navigation triggered from inside the page.
     pub fn install_fetch_backend(&mut self, backend: Arc<dyn ops::FetchBackend + Send + Sync>) {
-        install_fetch_backend_on(&self.runtime, &backend);
-        self.fetch_backend = Some(backend);
+        self.runtime
+            .send_install_fetch_backend(backend)
+            .blocking_recv()
+            .expect("fetch backend install channel dropped");
     }
 
-    /// Binds `name` on the current realm and remembers the binding so [`Page::navigate`] can
-    /// re-execute its `globalThis.name = ...` script on every realm that replaces this one --
-    /// `Runtime::send_register_rust_function` alone only runs that script once, at
-    /// registration time, and has no realm to re-run it on after a navigation.
+    /// Binds `name` on the current realm. `Runtime` itself remembers the binding (`ReplayState`)
+    /// and re-executes it on every realm that later replaces this one.
     pub fn register_rust_function(&mut self, name: String, callable: Arc<RustCallable>) {
-        replay_rust_function(&self.runtime, &name, &callable);
-        self.rust_functions.push((name, callable));
+        self.runtime
+            .send_register_rust_function(name.clone(), callable)
+            .blocking_recv()
+            .expect("register channel dropped")
+            .unwrap_or_else(|e| panic!("registering {name} failed: {e:?}"));
     }
 
-    /// Captures every piece of host-owned state from the current realm, then navigates
-    /// `self.runtime` onto a brand-new realm (via `Runtime::send_navigate`, itself
-    /// `boot_jsruntime` run on the same OS thread) and re-injects that state into it: cookies
-    /// (`cookieJar.serializeSync()` / `CookieJar.deserializeSync()`), session history (same
-    /// `__HOST_STATE__`-before-boot seam), the installed `FetchBackend`, and every registered
-    /// `RustFunctions` binding -- a fresh isolate means fresh `OpState`, so the last two don't
-    /// survive on their own.
+    /// Captures cookies/session history from the current realm and re-injects them into the
+    /// new one via `Runtime::send_navigate`. `FetchBackend`/`RustFunctions` replay is
+    /// `Runtime`'s own job now, not `Page`'s.
     pub fn navigate(&mut self, url: &str, resource_mounts_json: &str) {
         let cookies = eval_or_panic(&self.runtime, "cookieJar.serializeSync()");
         let history = eval_or_panic(&self.runtime, "sessionEntries()");
@@ -823,13 +920,6 @@ impl Page {
             .send_navigate(url, resource_mounts_json, &host_state_json)
             .blocking_recv()
             .expect("navigate channel dropped");
-
-        if let Some(backend) = &self.fetch_backend {
-            install_fetch_backend_on(&self.runtime, backend);
-        }
-        for (name, callable) in &self.rust_functions {
-            replay_rust_function(&self.runtime, name, callable);
-        }
 
         self.cookies = cookies;
         self.history = history;
@@ -845,27 +935,6 @@ fn eval_or_panic(runtime: &Runtime, source: &str) -> Option<String> {
         .blocking_recv()
         .expect("eval channel dropped")
         .unwrap_or_else(|e| panic!("{source} failed: {e:?}"))
-}
-
-/// Installs `backend` on `runtime`'s current realm -- shared between first installation and
-/// every later navigation-replay so both stay in sync.
-fn install_fetch_backend_on(runtime: &Runtime, backend: &Arc<dyn ops::FetchBackend + Send + Sync>) {
-    runtime
-        .send_install_fetch_backend(Box::new(backend.clone()))
-        .blocking_recv()
-        .expect("fetch backend install channel dropped");
-}
-
-/// Re-executes a `RustFunctions` binding's `globalThis.name = ...` script on `runtime` --
-/// shared between first registration and every later navigation-replay so both stay in sync.
-fn replay_rust_function(runtime: &Runtime, name: &str, callable: &Arc<RustCallable>) {
-    let callable = callable.clone();
-    let bound = move |args| (*callable)(args);
-    runtime
-        .send_register_rust_function(name.to_string(), Box::new(bound))
-        .blocking_recv()
-        .expect("register channel dropped")
-        .unwrap_or_else(|e| panic!("registering {name} failed: {e:?}"));
 }
 
 #[cfg(test)]

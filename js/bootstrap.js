@@ -609,3 +609,29 @@ globalThis.fetch = async (input, init = {}) => {
 // copy loop would otherwise install. `fetch` itself can't live on `__mini` like the rest
 // of the bridge surface: it's real, page-visible browser API, not internal plumbing.
 _preExistingGlobals.add("fetch");
+
+// Set by boot_jsruntime (src/runtime.rs): true only for the navigation op_request_navigation
+// drives, never the first boot or an externally-triggered Command::Navigate (Page.goto()/
+// Page::navigate already bring their own document). This realm's createDom above was built
+// empty -- it must fetch its own content, since the old realm (and its document) is already
+// gone.
+// Fire-and-forget, not top-level await (bootstrap.js is a plain script, not a module): the
+// isolate's real event loop (runtime.rs) drains to idle after this script returns, same as
+// every other fire-and-forget fetch in this file.
+if (globalThis.__NAVIGATION_BOOT__) {
+    (async () => {
+        let html;
+        try {
+            const res = await fetch(__BASE_URL__);
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            html = await res.text();
+        } catch (err) {
+            // Never revert to the old document -- it's already gone. Commit an error-state
+            // document instead, marked so a caller can detect the failure.
+            html = `<pre data-mini-navigation-error>${String(err)}</pre>`;
+        }
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+    })();
+}

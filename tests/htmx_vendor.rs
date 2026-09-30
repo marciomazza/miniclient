@@ -110,7 +110,7 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
     );
     let rt = Runtime::new("http://localhost/", &mounts);
     let mock = HtmxFetchMock::new();
-    rt.send_install_fetch_backend(Box::new(mock.clone()))
+    rt.send_install_fetch_backend(std::sync::Arc::new(mock.clone()))
         .blocking_recv()
         .expect("fetch backend installed");
 
