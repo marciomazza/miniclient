@@ -11,10 +11,10 @@ fn eval_marshals_json_values() {
     let rt = runtime();
     for (js, want) in [
         ("1 + 1", "2"),
-        ("'hi'", "\"hi\""),
+        ("'hi'", r#""hi""#),
         ("true", "true"),
-        ("[1, 'two', null]", "[1,\"two\",null]"),
-        ("({a: {b: [1]}})", "{\"a\":{\"b\":[1]}}"),
+        ("[1, 'two', null]", r#"[1,"two",null]"#),
+        ("({a: {b: [1]}})", r#"{"a":{"b":[1]}}"#),
     ] {
         assert_eq!(rt.eval_json(js).as_deref(), Some(want), "{js}");
     }
@@ -27,16 +27,16 @@ fn eval_marshals_json_values() {
 fn a_value_that_json_carries_faithfully_still_marshals() {
     let rt = runtime();
     for (js, want) in [
-        ("new Date(0)", "\"1970-01-01T00:00:00.000Z\""),
-        ("({d: new Date(0)})", "{\"d\":\"1970-01-01T00:00:00.000Z\"}"),
+        ("new Date(0)", r#""1970-01-01T00:00:00.000Z""#),
+        ("({d: new Date(0)})", r#"{"d":"1970-01-01T00:00:00.000Z"}"#),
         (
             "new (class Money { toJSON() { return {cents: 1}; } })()",
-            "{\"cents\":1}",
+            r#"{"cents":1}"#,
         ),
         ("Object.create(null)", "{}"),
         (
             "Object.defineProperty({a: 1}, Symbol('h'), {value: 2})",
-            "{\"a\":1}",
+            r#"{"a":1}"#,
         ),
     ] {
         assert_eq!(rt.eval_json(js).as_deref(), Some(want), "{js}");
@@ -56,14 +56,14 @@ fn eval_async_resolves_a_promise() {
     assert_eq!(
         rt.eval_json_async("Promise.resolve().then(() => ({ok: 1}))")
             .as_deref(),
-        Some("{\"ok\":1}"),
+        Some(r#"{"ok":1}"#),
     );
 }
 
 #[test]
 fn eval_async_returns_a_plain_value_too() {
     let rt = runtime();
-    assert_eq!(rt.eval_json_async("'plain'").as_deref(), Some("\"plain\""));
+    assert_eq!(rt.eval_json_async("'plain'").as_deref(), Some(r#""plain""#));
 }
 
 #[test]
