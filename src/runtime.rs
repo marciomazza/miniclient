@@ -711,9 +711,6 @@ impl Runtime {
                 outcome.unwrap_or_else(|e| panic!("bootstrap.js failed to settle: {e:?}"));
                 ready_tx.send(()).ok();
 
-                // Fixed for the runtime's whole life: every navigation, external or
-                // in-page-triggered, reboots the new realm with this same mount table.
-                let resource_mounts_json = resource_mounts_json;
                 while !stop {
                     let Some(command) = rx.recv().await else {
                         break;
