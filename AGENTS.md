@@ -5,21 +5,19 @@
 
 ## Agent skills
 
-Issues, specs, and wayfinder maps live as markdown under `.scratch/<feature-slug>/` — one
-directory per effort, never a combined tickets file. Before exploring the codebase, read
-`CONTEXT.md` and `docs/adr/` at the repo root if they exist (proceed silently if not).
+### Issue tracker
 
-### Wayfinder layout
+Issues, specs, and wayfinder maps live as markdown under `.scratch/<feature-slug>/`. See
+`docs/agents/issue-tracker.md`.
 
-- **Map**: `.scratch/<effort>/map.md` (Notes / Decisions-so-far / Fog).
-- **Ticket**: `.scratch/<effort>/issues/NN-<slug>.md`, numbered from `01`. Body holds the
-  question. `Type:` line = `research`/`prototype`/`grilling`/`task`; `Status:` line =
-  `claimed`/`resolved`; `Blocked by: NN, NN` line lists prerequisite tickets.
-- **Frontier** = open tickets that are unclaimed and whose blockers are all `resolved`;
-  lowest number first.
-- **Claim** before any work (`Status: claimed`). **Resolve** by appending an `## Answer`
-  section, setting `Status: resolved`, and adding a one-line pointer to the map's
-  Decisions-so-far.
+### Triage labels
+
+Five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`), used as-is. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ## graphify
 
