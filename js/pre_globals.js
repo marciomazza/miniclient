@@ -120,47 +120,16 @@
     // never blocks on a future-scheduled tick regardless of ref state, so a forever htmx
     // poller (hx-trigger="every Ns") already can't pin click()/submit()'s post-eval drain --
     // confirmed by test_click_not_blocked_by_unrelated_poller.
-    {
-        // Destructured, not called as `timers.setTimeout(...)`: 02_timers.js's own
-        // `checkThis` rejects any `this` other than undefined/globalThis, which a
-        // method-call would bind to `timers` itself.
-        const {
-            setTimeout: _setTimeout,
-            setInterval: _setInterval,
-            clearTimeout: _clearTimeout,
-            clearInterval: _clearInterval,
-        } = Deno.core.loadExtScript("ext:deno_web/02_timers.js");
-        const _liveTimers = new Set(); // ids created here, for __clearAllTimers below
-
-        globalThis.setTimeout = (fn, ms, ...args) => {
-            const id = _setTimeout(fn, ms, ...args);
-            _liveTimers.add(id);
-            return id;
-        };
-
-        globalThis.setInterval = (fn, ms, ...args) => {
-            const id = _setInterval(fn, ms, ...args);
-            _liveTimers.add(id);
-            return id;
-        };
-
-        globalThis.clearTimeout = (id) => {
-            _clearTimeout(id);
-            _liveTimers.delete(id);
-        };
-
-        globalThis.clearInterval = (id) => {
-            _clearInterval(id);
-            _liveTimers.delete(id);
-        };
-
-        // Silently drop all pending timer callbacks — used between tests to prevent
-        // stale timers from a previous test firing into the next one's context.
-        globalThis.__clearAllTimers = () => {
-            for (const id of _liveTimers) _clearTimeout(id);
-            _liveTimers.clear();
-        };
-    }
+    // Picked onto globalThis by name, not kept behind a `timers.setTimeout(...)` object
+    // (02_timers.js's own `checkThis` rejects any `this` other than undefined/globalThis,
+    // which a method call through an intermediate object would bind to that object instead)
+    // and not spread wholesale (the module also exports non-standard `defer`/`refTimer`/
+    // `unrefTimer`, which have no business being page-visible globals).
+    const timers = Deno.core.loadExtScript("ext:deno_web/02_timers.js");
+    globalThis.setTimeout = timers.setTimeout;
+    globalThis.setInterval = timers.setInterval;
+    globalThis.clearTimeout = timers.clearTimeout;
+    globalThis.clearInterval = timers.clearInterval;
     globalThis.setImmediate ??= (fn, ...a) => setTimeout(fn, 0, ...a);
     globalThis.clearImmediate ??= () => {};
 

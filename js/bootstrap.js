@@ -495,8 +495,8 @@ if (_hostHistory) {
     if (state !== null) win.history.replaceState(state, "");
 }
 
-// setTimeout/clearTimeout/__clearAllTimers stay whatever pre_globals.js already installed --
-// settle detection is the isolate's real event loop (runtime.rs), not a JS-side task counter.
+// setTimeout/clearTimeout stay whatever pre_globals.js already installed -- settle detection
+// is the isolate's real event loop (runtime.rs), not a JS-side task counter.
 
 // Shared by fetch()'s own FormData handling below and submit.js's POST branch.
 globalThis.__mini.serializeMultipart = function (formData) {

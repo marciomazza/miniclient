@@ -12,7 +12,6 @@ globalThis.__mini ??= {};
     // URL as the new document's base, so the fragment's own relative URLs (hx-get="/path",
     // action="/path", ...) resolve the same way a real in-place document.write() would.
     __mini.documentWrite = async function (html) {
-        __clearAllTimers();
         __mini.navigateDocument(html, location.href);
     };
 
