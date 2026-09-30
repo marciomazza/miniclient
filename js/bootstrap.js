@@ -489,17 +489,14 @@ globalThis.__mini.historyLength = function () {
 };
 
 // Patched into jsdom's History#go() (see patches/jsdom+30.0.1.patch): the hook it calls once
-// a delta runs past the current window's own (always-fresh) session history. Fire-and-forget
-// like navigateFetch (navigate.js) -- the native event loop drain (runtime.rs) waits for its
-// fetch regardless.
+// a delta runs past the current window's own (always-fresh) session history. Only records the
+// request; runtime.rs drives the isolate navigation and self-fetch once this eval settles.
 globalThis.__mini.navigateHistory = function (delta) {
     const { entries, current } = sessionEntries();
     const target = current + delta;
     if (target < 0 || target >= entries.length) return;
     __clearAllTimers();
-    globalThis.__mini
-        .fetchAndNavigate(entries[target].url, { history: { traverseTo: target } })
-        .catch((err) => console.error("history navigation failed:", err));
+    Deno.core.ops.op_request_navigation(entries[target].url, { traverseTo: target });
 };
 
 registerWindowGlobals(win);

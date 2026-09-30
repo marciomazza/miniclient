@@ -44,13 +44,10 @@ globalThis.__mini ??= {};
     // .assign()/.replace()/component setters) and clicking a plain <a> both funnel into
     // jsdom's own navigate(), which already handles same-document fragment scrolling and
     // javascript: URLs correctly -- this only fires for the case jsdom leaves unimplemented.
-    // Fire-and-forget from jsdom's side (mirroring its own setTimeout-deferred link click), but
-    // the native event-loop drain (runtime.rs) waits for this fetch regardless of who started it.
+    // Only records the request; runtime.rs drives the actual isolate navigation and self-fetch
+    // once the current top-level eval settles (see op_request_navigation, src/ops.rs).
     __mini.navigateFetch = function (_window, url) {
         __clearAllTimers();
-        // Not awaited by the caller (jsdom's own navigate() isn't async either) -- catch
-        // here so a network failure surfaces on the console instead of as an unhandled
-        // rejection.
-        __mini.fetchAndNavigate(url).catch((err) => console.error("navigation failed:", err));
+        Deno.core.ops.op_request_navigation(new URL(url, location.href).href, "push");
     };
 })();

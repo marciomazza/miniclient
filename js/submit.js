@@ -32,7 +32,7 @@ globalThis.__mini ??= {};
             if (method === "get") {
                 const url = new URL(form.action);
                 url.search = new URLSearchParams(formData).toString();
-                await __mini.fetchAndNavigate(url);
+                Deno.core.ops.op_request_navigation(url.href, "push");
                 return;
             }
 
