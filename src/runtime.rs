@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 
 use deno_core::error::{CoreErrorKind, JsError};
@@ -77,6 +77,12 @@ pub(crate) fn miniclient_extension() -> Extension {
 /// `undefined`/`null`.
 pub type EvalOutcome = Result<Option<String>, EvalError>;
 
+/// A callable `op_call_rust` can dispatch to, shared by `Runtime`'s one-shot registration and
+/// `Page`'s `Arc`-based storage (which needs `Sync` too, to survive being cloned into every
+/// realm a navigation creates).
+pub type RustCallable =
+    dyn Fn(Vec<deno_core::serde_json::Value>) -> deno_core::serde_json::Value + Send + Sync;
+
 /// A JS `Error` keeps its own three field names all the way to Python; anything else that
 /// can go wrong in an eval is just a message.
 #[derive(Debug)]
@@ -103,6 +109,16 @@ enum Command {
     },
     InstallFetchBackend {
         backend: Box<dyn ops::FetchBackend>,
+        reply: oneshot::Sender<()>,
+    },
+    /// Replaces `js`/`marshal` in place with a freshly booted realm -- the OS thread and
+    /// command channel this `Runtime` was constructed with are untouched, only the isolate
+    /// underneath them changes. `host_state_json` is the `{cookies, history}` blob the caller
+    /// captured from the realm being replaced.
+    Navigate {
+        url: String,
+        resource_mounts_json: String,
+        host_state_json: String,
         reply: oneshot::Sender<()>,
     },
 }
@@ -285,7 +301,9 @@ async fn run_event_loop_to_idle(
 }
 
 /// One command's worth of work, shared between the top-level command loop and the reentrant
-/// path in `run_with_interleaved_commands` so both dispatch the same way.
+/// path in `run_with_interleaved_commands` so both dispatch the same way -- except `Navigate`,
+/// which the top-level loop intercepts and handles itself (see its own comment) before a
+/// command ever reaches here.
 async fn handle_command(
     js: &mut JsRuntime,
     marshal: &v8::Global<v8::Value>,
@@ -316,7 +334,9 @@ async fn handle_command(
                 state.borrow_mut::<ops::RustFunctions>().push(callable)
             };
             let binding_js = format!(
-                "globalThis.{name} = (...args) => Deno.core.ops.op_call_rust({index}, args); void 0;"
+                "globalThis.{name} = (...args) =>
+  Deno.core.ops.op_call_rust({index}, args);
+void 0;"
             );
             reply
                 .send(eval(js, marshal, binding_js, false, rx, stop).await)
@@ -327,7 +347,62 @@ async fn handle_command(
             js.op_state().borrow_mut().put(backend);
             reply.send(()).ok();
         }
+        // Constructing a second `JsRuntime` while this one is still alive corrupts V8's
+        // handle-scope bookkeeping (only one isolate may be current on a thread at a time), so
+        // a navigation needs `js`/`marshal` dropped, not just borrowed -- see the top-level
+        // loop's own handling of this variant. Reaching here means `Navigate` arrived while an
+        // eval was still in flight (the reentrant path), which nothing sends yet -- the
+        // safe-point-only timing ticket 11's navigation trigger is responsible for guaranteeing.
+        Command::Navigate { .. } => unreachable!(
+            "Command::Navigate must be intercepted by the top-level command loop, never reach handle_command"
+        ),
     }
+}
+
+/// Boots a fresh isolate up through `bootstrap.js`: a new `JsRuntime`, the marshaling helper,
+/// `__BASE_URL__`/`__RESOURCE_MOUNTS__`, an empty `RustFunctions` table, and (if given)
+/// `__HOST_STATE__` -- the `{cookies, history}` blob a realm navigation carries forward from the realm
+/// it replaces, read once by `bootstrap.js` at top level to rehydrate the cookie jar and seed
+/// session history before anything else runs. `host_state_json` is already-encoded JSON, or
+/// `None` for a first boot with nothing to carry forward.
+fn boot_jsruntime(
+    url: &str,
+    resource_mounts_json: &str,
+    host_state_json: Option<&str>,
+) -> (JsRuntime, v8::Global<v8::Value>) {
+    let mut js = JsRuntime::new(RuntimeOptions {
+        startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
+        extensions: extensions(),
+        ..Default::default()
+    });
+    let marshal = js
+        .execute_script("<marshal>", MARSHAL_JS)
+        .expect("the marshaling helper must compile");
+    let url_json = deno_core::serde_json::to_string(url).expect("URL is always JSON-safe");
+    js.execute_script(
+        "<runtime-config>",
+        format!("globalThis.__BASE_URL__ = {url_json};"),
+    )
+    .expect("failed to install __BASE_URL__");
+    js.execute_script(
+        "<runtime-config>",
+        format!("globalThis.__RESOURCE_MOUNTS__ = {resource_mounts_json};"),
+    )
+    .expect("failed to install __RESOURCE_MOUNTS__");
+    js.execute_script(
+        "<runtime-config>",
+        format!(
+            "globalThis.__HOST_STATE__ = {};",
+            host_state_json.unwrap_or("null")
+        ),
+    )
+    .expect("failed to install __HOST_STATE__");
+    js.op_state()
+        .borrow_mut()
+        .put(ops::RustFunctions::default());
+    js.execute_script("bootstrap.js", BOOTSTRAP_JS)
+        .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
+    (js, marshal)
 }
 
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
@@ -356,31 +431,7 @@ impl Runtime {
                 .build()
                 .expect("failed to build the isolate thread's tokio runtime");
             tokio.block_on(async move {
-                let mut js = JsRuntime::new(RuntimeOptions {
-                    startup_snapshot: Some(crate::snapshot::DEFAULT_SNAPSHOT),
-                    extensions: extensions(),
-                    ..Default::default()
-                });
-                let marshal = js
-                    .execute_script("<marshal>", MARSHAL_JS)
-                    .expect("the marshaling helper must compile");
-                let url_json =
-                    deno_core::serde_json::to_string(&url).expect("URL is always JSON-safe");
-                js.execute_script(
-                    "<runtime-config>",
-                    format!("globalThis.__BASE_URL__ = {url_json};"),
-                )
-                .expect("failed to install __BASE_URL__");
-                js.execute_script(
-                    "<runtime-config>",
-                    format!("globalThis.__RESOURCE_MOUNTS__ = {resource_mounts_json};"),
-                )
-                .expect("failed to install __RESOURCE_MOUNTS__");
-                js.op_state()
-                    .borrow_mut()
-                    .put(ops::RustFunctions::default());
-                js.execute_script("bootstrap.js", BOOTSTRAP_JS)
-                    .unwrap_or_else(|e| panic!("bootstrap.js failed to load: {e}"));
+                let (mut js, mut marshal) = boot_jsruntime(&url, &resource_mounts_json, None);
                 ready_tx.send(()).ok();
 
                 let mut stop = false;
@@ -388,7 +439,26 @@ impl Runtime {
                     let Some(command) = rx.recv().await else {
                         break;
                     };
-                    handle_command(&mut js, &marshal, command, &mut rx, &mut stop).await;
+                    // Handled here, not inside `handle_command`: `js`/`marshal` are owned by
+                    // this loop, never borrowed by anything nested at this point (no eval is in
+                    // flight), so the old isolate can be dropped -- disposed, no longer V8's
+                    // "current" isolate on this thread -- strictly before the new one is
+                    // constructed. Building a second `JsRuntime` while the first is still alive
+                    // corrupts V8's handle-scope bookkeeping and aborts the process.
+                    let Command::Navigate {
+                        url,
+                        resource_mounts_json,
+                        host_state_json,
+                        reply,
+                    } = command
+                    else {
+                        handle_command(&mut js, &marshal, command, &mut rx, &mut stop).await;
+                        continue;
+                    };
+                    drop(js);
+                    (js, marshal) =
+                        boot_jsruntime(&url, &resource_mounts_json, Some(&host_state_json));
+                    reply.send(()).ok();
                 }
                 drop(js);
             });
@@ -451,6 +521,30 @@ impl Runtime {
         rx
     }
 
+    /// Navigates to a brand-new realm booted from `url`/`resource_mounts_json`, with
+    /// `host_state_json` (already JSON-encoded) injected as `globalThis.__HOST_STATE__` before
+    /// its `bootstrap.js` runs -- same OS thread and command channel throughout, only the
+    /// isolate underneath them changes. Callers must re-install any `FetchBackend`/
+    /// `RustFunctions` afterward: a fresh isolate means fresh `OpState`, nothing survives on
+    /// its own.
+    pub fn send_navigate(
+        &self,
+        url: &str,
+        resource_mounts_json: &str,
+        host_state_json: &str,
+    ) -> oneshot::Receiver<()> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::Navigate {
+                url: url.to_string(),
+                resource_mounts_json: resource_mounts_json.to_string(),
+                host_state_json: host_state_json.to_string(),
+                reply,
+            })
+            .ok();
+        rx
+    }
+
     /// Cannot return before the isolate is gone: the thread join is the happens-before.
     pub fn close(&self) {
         let Some(thread) = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take() else {
@@ -465,6 +559,125 @@ impl Drop for Runtime {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// Host-owned state that must survive a realm navigation, plus the [`Runtime`] it currently
+/// drives. Owns one `Runtime` at a time -- [`Page::navigate`] sends it a `Navigate` command
+/// rather than replacing it, so the same OS thread backs `self.runtime` for this `Page`'s whole life;
+/// only the `JsRuntime` underneath that thread changes (see `.scratch/browser-design/map.md`'s
+/// rejection of a full destroy-and-respawn-the-thread design: a running isolate can't be torn
+/// down from inside its own currently-executing call, e.g. a click handler's promise chain
+/// requesting navigation). Plain and pyo3-agnostic, mirroring the `Runtime`/pyclass `Runtime`
+/// split -- a future pyclass wraps this the same way.
+pub struct Page {
+    runtime: Runtime,
+    cookies: Option<String>,
+    history: Option<String>,
+    fetch_backend: Option<Arc<dyn ops::FetchBackend + Send + Sync>>,
+    rust_functions: Vec<(String, Arc<RustCallable>)>,
+}
+
+impl Page {
+    /// `url`/`resource_mounts_json` boot the first realm exactly as [`Runtime::new`] would --
+    /// no host state to carry forward yet, nothing has been captured.
+    pub fn new(url: &str, resource_mounts_json: &str) -> Self {
+        Self {
+            runtime: Runtime::new(url, resource_mounts_json),
+            cookies: None,
+            history: None,
+            fetch_backend: None,
+            rust_functions: Vec::new(),
+        }
+    }
+
+    /// The `Runtime` currently backing this `Page` -- callers drive it with the same
+    /// `send_eval`/`send_eval_async` API `Runtime` always exposes.
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    /// Installs `backend` on the current realm and remembers it so [`Page::navigate`] can
+    /// re-install it on every realm that replaces this one.
+    pub fn install_fetch_backend(&mut self, backend: Arc<dyn ops::FetchBackend + Send + Sync>) {
+        install_fetch_backend_on(&self.runtime, &backend);
+        self.fetch_backend = Some(backend);
+    }
+
+    /// Binds `name` on the current realm and remembers the binding so [`Page::navigate`] can
+    /// re-execute its `globalThis.name = ...` script on every realm that replaces this one --
+    /// today's `Runtime::send_register_rust_function` only runs that script once, at
+    /// registration time, which breaks the moment a navigation happens afterward.
+    pub fn register_rust_function(&mut self, name: String, callable: Arc<RustCallable>) {
+        replay_rust_function(&self.runtime, &name, &callable);
+        self.rust_functions.push((name, callable));
+    }
+
+    /// Captures every piece of host-owned state from the current realm, then navigates
+    /// `self.runtime` onto a brand-new realm (via `Runtime::send_navigate`, itself
+    /// `boot_jsruntime` run on the same OS thread) and re-injects that state into it: cookies
+    /// (`cookieJar.serializeSync()` / `CookieJar.deserializeSync()`), session history (same
+    /// `__HOST_STATE__`-before-boot seam), the installed `FetchBackend`, and every registered
+    /// `RustFunctions` binding -- a fresh isolate means fresh `OpState`, so the last two don't
+    /// survive on their own.
+    pub fn navigate(&mut self, url: &str, resource_mounts_json: &str) {
+        let cookies = eval_or_panic(&self.runtime, "cookieJar.serializeSync()");
+        let history = eval_or_panic(&self.runtime, "sessionEntries()");
+
+        // Both fragments are already-valid JSON text (marshaled by `eval`'s own
+        // `JSON.stringify` round trip), so splicing them into the `{...}` shell is safe without
+        // a parse-then-reserialize round trip through `serde_json::Value`.
+        let host_state_json = format!(
+            "{{\"cookies\":{},\"history\":{}}}",
+            cookies.as_deref().unwrap_or("null"),
+            history.as_deref().unwrap_or("null"),
+        );
+        self.runtime
+            .send_navigate(url, resource_mounts_json, &host_state_json)
+            .blocking_recv()
+            .expect("navigate channel dropped");
+
+        if let Some(backend) = &self.fetch_backend {
+            install_fetch_backend_on(&self.runtime, backend);
+        }
+        for (name, callable) in &self.rust_functions {
+            replay_rust_function(&self.runtime, name, callable);
+        }
+
+        self.cookies = cookies;
+        self.history = history;
+    }
+}
+
+/// Runs `source` and unwraps its outcome -- host-state capture/replay scripts are mini's own,
+/// never page-authored, so a throw here is a bug in that script, not something a caller needs to
+/// recover from.
+fn eval_or_panic(runtime: &Runtime, source: &str) -> Option<String> {
+    runtime
+        .send_eval(source.to_string(), false)
+        .blocking_recv()
+        .expect("eval channel dropped")
+        .unwrap_or_else(|e| panic!("{source} failed: {e:?}"))
+}
+
+/// Installs `backend` on `runtime`'s current realm -- shared between first installation and
+/// every later navigation-replay so both stay in sync.
+fn install_fetch_backend_on(runtime: &Runtime, backend: &Arc<dyn ops::FetchBackend + Send + Sync>) {
+    runtime
+        .send_install_fetch_backend(Box::new(backend.clone()))
+        .blocking_recv()
+        .expect("fetch backend install channel dropped");
+}
+
+/// Re-executes a `RustFunctions` binding's `globalThis.name = ...` script on `runtime` --
+/// shared between first registration and every later navigation-replay so both stay in sync.
+fn replay_rust_function(runtime: &Runtime, name: &str, callable: &Arc<RustCallable>) {
+    let callable = callable.clone();
+    let bound = move |args| (*callable)(args);
+    runtime
+        .send_register_rust_function(name.to_string(), Box::new(bound))
+        .blocking_recv()
+        .expect("register channel dropped")
+        .unwrap_or_else(|e| panic!("registering {name} failed: {e:?}"));
 }
 
 #[cfg(test)]

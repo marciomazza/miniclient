@@ -114,6 +114,24 @@ impl FetchBackend for PythonFetchBackend {
     }
 }
 
+/// Lets an `Arc<dyn FetchBackend + Send + Sync>` -- the shape `Page` holds so it can
+/// re-install the same backend into every realm a navigation creates -- go straight into
+/// `Runtime::send_install_fetch_backend`'s `Box<dyn FetchBackend>` without a bespoke wrapper.
+#[async_trait(?Send)]
+impl FetchBackend for std::sync::Arc<dyn FetchBackend + Send + Sync> {
+    async fn fetch(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
+        (**self).fetch(req).await
+    }
+
+    fn fetch_sync(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
+        (**self).fetch_sync(req)
+    }
+
+    fn abort(&self, request_id: &str) -> Result<(), JsErrorBox> {
+        (**self).abort(request_id)
+    }
+}
+
 fn py_err_to_js(err: PyErr) -> JsErrorBox {
     JsErrorBox::generic(err.to_string())
 }

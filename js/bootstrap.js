@@ -25,7 +25,17 @@
 // in this set the way a bare `globalThis.foo = ...` would.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 globalThis.__mini ??= {};
-const cookieJar = new globalThis.__JSDOMCookieJar();
+// Set by boot_jsruntime (src/runtime.rs) before this script runs: `null` on a first boot, or
+// `{cookies, history}` -- captured from the realm a navigation is replacing -- when carrying host
+// state forward across one. Read once, here, since cookieJar/_historyBefore/_historyAfter are
+// constructed below and never revisited.
+const _hostState = globalThis.__HOST_STATE__ ?? {};
+// `{entries: [{url, state}, ...], current: N}` or `null` -- destructured once, read from two
+// places below (seeding _historyBefore/_historyAfter, then applying the current entry's state).
+const _hostHistory = _hostState.history ?? null;
+const cookieJar = _hostState.cookies
+    ? globalThis.__JSDOMCookieJar.deserializeSync(_hostState.cookies)
+    : new globalThis.__JSDOMCookieJar();
 
 // Keep the old fixture cleanup path working while callers migrate to the jsdom cookie jar.
 globalThis.__zzz_get_browser_frame = () => ({
@@ -416,6 +426,14 @@ globalThis.__mini.registerWindowGlobals = registerWindowGlobals;
 // navigation), so the rest are parked here and re-joined with it in sessionEntries().
 let _historyBefore = [];
 let _historyAfter = [];
+// Seed from the injected host state (a navigation's carried-forward history), if any -- the current
+// entry's `state` is applied to `win.history` once `win` exists, right after
+// `registerWindowGlobals(win)` below.
+if (_hostHistory) {
+    const { entries, current } = _hostHistory;
+    _historyBefore = entries.slice(0, current);
+    _historyAfter = entries.slice(current + 1);
+}
 
 function sessionEntries() {
     const local = win._sessionHistory._entries.map((e) => ({
@@ -485,6 +503,10 @@ globalThis.__mini.navigateHistory = function (delta) {
 };
 
 registerWindowGlobals(win);
+if (_hostHistory) {
+    const state = _hostHistory.entries[_hostHistory.current]?.state ?? null;
+    if (state !== null) win.history.replaceState(state, "");
+}
 
 // setTimeout/clearTimeout/__clearAllTimers stay whatever pre_globals.js already installed --
 // settle detection is the isolate's real event loop (runtime.rs), not a JS-side task counter.
