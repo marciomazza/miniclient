@@ -388,8 +388,11 @@ globalThis.__mini.documentWrite = async function (html) {
 // Patched into jsdom's navigateFetch (patches/jsdom+30.0.1.patch) -- the catch-all for
 // location.href=/link clicks that jsdom itself can't finish. Also backs Page.goto() (page.py).
 // Just records the request; runtime.rs drives the actual isolate navigation once this eval settles.
-globalThis.__mini.navigateFetch = function (_window, url) {
-    Deno.core.ops.op_request_navigation(new URL(url, location.href).href, "push");
+globalThis.__mini.navigateFetch = function (_window, url, replacement) {
+    Deno.core.ops.op_request_navigation(
+        new URL(url, location.href).href,
+        replacement ? "replace" : "push",
+    );
 };
 
 // Patched into jsdom's History#length getter (patches/jsdom+30.0.1.patch): current window's

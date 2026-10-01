@@ -227,6 +227,19 @@ fn history_replace_state_does_not_add_entry() {
 }
 
 #[test]
+fn location_replace_does_not_grow_history() {
+    let rt = runtime_serving(&["/a", "/next"]);
+    goto(&rt, "http://localhost/a");
+    rt.run("history.pushState({n: 1}, '', '/prev')");
+    let before = rt.eval::<i32>("history.length");
+
+    rt.run("location.replace('/next')");
+
+    assert_eq!(href(&rt), "http://localhost/next");
+    assert_eq!(rt.eval::<i32>("history.length"), before);
+}
+
+#[test]
 fn document_write_does_not_add_history_entry() {
     let rt = runtime();
     let before = rt.eval::<i32>("history.length");

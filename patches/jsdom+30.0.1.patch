@@ -287,11 +287,11 @@ index 18ce4a3..0b5ac09 100644
      return;
    }
 -  navigateFetch(window);
-+  navigateFetch(window, newURL);
++  navigateFetch(window, newURL, flags);
  };
 
  // https://html.spec.whatwg.org/#scroll-to-fragid
-@@ -68,15 +68,29 @@ function navigateToFragment(window, newURL, flags) {
+@@ -68,15 +68,23 @@ function navigateToFragment(window, newURL, flags) {
      // see https://github.com/whatwg/html/issues/2796 for spec bug
      window._sessionHistory.removeAllEntriesAfterCurrentEntry();
    }
@@ -313,15 +313,9 @@ index 18ce4a3..0b5ac09 100644
 +//
 +// Patched by mini (see patches/jsdom+30.0.1.patch): delegates the actual cross-document fetch
 +// and document replacement to the embedder, since jsdom has no navigation implementation of
-+// its own here. Falls back to the original not-implemented behaviour if the embedder never
-+// installed a hook (e.g. jsdom used standalone, outside mini).
-+function navigateFetch(window, newURL) {
-+  const hook = globalThis.__mini && globalThis.__mini.navigateFetch;
-+  if (!hook) {
-+    notImplemented(window, "navigation to another Document");
-+    return;
-+  }
-+  hook(window, whatwgURL.serializeURL(newURL));
++// its own here. This jsdom copy is vendored for mini alone, so the hook is always installed.
++function navigateFetch(window, newURL, flags) {
++  globalThis.__mini.navigateFetch(window, whatwgURL.serializeURL(newURL), flags.replacement);
  }
 
  // https://url.spec.whatwg.org/#concept-url-equals
