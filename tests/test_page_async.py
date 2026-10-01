@@ -108,8 +108,9 @@ async def test_goto_isolates_globals_across_navigations(
     page: AsyncPage, httpx_mock: HTTPXMock
 ) -> None:
     """A script's global writes and pending timers from one page must not survive
-    navigation to the next: bootstrap.js's registerWindowGlobals() resets globalThis
-    to a clean baseline on every goto()."""
+    navigation to the next: a goto() boots a brand new isolate (see bootstrap.js's
+    header comment), so globalThis starts from a clean baseline rather than being
+    reset in place."""
     httpx_mock.add_response(
         url="http://localhost/a",
         text="""<html><body><script>

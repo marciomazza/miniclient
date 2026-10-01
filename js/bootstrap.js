@@ -3,8 +3,9 @@
 // fresh on every Runtime() startup would cost the same kind of parse/compile time on every
 // call. jsdom's larger bundle does cost real snapshot-restore time, not just disk space.
 //
-// Patches applied to this Window: XPath's ANY_TYPE default and the hx-on index
-// short-circuit (below), plus __mini.documentWrite/navigateFetch for navigation.
+// Patches applied to this Window: XPath's ANY_TYPE default (below) and the hx-on index
+// short-circuit (pre_globals.js's __mini.installXPathShortCircuit), plus
+// __mini.documentWrite/navigateFetch for navigation.
 
 // Snapshot the global names that already exist before Window is constructed: native
 // V8 builtins (URL, URLSearchParams, TextEncoder, ReadableStream, ...) and the polyfills
@@ -17,10 +18,10 @@
 // settle-tracking) is already among these names by the time this line runs -- it's set up
 // by element_registry.js/submit.js, which are baked into the snapshot and so run once at
 // snapshot-build time, before bootstrap.js's own fresh run on every Runtime() restore. That
-// makes it pre-existing for free: registerWindowGlobals()'s reset sweep below only ever
-// touches globalThis's own keys, never recurses into an object's properties, so adding
-// methods onto the existing `__mini` object (as this file does) never needs its own entry
-// in this set the way a bare `globalThis.foo = ...` would.
+// makes it pre-existing for free: registerWindowGlobals() below only ever adds `win`'s own
+// keys onto globalThis, never recurses into an object's properties, so adding methods onto
+// the existing `__mini` object (as this file does) never needs its own entry in this set the
+// way a bare `globalThis.foo = ...` would.
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 globalThis.__mini ??= {};
 // Set by boot_jsruntime (src/runtime.rs) before this script runs: `null` on a first boot, or
@@ -60,19 +61,13 @@ const resourceInterceptor = __jsdomRequestInterceptor(async (request, { element 
     const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
     try {
         const bytes = Deno.core.ops.op_fs_read(path);
-        return new Response(bytes, { headers: { "content-type": contentTypeFor(path) } });
+        return new Response(bytes, {
+            headers: { "content-type": globalThis.__mini.contentTypeFor(path) },
+        });
     } catch {
         return new Response(null, { status: 404, statusText: "Not Found" });
     }
 });
-
-function contentTypeFor(path) {
-    if (path.endsWith(".mjs") || path.endsWith(".js")) return "text/javascript";
-    if (path.endsWith(".css")) return "text/css";
-    if (path.endsWith(".json")) return "application/json";
-    if (path.endsWith(".html")) return "text/html";
-    return "application/octet-stream";
-}
 
 // Real navigation has no jsdom equivalent (location only does hash, HTMLFormElement's submit
 // is notImplementedMethod) -- a nav boots a brand new isolate instead, replaying this same
@@ -137,109 +132,6 @@ const win = dom.window;
 // `window === globalThis`, so code like `window.foo = x; foo` works as in a real
 // browser, and there's no need to keep the two objects in sync after this point. Runs once,
 // right after this isolate's one and only Window is constructed above.
-
-// XPathEvaluator.prototype.createExpression — short-circuit the two XPath shapes htmx
-// actually compiles (#hxOnQuery and hx-live's bind scan, both
-// `.//*[@*[starts-with(name(), "...") or @exact]]`) against patch-jsdom-hxon-index.js's
-// grow-only Set instead of walking the real XPath engine over the whole subtree on every
-// process(). A superset match is safe here (see that file's header); this is the only
-// reader of its Set, kept on globalThis (not per-document -- see that file's header for
-// why). win.XPathEvaluator is a fresh class per Window, so this must be reapplied every
-// navigation like the ANY_TYPE patch above.
-function installXPathShortCircuit(win) {
-    const HXON_INDEX_KEY = Symbol.for("miniclient.hxOnIndex");
-    function hxOnShortCircuit(expr) {
-        if (!expr.startsWith(".//*[@*[") || !expr.includes("starts-with(name()")) return null;
-        const prefixes = [...expr.matchAll(/starts-with\(name\(\),\s*"([^"]*)"\)/g)].map(
-            (m) => m[1],
-        );
-        const exacts = [...expr.matchAll(/(?:^|[\s([])@([a-z][\w:-]*)/gi)].map((m) => m[1]);
-        const matchName = (n) => prefixes.some((p) => n.startsWith(p)) || exacts.includes(n);
-        return function evaluate(ctxWrapper) {
-            const ctx = globalThis.__jsdomImplForWrapper(ctxWrapper);
-            const index = globalThis[HXON_INDEX_KEY];
-            const out = [];
-            if (index) {
-                for (const el of index) {
-                    if (!el.isConnected) {
-                        index.delete(el);
-                        continue;
-                    }
-                    if (ctx !== el && !ctx.contains(el)) continue;
-                    if (el.getAttributeNames().some(matchName))
-                        out.push(globalThis.__jsdomWrapperForImpl(el));
-                }
-            }
-            let i = 0;
-            return { iterateNext: () => out[i++] ?? null };
-        };
-    }
-    const origCreateExpression = win.XPathEvaluator.prototype.createExpression;
-    win.XPathEvaluator.prototype.createExpression = function (expression, resolver) {
-        const shortCircuit = hxOnShortCircuit(expression);
-        if (shortCircuit) return { evaluate: shortCircuit };
-        return origCreateExpression.call(this, expression, resolver);
-    };
-}
-
-// jsdom's parser leaves multiple checked radios in one group checked when markup is
-// assigned through innerHTML. Reapply the radio-group invariant after that parse; the
-// checked setter already handles the sibling exclusion.
-function installInnerHtmlRadioFix(win) {
-    const innerHTML = Object.getOwnPropertyDescriptor(win.Element.prototype, "innerHTML");
-    const originalSet = innerHTML.set;
-    Object.defineProperty(win.Element.prototype, "innerHTML", {
-        get: innerHTML.get,
-        set(value) {
-            originalSet.call(this, value);
-            const groups = new Map();
-            for (const radio of this.querySelectorAll('input[type="radio"][name]')) {
-                if (!radio.name || !radio.checked) continue;
-                const byName = groups.get(radio.form ?? radio.getRootNode()) ?? new Map();
-                const previous = byName.get(radio.name);
-                if (previous) previous.checked = false;
-                byName.set(radio.name, radio);
-                groups.set(radio.form ?? radio.getRootNode(), byName);
-            }
-        },
-        configurable: true,
-    });
-}
-
-// innerText: jsdom has no layout engine, so it never implements this (needs rendered-box
-// information). styleless-innertext (ported, not reimplemented) approximates it from the
-// DOM tree + computed style instead of real layout. Its own algorithm has no hidden-element
-// exclusion, so a self/ancestor `hidden` attribute or display:none/visibility:hidden check
-// is added here; hidden *descendants* still leak their text, an accepted gap since real
-// layout info doesn't exist to detect them either.
-// DOMParser-created documents have no browsing context; jsdom rejects cross-window style
-// lookup, so detached fragments use textContent instead.
-function installInnerText(win) {
-    function isMiniHidden(el) {
-        for (let node = el; node; node = node.parentElement) {
-            if (node.hidden) return true;
-            const ownerWindow = node.ownerDocument?.defaultView;
-            if (!ownerWindow) continue;
-            const style = ownerWindow.getComputedStyle(node);
-            if (style.display === "none" || style.visibility === "hidden") return true;
-        }
-        return false;
-    }
-    Object.defineProperty(win.HTMLElement.prototype, "innerText", {
-        get() {
-            if (isMiniHidden(this)) return "";
-            const ownerWindow = this.ownerDocument?.defaultView;
-            if (!ownerWindow) return this.textContent;
-            return globalThis.__innerText(this, {
-                getComputedStyle: (el) => ownerWindow.getComputedStyle(el),
-            });
-        },
-        set(value) {
-            this.textContent = value;
-        },
-        configurable: true,
-    });
-}
 
 function registerWindowGlobals(win) {
     // `event` is re-installed as a live accessor below; skip the plain-value copy so it
@@ -317,9 +209,9 @@ function registerWindowGlobals(win) {
         };
     }
 
-    installXPathShortCircuit(win);
-    installInnerHtmlRadioFix(win);
-    installInnerText(win);
+    globalThis.__mini.installXPathShortCircuit(win);
+    globalThis.__mini.installInnerHtmlRadioFix(win);
+    globalThis.__mini.installInnerText(win);
 
     // jsdom has no dialog UI, but pages still need the stateful showModal()/close() surface.
     if (win.HTMLDialogElement) {
@@ -419,17 +311,6 @@ if (_hostHistory) {
 
 // setTimeout/clearTimeout stay whatever pre_globals.js already installed -- settle detection
 // is the isolate's real event loop (runtime.rs), not a JS-side task counter.
-
-// Shared by fetch()'s own FormData handling below and submit.js's POST branch.
-globalThis.__mini.serializeMultipart = function (formData) {
-    const boundary = "----HxClientBoundary" + Math.random().toString(36).slice(2, 18);
-    let body = "";
-    for (const [name, value] of formData) {
-        body += `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
-    }
-    body += `--${boundary}--`;
-    return { boundary, body };
-};
 
 globalThis.fetch = async (input, init = {}) => {
     const signal = input instanceof Request ? input.signal : init.signal;
