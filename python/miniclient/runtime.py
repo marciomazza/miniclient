@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import httpx2 as httpx
@@ -50,14 +50,10 @@ def _sync_client_cookies(httpx_client: httpx.AsyncClient, headers: dict) -> None
                 httpx_client.cookies.set(name, value)
 
 
-def _make_fetch_op(
-    before_fetch: Callable[[dict], Awaitable[None]] | None,
-    httpx_client: httpx.AsyncClient,
-):
+def _make_fetch_op(httpx_client: httpx.AsyncClient):
     # Tracks in-flight requests by the id JS generates per fetch, so an
     # AbortSignal/ClientRequest.destroy() can cancel the actual network I/O
-    # (including a pending before_fetch() gate) instead of just discarding
-    # the eventual result.
+    # instead of just discarding the eventual result.
     pending: dict[str, asyncio.Task] = {}
     # __host_fetch_abort is a sync-bound op, invoked from this runtime's own
     # dedicated thread rather than this event loop's thread -- Task.cancel() isn't
@@ -65,8 +61,6 @@ def _make_fetch_op(
     loop = asyncio.get_running_loop()
 
     async def _do_fetch(req: dict) -> dict:
-        if before_fetch is not None:
-            await before_fetch(req)
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
         headers = req.get("headers", {})
@@ -139,7 +133,6 @@ def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractE
 @asynccontextmanager
 async def open_runtime(
     url: str = "http://localhost/",
-    before_fetch: Callable[[dict], Awaitable[None]] | None = None,
     httpx_transport=None,
     resource_mounts: dict[str, str] | None = None,
 ) -> AsyncGenerator[Page]:
@@ -148,7 +141,7 @@ async def open_runtime(
     async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
         r = Page(url, json.dumps(resource_mounts or {}))
 
-        _fetch_op, _fetch_abort_op = _make_fetch_op(before_fetch, client)
+        _fetch_op, _fetch_abort_op = _make_fetch_op(client)
         r.install_host_ops(
             _fetch_op,
             _fetch_abort_op,
