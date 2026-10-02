@@ -1,13 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
 import httpx2 as httpx
-
-from miniclient._miniclient import Page
 
 
 def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
@@ -33,6 +28,16 @@ def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
     ]
     headers.append(("content-length", str(len(r.content))))
     return headers
+
+
+def _response_dict(r: httpx.Response) -> dict:
+    return {
+        "status": r.status_code,
+        "statusText": "",
+        "headers": _clean_response_headers(r),
+        "body": r.content,
+        "url": str(r.url),
+    }
 
 
 def _sync_client_cookies(httpx_client: httpx.AsyncClient, headers: dict) -> None:
@@ -71,13 +76,7 @@ def _make_fetch_op(httpx_client: httpx.AsyncClient):
             headers=headers,
             content=content,
         )
-        return {
-            "status": r.status_code,
-            "statusText": "",
-            "headers": _clean_response_headers(r),
-            "body": r.content,
-            "url": str(r.url),
-        }
+        return _response_dict(r)
 
     async def _fetch_op_impl(req: dict) -> dict:
         request_id = req["id"]
@@ -119,36 +118,6 @@ def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractE
             loop,
         )
         r = future.result()
-        return {
-            "status": r.status_code,
-            "statusText": "",
-            "headers": _clean_response_headers(r),
-            "body": r.content,
-            "url": str(r.url),
-        }
+        return _response_dict(r)
 
     return _fetch_sync_op_impl
-
-
-@asynccontextmanager
-async def open_runtime(
-    url: str = "http://localhost/",
-    httpx_transport=None,
-    resource_mounts: dict[str, str] | None = None,
-) -> AsyncGenerator[Page]:
-    """Build a Page, pooling one httpx.AsyncClient for every fetch made during
-    the context, and tear both the client and the runtime down on exit."""
-    async with httpx.AsyncClient(transport=httpx_transport, follow_redirects=True) as client:
-        r = Page(url, json.dumps(resource_mounts or {}))
-
-        _fetch_op, _fetch_abort_op = _make_fetch_op(client)
-        r.install_host_ops(
-            _fetch_op,
-            _fetch_abort_op,
-            _make_fetch_sync_op(client, asyncio.get_running_loop()),
-        )
-
-        try:
-            yield r
-        finally:
-            r.close()

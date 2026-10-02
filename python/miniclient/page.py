@@ -8,7 +8,7 @@ from typing import Any, Self, cast
 import httpx2 as httpx
 
 from miniclient._miniclient import Element as NativeElement, Page as NativePage
-from miniclient.runtime import _make_fetch_op, _make_fetch_sync_op
+from miniclient.fetch import _make_fetch_op, _make_fetch_sync_op
 
 
 class AsyncPage(NativePage):

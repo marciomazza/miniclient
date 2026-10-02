@@ -1,7 +1,7 @@
 //! In-memory `FetchBackend` for the ported fetch suites -- no sockets, no HTTP crate, no
 //! Python. Routes are keyed by exact URL (like `httpx_mock.add_response(url=...)`); every
 //! request is recorded for assertions; a `hang` route stays pending until `abort()` ends it,
-//! mirroring `runtime.py`'s in-flight `pending` map.
+//! mirroring `fetch.py`'s in-flight `pending` map.
 
 #![allow(dead_code)]
 

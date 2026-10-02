@@ -1,6 +1,6 @@
 // Bundles jsdom into one classic (non-ESM) script so its module graph can be baked into the
 // V8 snapshot instead of being re-parsed by an async module loader on every Runtime() startup
-// (measured ~100ms of a ~110ms open_runtime() call; jsdom's minified bundle is ~5.2MB).
+// (measured ~100ms of a ~110ms AsyncPage() call; jsdom's minified bundle is ~5.2MB).
 // Node builtin imports (url, buffer, stream, ...) are redirected to this project's own
 // polyfills instead of esbuild's Node shims, so the bundle stays consistent with what's
 // provided elsewhere at runtime.

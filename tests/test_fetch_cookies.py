@@ -81,8 +81,8 @@ async def test_cookie_set_on_followed_redirect_reaches_jar() -> None:
 
 
 async def test_cookie_survives_auto_followed_redirect() -> None:
-    # httpx follows the 302 internally (`follow_redirects=True` in open_runtime), without
-    # going back through JS -- the redirected leg must still carry the cookie jsdom's
+    # httpx follows the 302 internally, without going back through JS
+    # so the redirected leg must still carry the cookie jsdom's
     # jar already has, not just the leg fetch() was originally called for.
     def _app(environ: WSGIEnvironment, start_response: StartResponse):
         if environ["PATH_INFO"] == "/submit" and environ["REQUEST_METHOD"] == "POST":
