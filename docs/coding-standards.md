@@ -14,11 +14,21 @@ The project uses [pyrefly](https://pyrefly.org/) as the Python type checker.
 
 ## Comments
 
-State the non-obvious WHY only, in 2-3 lines max. Never narrate the investigation process.
-Never reference scratch/todo/spec/planning material — not the files, not their contents
-(e.g. "spec §4", ticket numbers, "see the research doc"). This holds even when only moving
-or rewriting an existing comment: strip the reference, never carry it over. Every comment
-must stand on its own.
+A comment states the non-obvious WHY of the code as it is now, in 2-3 lines max. If there is
+no non-obvious why, write no comment.
+
+Never write:
+
+- Provenance or history: where the code came from, what it replaces or ports, what it used to
+  do ("port of X", "ported from", "replaces Y", "formerly Z", "same as the old ...").
+  That belongs in the commit message.
+- The investigation process ("turns out", "after debugging", "we found that").
+- References to scratch/todo/spec/planning material — not the files, not their contents
+  (e.g. "spec §4", ticket numbers, "see the research doc").
+
+This holds even when only moving or rewriting an existing comment: strip the reference, never
+carry it over. Every comment must stand on its own, readable by someone who never saw the
+previous code.
 
 ## Avoid escaped quotes
 
