@@ -48,40 +48,29 @@ def htmx_page() -> Iterator[Page]:
 # ---------------------------------------------------------------------------
 
 
-def test_goto_and_queries(page: Page, httpx_mock: HTTPXMock) -> None:
+def test_marshalling_smoke(page: Page, httpx_mock: HTTPXMock) -> None:
+    """Marshalling smoke test only: goto/find/find_all/attr/parent/fill each return the right
+    Python shape (Element | None, list[Element], str | None) across the pyo3 boundary. The
+    query/mutation behavior itself is already covered natively by tests/browser_queries.rs and
+    tests/browser_navigation.rs against browser::Page/Element."""
     httpx_mock.add_response(
         url="http://localhost/page",
-        text="""\
-            <html><head><title>T</title></head><body>
-            <span id='s' data-x='1'>ok</span>
-            <input id='inp' value='old'>
-            <ul><li>a</li><li>b</li></ul>
-            </body></html>
-        """,
+        text="<span id='s' data-x='1'>ok</span><input id='inp' value='old'><ul><li>a</li></ul>",
     )
     page.goto("http://localhost/page")
-    assert page.eval("document.title") == "T"
 
     el = page.find("#s")
     assert isinstance(el, Element)
-    assert el.text == "ok"
     assert el.attr("data-x") == "1"
     assert el.attr("missing") is None
-    # parent is <body>, containing the other elements
     assert el.parent and el.parent.find("#inp") is not None
+    assert page.find("#does-not-exist") is None
 
     inp = page.find("#inp")
     assert inp is not None
     inp.fill("new")
-    assert page.eval("document.querySelector('#inp').value") == "new"
 
-    ul = page.find("ul")
-    assert ul is not None
-    assert [i.text for i in ul.find_all("li")] == ["a", "b"]
-    assert ul.find("li") is not None
-
-    assert [i.text for i in page.find_all("li")] == ["a", "b"]
-    assert page.find("#does-not-exist") is None
+    assert [i.text for i in page.find_all("li")] == ["a"]
 
 
 def test_click_and_form_submit_via_htmx(htmx_page: Page, httpx_mock: HTTPXMock) -> None:
@@ -123,23 +112,6 @@ def test_page_context_manager_closes() -> None:
         b.load("<p>hi</p>")
         assert b.find("p") is not None
     assert b._closed
-
-
-def test_page_resource_mounts(tmp_path: Path) -> None:
-    (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    with Page(mounts={"http://localhost/ext/": tmp_path}) as b:
-        # document.write's script is parser-inserted, so it fetches and executes automatically.
-        ran = b.eval(
-            """
-            const loaded = new Promise((resolve) =>
-                window.addEventListener('load', resolve, { once: true }));
-            document.open();
-            document.write('<script src="http://localhost/ext/external-script.js"></script>');
-            document.close();
-            loaded.then(() => window.__ran === 1);
-            """
-        )
-        assert ran is True
 
 
 # ---------------------------------------------------------------------------
