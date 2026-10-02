@@ -3,6 +3,10 @@ from wsgiref.types import StartResponse, WSGIEnvironment
 from miniclient.page import AsyncPage
 from miniclient.wsgi import WSGITransport
 
+# Exercises the WSGITransport adapter itself (WSGI app -> httpx), not generic fetch-backend-to-
+# browser plumbing -- that's already covered by tests/browser_navigation.rs against
+# MockFetchBackend. WSGITransport has no Rust equivalent to port to.
+
 
 def _app(environ: WSGIEnvironment, start_response: StartResponse):
     start_response("200 OK", [("Content-Type", "text/html")])
