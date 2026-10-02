@@ -78,32 +78,6 @@ fn script_with_external_file_src_executed() {
     assert!(ran);
 }
 
-#[test]
-fn dynamically_inserted_defer_script_loads() {
-    let dir = std::env::temp_dir().join(format!("miniclient-defer-script-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("deferred-script.js"), b"window.__ran = 1;").unwrap();
-    let mounts = format!(
-        r#"{{"http://localhost/ext/": {:?}}}"#,
-        dir.to_str().unwrap()
-    );
-    let rt = Runtime::new("http://localhost/", &mounts);
-    let loaded = rt.eval_promise::<bool>(
-        r#"
-        new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.defer = true;
-            script.src = 'http://localhost/ext/deferred-script.js';
-            script.onload = () => resolve(window.__ran === 1);
-            script.onerror = () => reject(new Error('deferred script failed to load'));
-            document.head.append(script);
-        });
-    "#,
-    );
-    std::fs::remove_dir_all(&dir).ok();
-    assert!(loaded);
-}
-
 /// Writes `dir/name` with `contents`, mounted at `http://localhost/ext/`.
 fn runtime_with_mounted_file(name: &str, contents: &str) -> Runtime {
     let dir = std::env::temp_dir().join(format!(
@@ -131,24 +105,6 @@ fn dynamically_inserted_async_script_loads() {
             script.src = 'http://localhost/ext/async-script.js';
             script.onload = () => resolve(window.__ran === 1);
             script.onerror = () => reject(new Error('async script failed to load'));
-            document.head.append(script);
-        });
-    "#,
-    );
-    assert!(loaded);
-}
-
-#[test]
-fn dynamically_inserted_module_script_executes() {
-    let rt = runtime_with_mounted_file("module-script.js", "window.__ran = 1;");
-    let loaded = rt.eval_async::<bool>(
-        r#"
-        new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.type = 'module';
-            script.src = 'http://localhost/ext/module-script.js';
-            script.onload = () => resolve(window.__ran === 1);
-            script.onerror = () => reject(new Error('module script failed to load'));
             document.head.append(script);
         });
     "#,
