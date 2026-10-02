@@ -26,7 +26,7 @@ import pytest
 )
 async def test_script_src_real_network_executes(runtime, httpx_mock, attr_setup_js):
     httpx_mock.add_response(url="http://localhost/x.js", text="window.__ran = 1;")
-    result = await runtime.eval_async(f"""
+    result = await runtime.eval(f"""
         new Promise((resolve, reject) => {{
           const script = document.createElement('script');
           {attr_setup_js};
@@ -46,7 +46,7 @@ async def test_module_script_relative_import_real_network(runtime, httpx_mock):
         text="import { value } from './helper.js'; window.__ran = value;",
     )
     httpx_mock.add_response(url="http://localhost/helper.js", text="export const value = 1;")
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise((resolve, reject) => {
           const script = document.createElement('script');
           script.type = 'module';
@@ -61,7 +61,7 @@ async def test_module_script_relative_import_real_network(runtime, httpx_mock):
 
 async def test_script_src_non_ok_status_fires_error_not_exception(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/missing.js", status_code=404)
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise(resolve => {
           const script = document.createElement('script');
           script.async = true;
@@ -81,7 +81,7 @@ async def test_script_src_follows_redirect(runtime, httpx_mock):
         headers=[("location", "http://localhost/new.js")],
     )
     httpx_mock.add_response(url="http://localhost/new.js", text="window.__ran = 'redirected';")
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise((resolve, reject) => {
           const script = document.createElement('script');
           script.async = true;
@@ -96,7 +96,7 @@ async def test_script_src_follows_redirect(runtime, httpx_mock):
 
 async def test_classic_script_src_real_network_executes(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/classic.js", text="window.__ran = 1;")
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise((resolve, reject) => {
           const script = document.createElement('script');
           script.src = 'http://localhost/classic.js';
@@ -110,7 +110,7 @@ async def test_classic_script_src_real_network_executes(runtime, httpx_mock):
 
 async def test_classic_script_src_non_ok_status_fires_error_not_exception(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/missing.js", status_code=404)
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise(resolve => {
           const script = document.createElement('script');
           script.src = 'http://localhost/missing.js';
@@ -129,7 +129,7 @@ async def test_classic_script_src_follows_redirect(runtime, httpx_mock):
         headers=[("location", "http://localhost/new.js")],
     )
     httpx_mock.add_response(url="http://localhost/new.js", text="window.__ran = 'redirected';")
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise((resolve, reject) => {
           const script = document.createElement('script');
           script.src = 'http://localhost/old.js';
@@ -148,7 +148,7 @@ async def test_classic_script_src_follows_redirect(runtime, httpx_mock):
 
 async def test_link_stylesheet_real_network_loads(runtime, httpx_mock):
     httpx_mock.add_response(url="http://localhost/x.css", text="body { color: red; }")
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise((resolve, reject) => {
           const link = document.createElement('link');
           link.rel = 'stylesheet';
@@ -162,7 +162,7 @@ async def test_link_stylesheet_real_network_loads(runtime, httpx_mock):
 
 
 async def test_unmocked_stylesheet_fires_error_not_exception(runtime):
-    result = await runtime.eval_async("""
+    result = await runtime.eval("""
         new Promise(resolve => {
           const link = document.createElement('link');
           link.rel = 'stylesheet';

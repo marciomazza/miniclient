@@ -128,7 +128,7 @@ def test_page_resource_mounts(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
     with Page(mounts={"http://localhost/ext/": tmp_path}) as b:
         # document.write's script is parser-inserted, so it fetches and executes automatically.
-        ran = b.eval_async(
+        ran = b.eval(
             """
             const loaded = new Promise((resolve) =>
                 window.addEventListener('load', resolve, { once: true }));

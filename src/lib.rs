@@ -14,12 +14,16 @@ pyo3::create_exception!(
     "A JS exception, carrying the `name`, `message` and `stack` of the JS Error itself."
 );
 
-/// Turns what the isolate thread sent back into a Python value, parsing the JSON with the
-/// stdlib rather than a second serde stack on the Rust side.
+/// Turns what the isolate thread sent back into a Python value via `pythonize`, straight from
+/// the parsed `serde_json::Value` rather than a `json.loads` text round-trip.
 fn to_python(py: Python<'_>, outcome: EvalOutcome) -> PyResult<Py<PyAny>> {
     match outcome {
         Ok(None) => Ok(py.None()),
-        Ok(Some(json)) => Ok(py.import("json")?.call_method1("loads", (json,))?.unbind()),
+        Ok(Some(json)) => {
+            let value: deno_core::serde_json::Value = deno_core::serde_json::from_str(&json)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            Ok(pythonize::pythonize(py, &value)?.unbind())
+        }
         Err(EvalError::Other(message)) => Err(PyRuntimeError::new_err(message)),
         Err(EvalError::Js(error)) => {
             let message = error.message.unwrap_or(error.exception_message);
@@ -52,16 +56,11 @@ impl Page {
         Self(runtime::Page::new(url, resource_mounts_json))
     }
 
-    /// Detaches from the interpreter while waiting: the script may call back into Python.
-    fn eval(&self, py: Python<'_>, source: String) -> PyResult<Py<PyAny>> {
-        let rx = self.0.runtime().send_eval(source, false);
-        let outcome = py.detach(|| rx.blocking_recv());
-        to_python(py, outcome.map_err(closed)?)
-    }
-
     /// Awaits the script's result -- a promise is resolved and the event loop pumped -- while
-    /// leaving Python's own loop free to serve whatever that script is waiting on.
-    async fn eval_async(&self, source: String) -> PyResult<Py<PyAny>> {
+    /// leaving Python's own loop free to serve whatever that script is waiting on. Always takes
+    /// this settle-wait path regardless of whether `source` returns a promise: `runtime.rs`
+    /// still checks `v8::Local<Value>::is_promise()` internally, but the caller no longer picks.
+    async fn eval(&self, source: String) -> PyResult<Py<PyAny>> {
         let outcome = self
             .0
             .runtime()
@@ -103,6 +102,19 @@ impl Page {
             .runtime()
             .send_install_fetch_backend(std::sync::Arc::new(backend));
         py.detach(|| rx.blocking_recv()).map_err(closed)
+    }
+}
+
+impl Page {
+    /// No-settle-wait fast path for later read-only ergonomic methods (`find`, `text`, `attr`,
+    /// ...): skips the promise-resolve/event-loop-drain `eval` always pays for, since a plain
+    /// read never has anything to wait on. Not exposed to pyo3 -- `eval` is the only public
+    /// escape hatch.
+    #[allow(dead_code)]
+    fn fast_eval(&self, py: Python<'_>, source: String) -> PyResult<Py<PyAny>> {
+        let rx = self.0.runtime().send_eval(source, false);
+        let outcome = py.detach(|| rx.blocking_recv());
+        to_python(py, outcome.map_err(closed)?)
     }
 }
 

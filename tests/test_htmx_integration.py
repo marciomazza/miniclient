@@ -222,5 +222,5 @@ async def test_click_not_blocked_by_unrelated_poller(
     # Let the poller fire at least once (it would have deadlocked click() above if
     # tracked) so httpx_mock's teardown sees its mocked response as actually used.
     # asyncio.sleep() alone wouldn't drive the JS engine's own timers -- await a JS-side
-    # timer instead, same as runtime.eval_async is used elsewhere to pump real time.
-    await htmx_page.runtime.eval_async("new Promise(resolve => setTimeout(resolve, 100))")
+    # timer instead, same as runtime.eval is used elsewhere to pump real time.
+    await htmx_page.runtime.eval("new Promise(resolve => setTimeout(resolve, 100))")

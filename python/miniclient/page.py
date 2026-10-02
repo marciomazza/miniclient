@@ -196,12 +196,12 @@ class AsyncElementBase(Generic[_E]):
         js = _dispatch_js(
             self.handle, "change", {"bubbles": True}, js=f"el.value = {json.dumps(value)}"
         )
-        await self._runtime.eval_async(js)
+        await self._runtime.eval(js)
 
     async def type(self, value: str) -> None:
         """Set the element's value, dispatch `input`, and wait for the page to settle."""
         js = _dispatch_js(self.handle, "input", None, js=f"el.value = {json.dumps(value)}")
-        await self._runtime.eval_async(js)
+        await self._runtime.eval(js)
 
     # --- Interactions ---
 
@@ -212,7 +212,7 @@ class AsyncElementBase(Generic[_E]):
     async def trigger(self, event: str, event_init: dict | None = None) -> None:
         """Dispatch a DOM event and wait for the page to settle."""
         js = _dispatch_js(self.handle, event, event_init)
-        await self._runtime.eval_async(js)
+        await self._runtime.eval(js)
 
     # --- Internal ---
 
@@ -221,22 +221,27 @@ class AsyncElementBase(Generic[_E]):
         guard = f"if (!this) throw new Error('Element not found (handle {self.handle})');"
         return _scoped_js(code, f"__mini.deref({self.handle})", guard)
 
-    def eval(self, code: str) -> object:
+    async def eval(self, code: str) -> object:
         """Evaluate JavaScript with `this` bound to this element, returning the result.
 
         `code` may be one statement or several (`;`-separated);
         the result is the completion value of the last one, same as a normal script.
         """
-        return self._runtime.eval(self._el_js(code))
+        return await self._runtime.eval(self._el_js(code))
 
 
 class AsyncElement(_FindMixin["AsyncElement"], AsyncElementBase["AsyncElement"]):
     """Async-facade element: `AsyncElementBase` + find()/find_all() that
     return `AsyncElement`."""
 
-    async def eval_async(self, code: str) -> object:
-        """Like `eval()`, but awaits the result when `code` returns a promise."""
-        return await self._runtime.eval_async(self._el_js(code))
+    async def eval(self, code: str) -> object:  # type: ignore[override]
+        """Evaluate JavaScript with `this` bound to this element, returning the result.
+
+        Redeclared (not just inherited) so it shadows `_FindMixin`'s sync `eval()` type stub
+        in the MRO -- that stub matches `Element`'s sync override, not this class's real,
+        genuinely async `AsyncElementBase.eval`.
+        """
+        return await AsyncElementBase.eval(self, code)
 
 
 class AsyncFormElementBase:
@@ -255,7 +260,7 @@ class AsyncFormElementBase:
         If a script (e.g. htmx) intercepts the submit, waits for the page to settle.
         Otherwise, performs the form's native GET/POST navigation and reloads the page.
         """
-        await self._runtime.eval_async(f"__mini.submit({self.handle})")
+        await self._runtime.eval(f"__mini.submit({self.handle})")
 
 
 class AsyncFormElement(AsyncElement, AsyncFormElementBase):
@@ -303,17 +308,13 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
     def __await__(self):
         return self._build().__await__()
 
-    def eval(self, code: str) -> object:
+    async def eval(self, code: str) -> object:
         """Evaluate arbitrary JavaScript and return the result.
 
         `code` runs in its own scope with `this` bound to `globalThis`; the
         result is the completion value of the last statement, same as a script.
         """
-        return self.runtime.eval(_scoped_js(code, "globalThis"))
-
-    async def eval_async(self, code: str) -> object:
-        """Evaluate JavaScript, awaiting the result if it is a promise."""
-        return await self.runtime.eval_async(_scoped_js(code, "globalThis"))
+        return await self.runtime.eval(_scoped_js(code, "globalThis"))
 
     @property
     def url(self) -> str:
@@ -329,11 +330,11 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
         a failed fetch commits an error-state document rather than raising, matching what a
         real browser does on a failed top-level navigation.
         """
-        await self.runtime.eval_async(f"__mini.navigateFetch(null, {json.dumps(url)})")
+        await self.runtime.eval(f"__mini.navigateFetch(null, {json.dumps(url)})")
 
     async def load(self, html: str) -> None:
         """Load HTML into the document and initialize htmx."""
-        await self.runtime.eval_async(f"__mini.documentWrite({json.dumps(html)})")
+        await self.runtime.eval(f"__mini.documentWrite({json.dumps(html)})")
 
     def close(self) -> None:
         self.runtime.close()
@@ -360,7 +361,7 @@ class AsyncPage(_FindMixin[_E], Generic[_E]):
 
 # --- Synchronous facade ---
 #
-# Page needs *a* loop to drive RuntimePage's async-facing calls (eval_async,
+# Page needs *a* loop to drive RuntimePage's async-facing calls (eval,
 # fill, click, ...) through `loop.run_until_complete()`. It uses a private
 # event loop on the caller's own thread rather than spinning up a separate
 # thread, purely because asyncio can't nest `run_until_complete` on a thread
@@ -405,6 +406,10 @@ class Element(_FindMixin["Element"], AsyncElementBase["Element"]):
     def type(self, value: str) -> None:  # type: ignore[override]
         """Set the element's value, dispatch `input`, and wait for the page to settle."""
         self._loop.run_until_complete(AsyncElementBase.type(self, value))
+
+    def eval(self, code: str) -> object:  # type: ignore[override]
+        """Evaluate JavaScript with `this` bound to this element, returning the result."""
+        return self._loop.run_until_complete(AsyncElementBase.eval(self, code))
 
 
 class FormElement(Element, AsyncFormElementBase):
@@ -460,11 +465,7 @@ class Page:
 
     def eval(self, code: str) -> object:
         """Evaluate arbitrary JavaScript and return the result."""
-        return self._async.eval(code)
-
-    def eval_async(self, code: str) -> object:
-        """Evaluate JavaScript, awaiting the result if it is a promise."""
-        return self._loop.run_until_complete(self._async.eval_async(code))
+        return self._loop.run_until_complete(self._async.eval(code))
 
     @property
     def url(self) -> str:

@@ -31,7 +31,7 @@ class DomCheck:
         client = await AsyncPage()
         # Set innerHTML directly without htmx.process so that neither side adds
         # htmx-specific attributes (e.g. data-htmx-powered) during setup.
-        client.runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
+        await client.runtime.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")
         await page.set_content(html, wait_until="domcontentloaded")
         return cls(client, page)
 
@@ -52,7 +52,7 @@ class DomCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client = self._client.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
+        client = await self._client.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
         page = await self._page.evaluate(_JS_SERIALIZE)
         assert client == page
 

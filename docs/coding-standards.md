@@ -34,6 +34,6 @@ runtime.eval(f"""\
 
 ## Writing JS eval strings
 
-DOM interaction is done by evaluating JavaScript inside the runtime via `runtime.eval()` /
-`runtime.eval_async()`. Name the Python variable holding a JS code string `js`, or with a
-`_js` suffix (e.g. `click_js`).
+DOM interaction is done by evaluating JavaScript inside the runtime via `runtime.eval()`.
+Name the Python variable holding a JS code string `js`, or with a `_js` suffix (e.g.
+`click_js`).

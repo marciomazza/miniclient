@@ -485,7 +485,9 @@ async fn bind_rust_function(
     // pending navigation just waits for the next real one to find it.
     match eval(js, marshal, binding_js, false, rx, stop, false, replay).await {
         Ok(EvalStep::Done(value)) => Ok(value),
-        Ok(EvalStep::Navigate { .. }) => unreachable!("allow_navigate: false never yields Navigate"),
+        Ok(EvalStep::Navigate { .. }) => {
+            unreachable!("allow_navigate: false never yields Navigate")
+        }
         Err(e) => Err(e),
     }
 }
@@ -528,7 +530,18 @@ async fn handle_command(
             is_async,
             reply,
         } => {
-            match eval(js, marshal, source, is_async, rx, stop, allow_navigate, replay).await {
+            match eval(
+                js,
+                marshal,
+                source,
+                is_async,
+                rx,
+                stop,
+                allow_navigate,
+                replay,
+            )
+            .await
+            {
                 // A dropped receiver just means Python stopped caring.
                 Ok(EvalStep::Done(value)) => {
                     reply.send(Ok(value)).ok();
@@ -910,7 +923,7 @@ impl Page {
     }
 
     /// The `Runtime` currently backing this `Page` -- callers drive it with the same
-    /// `send_eval`/`send_eval_async` API `Runtime` always exposes.
+    /// `send_eval` API `Runtime` always exposes.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
     }
