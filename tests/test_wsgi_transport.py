@@ -10,7 +10,7 @@ def _app(environ: WSGIEnvironment, start_response: StartResponse):
 
 
 async def test_goto_via_wsgi_transport() -> None:
-    page = await AsyncPage(httpx_transport=WSGITransport(app=_app))
+    page = AsyncPage(httpx_transport=WSGITransport(app=_app))
     try:
         await page.goto("http://testserver/")
         el = page.find("#msg")

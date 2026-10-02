@@ -14,10 +14,10 @@ def _echo_cookie_app(environ: WSGIEnvironment, start_response: StartResponse):
 
 
 async def test_document_cookie_reaches_request_cookie_header() -> None:
-    page = await AsyncPage(httpx_transport=WSGITransport(app=_echo_cookie_app))
+    page = AsyncPage(httpx_transport=WSGITransport(app=_echo_cookie_app))
     try:
         await page.goto("http://testserver/")
-        await page.runtime.eval("document.cookie = 'sessionid=abc123; path=/'")
+        await page.eval("document.cookie = 'sessionid=abc123; path=/'")
 
         await page.goto("http://testserver/")
         el = page.find("#cookie")
@@ -48,10 +48,10 @@ async def test_set_cookie_response_reaches_next_request(
         start_response("200 OK", headers)
         return [body]
 
-    page = await AsyncPage(httpx_transport=WSGITransport(app=_app))
+    page = AsyncPage(httpx_transport=WSGITransport(app=_app))
     try:
         await page.goto("http://testserver/login")
-        assert await page.runtime.eval("document.cookie") == expected_document_cookie
+        assert await page.eval("document.cookie") == expected_document_cookie
 
         await page.goto("http://testserver/")
         el = page.find("#cookie")
@@ -72,10 +72,10 @@ async def test_cookie_set_on_followed_redirect_reaches_jar() -> None:
         start_response("200 OK", [("Content-Type", "text/html")])
         return [b"<html><body>ok</body></html>"]
 
-    page = await AsyncPage(httpx_transport=WSGITransport(app=_app))
+    page = AsyncPage(httpx_transport=WSGITransport(app=_app))
     try:
         await page.goto("http://testserver/login")
-        assert await page.runtime.eval("document.cookie") == "sessionid=rotated"
+        assert await page.eval("document.cookie") == "sessionid=rotated"
     finally:
         page.close()
 
@@ -93,12 +93,12 @@ async def test_cookie_survives_auto_followed_redirect() -> None:
         start_response("200 OK", [("Content-Type", "text/html")])
         return [body]
 
-    page = await AsyncPage(httpx_transport=WSGITransport(app=_app))
+    page = AsyncPage(httpx_transport=WSGITransport(app=_app))
     try:
         await page.goto("http://testserver/echo")
-        await page.runtime.eval("document.cookie = 'sessionid=abc123; path=/'")
+        await page.eval("document.cookie = 'sessionid=abc123; path=/'")
 
-        result = await page.runtime.eval("fetch('/submit', {method: 'POST'}).then(r => r.text())")
+        result = await page.eval("fetch('/submit', {method: 'POST'}).then(r => r.text())")
         assert "sessionid=abc123" in result
     finally:
         page.close()

@@ -7,7 +7,8 @@ import pytest
 import pytest_asyncio
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.page import AsyncElement, AsyncFormElement, AsyncPage
+from miniclient._miniclient import Element as NativeElement
+from miniclient.page import AsyncPage
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -17,8 +18,8 @@ from miniclient.page import AsyncElement, AsyncFormElement, AsyncPage
 @pytest_asyncio.fixture
 async def page() -> AsyncIterator[AsyncPage]:
     """A fresh htmx-loaded AsyncPage, closed automatically unless the test closes it first."""
-    b = await AsyncPage()
-    await b.runtime.eval("""__mini.documentWrite(`
+    b = AsyncPage()
+    await b.eval("""__mini.documentWrite(`
         <!DOCTYPE html>
         <html>
           <body>
@@ -26,7 +27,7 @@ async def page() -> AsyncIterator[AsyncPage]:
           </body>
         </html>
     `)""")
-    assert await b.runtime.eval("typeof htmx") == "undefined"  # make sure there is no htmx here
+    assert await b.eval("typeof htmx") == "undefined"  # make sure there is no htmx here
     try:
         yield b
     finally:
@@ -44,10 +45,10 @@ async def test_goto_head_and_title_body(page: AsyncPage, httpx_mock: HTTPXMock) 
         text="<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
     )
     await page.goto("http://localhost/page")
-    assert await page.runtime.eval("document.title") == "T"
+    assert await page.eval("document.title") == "T"
     el = page.find("#s")
     assert el is not None
-    assert el.innerHTML == "ok"
+    assert el.inner_html == "ok"
 
 
 async def test_goto_commits_error_document_on_failed_navigation(
@@ -72,12 +73,12 @@ async def test_goto_navigates_to_different_domain(page: AsyncPage, httpx_mock: H
         text="<html><body><p>other</p></body></html>",
     )
     await page.goto("http://localhost/start")
-    assert await page.runtime.eval("location.href") == "http://localhost/start"
-    assert await page.runtime.eval("document.baseURI") == "http://localhost/start"
+    assert await page.eval("location.href") == "http://localhost/start"
+    assert await page.eval("document.baseURI") == "http://localhost/start"
 
     await page.goto("http://example.com/other")
-    assert await page.runtime.eval("location.href") == "http://example.com/other"
-    assert await page.runtime.eval("document.baseURI") == "http://example.com/other"
+    assert await page.eval("location.href") == "http://example.com/other"
+    assert await page.eval("document.baseURI") == "http://example.com/other"
 
 
 @pytest.mark.parametrize(
@@ -101,7 +102,7 @@ async def test_goto_resolves_relative_urls(
         await page.goto(initial_url)
     httpx_mock.add_response(url=expected_url, text="<html><body><p>target</p></body></html>")
     await page.goto(relative_url)
-    assert await page.runtime.eval("location.href") == expected_url
+    assert await page.eval("location.href") == expected_url
 
 
 async def test_goto_isolates_globals_across_navigations(
@@ -121,14 +122,14 @@ async def test_goto_isolates_globals_across_navigations(
     httpx_mock.add_response(url="http://localhost/b", text="<html><body><p>b</p></body></html>")
 
     await page.goto("http://localhost/a")
-    assert await page.runtime.eval("window.__foo") == 1
+    assert await page.eval("window.__foo") == 1
 
     await page.goto("http://localhost/b")
-    assert await page.runtime.eval("typeof window.__foo") == "undefined"
+    assert await page.eval("typeof window.__foo") == "undefined"
 
     # give page A's pending timer a chance to fire; goto() must have cleared it
-    await page.runtime.eval("new Promise(resolve => setTimeout(resolve, 50))")
-    assert await page.runtime.eval("typeof window.__leaked") == "undefined"
+    await page.eval("new Promise(resolve => setTimeout(resolve, 50))")
+    assert await page.eval("typeof window.__leaked") == "undefined"
 
 
 async def test_history_back_spans_full_navigations(page: AsyncPage, httpx_mock: HTTPXMock) -> None:
@@ -146,17 +147,17 @@ async def test_history_back_spans_full_navigations(page: AsyncPage, httpx_mock: 
 
     await page.goto("http://localhost/a")
     await page.goto("http://localhost/b")
-    assert await page.runtime.eval("location.href") == "http://localhost/b"
+    assert await page.eval("location.href") == "http://localhost/b"
     # history.length must count every full navigation, not just the current (always-fresh)
     # window's own -- real apps guard history.back() with it, e.g. a Cancel button doing
     # `history.length > 1 ? history.back() : (location.href = '/')`.
-    assert await page.runtime.eval("history.length") > 1
+    assert await page.eval("history.length") > 1
 
     await page.eval("history.back()")
-    assert await page.runtime.eval("location.href") == "http://localhost/a"
+    assert await page.eval("location.href") == "http://localhost/a"
 
     await page.eval("history.forward()")
-    assert await page.runtime.eval("location.href") == "http://localhost/b"
+    assert await page.eval("location.href") == "http://localhost/b"
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +168,7 @@ async def test_history_back_spans_full_navigations(page: AsyncPage, httpx_mock: 
 async def test_load_sets_body(page: AsyncPage) -> None:
     await page.load("<p id='msg'>hello</p>")
     el = page.find("body")
-    assert el and el.innerHTML == '<p id="msg">hello</p>'
+    assert el and el.inner_html == '<p id="msg">hello</p>'
 
 
 async def test_load_replaces_body(page: AsyncPage) -> None:
@@ -175,22 +176,22 @@ async def test_load_replaces_body(page: AsyncPage) -> None:
     await page.load("<span id='b'>second</span>")
     el = page.find("#b")
     assert el is not None
-    assert el.innerHTML == "second"
+    assert el.inner_html == "second"
     # first load is gone
-    result = await page.runtime.eval("document.querySelector('#a')")
+    result = await page.eval("document.querySelector('#a')")
     assert result is None
 
 
 # ---------------------------------------------------------------------------
-# AsyncPage.find / AsyncElement queries
+# AsyncPage.find / Element queries
 # ---------------------------------------------------------------------------
 
 
 async def test_find_returns_element(page: AsyncPage) -> None:
     await page.load("<p id='msg'>hello</p>")
     el = page.find("#msg")
-    assert isinstance(el, AsyncElement)
-    assert el.innerHTML == "hello"
+    assert isinstance(el, NativeElement)
+    assert el.inner_html == "hello"
 
 
 async def test_find_returns_none_for_missing(page: AsyncPage) -> None:
@@ -240,23 +241,22 @@ async def test_page_eval_returns_completion_value_of_last_statement(page: AsyncP
     assert await page.eval("1; Promise.resolve(3)") == 3
 
 
-@pytest.mark.parametrize("leak_js", ["var x = 1", "let x = 2", "function x() {}"])
-async def test_page_eval_does_not_leak_declarations_into_global_scope(
-    page: AsyncPage, leak_js: str
-) -> None:
-    await page.eval(leak_js)
-    assert await page.eval("typeof globalThis.x") == "undefined"
-    await page.eval(leak_js)
-    assert await page.eval("typeof globalThis.x") == "undefined"
+async def test_page_eval_declarations_persist_on_global_scope(page: AsyncPage) -> None:
+    await page.eval("var x = 1")
+    assert await page.eval("x") == 1
 
 
-async def test_page_eval_blocks_implicit_global_assignment(page: AsyncPage) -> None:
-    # strict mode turns an undeclared assignment into a ReferenceError instead
-    # of silently creating a global
+async def test_page_eval_allows_implicit_global_assignment(page: AsyncPage) -> None:
+    await page.eval("undeclaredGlobal = 1")
+    assert await page.eval("undeclaredGlobal") == 1
+
+
+async def test_element_eval_blocks_implicit_global_assignment(page: AsyncPage) -> None:
+    await page.load("<div id='d'></div>")
+    el = page.find("#d")
+    assert el is not None
     with pytest.raises(Exception, match="undeclaredGlobal"):
-        await page.eval("undeclaredGlobal = 1")
-    with pytest.raises(Exception, match="undeclaredGlobal"):
-        await page.eval("undeclaredGlobal = 1")
+        await el.eval("undeclaredGlobal = 1")
 
 
 async def test_element_parent(page: AsyncPage) -> None:
@@ -279,13 +279,13 @@ async def test_element_fill_and_type_dispatch_correct_event(
     await page.load("<input id='inp' value='old'>")
     el = page.find("#inp")
     assert el is not None
-    await page.runtime.eval(
+    await page.eval(
         f"document.getElementById('inp').addEventListener({json.dumps(event)}, "
         "() => { window.__fired = true; })"
     )
     await getattr(el, method)("new")
-    assert await page.runtime.eval("document.querySelector('#inp').value") == "new"
-    assert await page.runtime.eval("window.__fired") is True
+    assert await page.eval("document.querySelector('#inp').value") == "new"
+    assert await page.eval("window.__fired") is True
 
 
 async def test_element_fill_textarea(page: AsyncPage) -> None:
@@ -293,7 +293,7 @@ async def test_element_fill_textarea(page: AsyncPage) -> None:
     el = page.find("#ta")
     assert el is not None
     await el.fill("new")
-    assert await page.runtime.eval("document.querySelector('#ta').value") == "new"
+    assert await page.eval("document.querySelector('#ta').value") == "new"
 
 
 async def test_find_all_returns_elements(page: AsyncPage) -> None:
@@ -340,7 +340,7 @@ async def test_find_all_empty(page: AsyncPage) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AsyncElement.find / find_all — scoped to the element, not the whole document
+# Element.find / find_all — scoped to the element, not the whole document
 # ---------------------------------------------------------------------------
 
 
@@ -349,8 +349,8 @@ async def test_element_find_returns_descendant(page: AsyncPage) -> None:
     d = page.find("#d")
     assert d is not None
     el = d.find("#msg")
-    assert isinstance(el, AsyncElement)
-    assert el.innerHTML == "hello"
+    assert isinstance(el, NativeElement)
+    assert el.inner_html == "hello"
 
 
 async def test_element_find_ignores_matches_outside_itself(page: AsyncPage) -> None:
@@ -381,11 +381,11 @@ async def test_element_find_returns_form_element(page: AsyncPage) -> None:
     d = page.find("#d")
     assert d is not None
     form = d.find("form")
-    assert isinstance(form, AsyncFormElement)
+    assert form is not None and form.tag_name == "FORM"
 
 
 # ---------------------------------------------------------------------------
-# AsyncElement.click/trigger/fill — settle on plain (non-htmx) pages
+# Element.click/trigger/fill — settle on plain (non-htmx) pages
 # ---------------------------------------------------------------------------
 
 
@@ -410,7 +410,7 @@ async def test_click_awaits_plain_fetch_settle(page: AsyncPage, httpx_mock: HTTP
 
 
 # ---------------------------------------------------------------------------
-# AsyncFormElement.requestSubmit
+# Element.request_submit
 # ---------------------------------------------------------------------------
 
 
@@ -448,8 +448,8 @@ async def test_form_request_submit_plain(
         <button type="submit" id="btn">go</button></form>"""
     )
     form = page.find("form")
-    assert isinstance(form, AsyncFormElement)
-    await form.requestSubmit()
+    assert form is not None and form.tag_name == "FORM"
+    await form.request_submit()
     request = httpx_mock.get_request()
     assert request is not None
     assert check_request(request)
@@ -465,9 +465,9 @@ async def test_form_request_submit_plain(
 
 async def test_page_create_with_resource_mounts(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    b = AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     # document.write's script is parser-inserted, so it fetches and executes automatically.
-    ran = await b.runtime.eval(
+    ran = await b.eval(
         """
         const loaded = new Promise((resolve) =>
             window.addEventListener('load', resolve, { once: true }));
@@ -505,18 +505,18 @@ def _load_script_js(attr_setup_js: str, url: str) -> str:
 )
 async def test_page_script_src_resource_mount(tmp_path: Path, attr_setup_js: str) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    await b.runtime.eval(_load_script_js(attr_setup_js, "http://localhost/ext/external-script.js"))
-    assert await b.runtime.eval("window.__ran") == 1
+    b = AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    await b.eval(_load_script_js(attr_setup_js, "http://localhost/ext/external-script.js"))
+    assert await b.eval("window.__ran") == 1
 
 
 async def test_page_dynamic_module_script_executes(tmp_path: Path) -> None:
     (tmp_path / "external-script.js").write_text("window.__ran = 1;")
-    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    await b.runtime.eval(
+    b = AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    await b.eval(
         _load_script_js("script.type = 'module';", "http://localhost/ext/external-script.js")
     )
-    assert await b.runtime.eval("window.__ran") == 1
+    assert await b.eval("window.__ran") == 1
     await b.aclose()
 
 
@@ -526,18 +526,16 @@ async def test_page_dynamic_module_script_executes(tmp_path: Path) -> None:
 async def test_page_module_script_relative_import(tmp_path: Path) -> None:
     (tmp_path / "helper.js").write_text("export const value = 1;")
     (tmp_path / "entry.js").write_text("import { value } from './helper.js'; window.__ran = value;")
-    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
-    await b.runtime.eval(
-        _load_script_js("script.type = 'module';", "http://localhost/ext/entry.js")
-    )
-    assert await b.runtime.eval("window.__ran") == 1
+    b = AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    await b.eval(_load_script_js("script.type = 'module';", "http://localhost/ext/entry.js"))
+    assert await b.eval("window.__ran") == 1
 
 
 async def test_page_parser_module_script_executes(tmp_path: Path) -> None:
     (tmp_path / "entry.js").write_text("window.__ran = 1;")
-    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    b = AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.load('<script type="module" src="http://localhost/ext/entry.js"></script>')
-    assert await b.runtime.eval("window.__ran") == 1
+    assert await b.eval("window.__ran") == 1
     await b.aclose()
 
 
@@ -547,9 +545,9 @@ async def test_page_goto_module_script_executes(tmp_path: Path, httpx_mock: HTTP
         url="http://localhost/",
         html='<script type="module" src="http://localhost/ext/entry.js"></script>',
     )
-    b = await AsyncPage(mounts={"http://localhost/ext/": tmp_path})
+    b = AsyncPage(mounts={"http://localhost/ext/": tmp_path})
     await b.goto("http://localhost/")
-    assert await b.runtime.eval("window.__ran") == 1
+    assert await b.eval("window.__ran") == 1
     await b.aclose()
 
 
@@ -563,7 +561,7 @@ async def test_page_module_script_scope_and_strictness(page: AsyncPage) -> None:
         catch (e) { window.__mod.err = e.name; }
         </script>"""
     )
-    assert await page.runtime.eval("typeof leaked + typeof hoisted") == "undefinedundefined"
-    assert await page.runtime.eval("__mod.self === undefined && __mod.strict === undefined") is True
-    assert await page.runtime.eval("__mod.h") == 2
-    assert await page.runtime.eval("__mod.err") == "ReferenceError"
+    assert await page.eval("typeof leaked + typeof hoisted") == "undefinedundefined"
+    assert await page.eval("__mod.self === undefined && __mod.strict === undefined") is True
+    assert await page.eval("__mod.h") == 2
+    assert await page.eval("__mod.err") == "ReferenceError"

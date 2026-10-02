@@ -1,12 +1,6 @@
 //! Pyo3-agnostic async core for the ergonomic DOM-query surface, mirroring the
 //! `runtime::Runtime`/pyclass `Page` split in `src/lib.rs`: `browser::Page` wraps
 //! `runtime::Page`, driven directly by `cargo test`/`tokio::test`, no pyo3/GIL involved.
-//!
-//! Ported 1:1 from `python/miniclient/page.py`'s `_dispatch_js`/`_scoped_js`/`_el_js` and the
-//! query methods on `_FindMixin`/`AsyncElementBase`: same JS text, same `__mini.ref`/`deref`
-//! element registry, same escaping (`serde_json`'s string encoding stands in for `json.dumps`).
-//! Only the read-only half lands here -- `find`/`find_all`/`text`/`attr`/`parent`/`inner_html`,
-//! all backed by `fast_eval` (no settle-wait, since a plain read never has anything to wait on).
 
 use std::sync::Arc;
 
@@ -26,40 +20,27 @@ fn decode<T: serde::de::DeserializeOwned>(json: Option<String>) -> Result<T, Eva
     serde_json::from_str(&json).map_err(|e| EvalError::Other(e.to_string()))
 }
 
-/// Stand-in for Python's `json.dumps(s)`: a JSON string literal safe to splice into JS source.
 fn json_str(s: &str) -> String {
     serde_json::to_string(s).expect("a &str always serializes to JSON")
 }
 
-/// Stand-in for `json.dumps(text)` where `text` is the optional substring filter `find`/
-/// `find_all` take.
 fn json_opt_str(s: Option<&str>) -> String {
     s.map_or_else(|| "null".to_string(), json_str)
 }
 
-/// Port of `page.py`'s `_scoped_js`: wraps `code` in a strict-mode function so every eval gets
-/// its own scope and an explicit `this`, with `code`'s completion value as the return value.
-fn scoped_js(code: &str, this_js: &str, guard: &str) -> String {
+/// Wraps `code` in a strict-mode function bound to the deref'd element as `this`, throwing if
+/// the element's gone (removed from the DOM, or GC'd). Binding a custom `this` requires a
+/// function, so declarations inside never reach `globalThis` regardless -- unlike the
+/// top-level scripts `fast_eval`/`promise_eval`/`full_eval` run directly against `globalThis` with no wrapper
+/// at all. Strict mode adds one more difference from that unwrapped case: an undeclared
+/// assignment throws instead of silently creating a global.
+fn element_js(handle: i64, code: &str) -> String {
     format!(
-        "(function () {{\n  'use strict';\n  {guard};\n  return eval({});\n}}).call({this_js});",
+        "(function () {{\n  'use strict';\n  if (!this) throw new Error('Element not found (handle {handle})');\n  return eval({});\n}}).call(__mini.deref({handle}));",
         json_str(code.trim())
     )
 }
 
-/// Port of `AsyncPage.eval`'s wrapping: runs scoped, with `this` bound to `globalThis`.
-fn page_js(code: &str) -> String {
-    scoped_js(code, "globalThis", "")
-}
-
-/// Port of `AsyncElementBase._el_js`: runs scoped, with `this` bound to the deref'd element, and
-/// a guard that throws if the element's gone (removed from the DOM, or GC'd).
-fn element_js(handle: i64, code: &str) -> String {
-    let guard = format!("if (!this) throw new Error('Element not found (handle {handle})');");
-    scoped_js(code, &format!("__mini.deref({handle})"), &guard)
-}
-
-/// Port of `_FindMixin.find`'s query, parameterized over `root_js` (`"document"` for `Page`,
-/// `"this"` for `Element`, exactly as `_root_js` does in Python).
 fn find_js(root_js: &str, selector: &str, text: Option<&str>) -> String {
     format!(
         "const text = {text};
@@ -72,7 +53,6 @@ fn find_js(root_js: &str, selector: &str, text: Option<&str>) -> String {
     )
 }
 
-/// Port of `_FindMixin.find_all`'s query.
 fn find_all_js(root_js: &str, selector: &str, text: Option<&str>) -> String {
     format!(
         "const text = {text};
@@ -84,15 +64,30 @@ fn find_all_js(root_js: &str, selector: &str, text: Option<&str>) -> String {
     )
 }
 
-/// Port of `AsyncElementBase.parent`'s query.
 const PARENT_JS: &str = "
     const p = this.parentElement;
     p ? [__mini.ref(p), p.tagName] : [null, null];";
 
-/// No-settle-wait eval, run against a cloned runtime handle -- see `Runtime::handle`.
+/// Wraps `code` in an IIFE so its own `const`/`let` locals don't collide with a later,
+/// separate top-level eval declaring the same names in the same global lexical scope --
+/// purely an implementation detail of the query JS below, unrelated to the public `eval()`
+/// methods' scoping.
+fn query_js(code: &str) -> String {
+    format!("(() => eval({}))();", json_str(code))
+}
+
 async fn fast_eval(runtime: &runtime::Handle, source: String) -> EvalOutcome {
     runtime
         .send_eval(source, Wait::None)
+        .await
+        .unwrap_or_else(|_| Err(EvalError::Other("the runtime is closed".into())))
+}
+
+/// Promise-only eval -- backs the generic `eval` escape hatch, which doesn't wait for unrelated
+/// pending page work.
+async fn promise_eval(runtime: &runtime::Handle, source: String) -> EvalOutcome {
+    runtime
+        .send_eval(source, Wait::Promise)
         .await
         .unwrap_or_else(|_| Err(EvalError::Other("the runtime is closed".into())))
 }
@@ -132,13 +127,10 @@ fn dispatch_js(handle: i64, event: &str, event_init_js: &str, js: &str) -> Strin
     )
 }
 
-/// Spliced straight into `dispatch_js`'s source as a literal, not through `json_str`/`to_string`
-/// -- there's no `serde_json::Value` behind it to serialize, just this fixed default.
 const DEFAULT_EVENT_INIT_JS: &str = "{bubbles: true, cancelable: true}";
 
 /// Turns a matched `(handle, tagName)` pair into an `Element`, or `None` when nothing matched --
-/// `tagName` only exists to pick a `FormElement` subclass at the pyo3/Python layer; this core
-/// just needs the handle.
+/// the tag name travels over the wire but isn't needed here.
 fn resolve_match(
     runtime: &runtime::Handle,
     outcome: EvalOutcome,
@@ -147,11 +139,8 @@ fn resolve_match(
     Ok(handle.map(|h| Element::new(runtime.clone(), h)))
 }
 
-/// Same wire shape as [`MatchJs`], but for `find_all`: every entry is a real match, so neither
-/// field is ever absent.
 type MatchesJs = Vec<(i64, String)>;
 
-/// [`resolve_match`]'s counterpart for `find_all`'s query.
 fn resolve_matches(
     runtime: &runtime::Handle,
     outcome: EvalOutcome,
@@ -163,7 +152,6 @@ fn resolve_matches(
         .collect())
 }
 
-/// Async, pyo3-agnostic counterpart to `AsyncPage`'s query methods, wrapping [`runtime::Page`].
 pub struct Page {
     inner: runtime::Page,
 }
@@ -187,7 +175,7 @@ impl Page {
         text: Option<&str>,
     ) -> Result<Option<Element>, EvalError> {
         let handle = self.runtime().handle();
-        let outcome = fast_eval(&handle, page_js(&find_js("document", selector, text))).await;
+        let outcome = fast_eval(&handle, query_js(&find_js("document", selector, text))).await;
         resolve_match(&handle, outcome)
     }
 
@@ -198,14 +186,11 @@ impl Page {
         text: Option<&str>,
     ) -> Result<Vec<Element>, EvalError> {
         let handle = self.runtime().handle();
-        let outcome = fast_eval(&handle, page_js(&find_all_js("document", selector, text))).await;
+        let outcome = fast_eval(&handle, query_js(&find_all_js("document", selector, text))).await;
         resolve_matches(&handle, outcome)
     }
 
-    /// Installs `backend` on the current realm, replayed into every later navigation -- see
-    /// `runtime::Page::install_fetch_backend`. Tests install an in-memory mock; production (at
-    /// the pyo3 layer) installs a Python-bridging one. Async, unlike `runtime::Page`'s own
-    /// `blocking_recv`-based version: that would panic here, called from inside a `tokio::test`.
+    /// Async because the blocking runtime method would panic inside a `tokio::test`.
     pub async fn install_fetch_backend(&self, backend: Arc<dyn ops::FetchBackend + Send + Sync>) {
         self.runtime()
             .send_install_fetch_backend(backend)
@@ -234,12 +219,7 @@ impl Page {
     }
 }
 
-/// Async, pyo3-agnostic counterpart to `AsyncElementBase`'s read-only surface. Identified by an
-/// opaque handle into the JS-side `__mini.ref`/`deref` registry, same as `page.py`'s `Element`.
-/// Holds its own cloned [`runtime::Handle`] rather than borrowing from the `Page` that produced
-/// it, so it stays independently usable regardless of that `Page`'s Rust-side lifetime -- a
-/// request against a since-closed runtime just surfaces as `EvalError`, same as any other eval
-/// against a closed runtime.
+/// Holds a cloned handle so it remains usable after its originating [`Page`] is dropped.
 pub struct Element {
     handle: i64,
     runtime: runtime::Handle,
@@ -250,24 +230,36 @@ impl Element {
         Self { handle, runtime }
     }
 
-    async fn eval(&self, code: &str) -> EvalOutcome {
+    async fn read(&self, code: &str) -> EvalOutcome {
         fast_eval(&self.runtime, element_js(self.handle, code)).await
     }
 
-    /// `this.textContent`.
+    /// Generic escape-hatch eval, `this` bound to this element -- backs the Python facade's
+    /// `Element.eval()`. Unlike [`read`](Self::read), waits for a returned promise, but not for
+    /// the event loop to drain.
+    pub async fn eval(&self, code: &str) -> EvalOutcome {
+        promise_eval(&self.runtime, element_js(self.handle, code)).await
+    }
+
     pub async fn text(&self) -> Result<String, EvalError> {
-        decode(self.eval("this.textContent").await?)
+        decode(self.read("this.textContent").await?)
     }
 
-    /// `this.innerHTML`.
     pub async fn inner_html(&self) -> Result<String, EvalError> {
-        decode(self.eval("this.innerHTML").await?)
+        decode(self.read("this.innerHTML").await?)
     }
 
-    /// `this.getAttribute(name)`, or `None` if absent.
+    pub async fn html(&self) -> Result<String, EvalError> {
+        decode(self.read("this.outerHTML").await?)
+    }
+
+    pub async fn tag_name(&self) -> Result<String, EvalError> {
+        decode(self.read("this.tagName").await?)
+    }
+
     pub async fn attr(&self, name: &str) -> Result<Option<String>, EvalError> {
         decode(
-            self.eval(&format!("this.getAttribute({})", json_str(name)))
+            self.read(&format!("this.getAttribute({})", json_str(name)))
                 .await?,
         )
     }
@@ -275,7 +267,7 @@ impl Element {
     /// The parent element, or `None` if it has none (e.g. the root `<html>` element, or it's
     /// been removed from the DOM).
     pub async fn parent(&self) -> Result<Option<Element>, EvalError> {
-        let (handle, _tag) = decode::<MatchJs>(self.eval(PARENT_JS).await?)?;
+        let (handle, _tag) = decode::<MatchJs>(self.read(PARENT_JS).await?)?;
         Ok(handle.map(|h| Element::new(self.runtime.clone(), h)))
     }
 
@@ -285,7 +277,7 @@ impl Element {
         selector: &str,
         text: Option<&str>,
     ) -> Result<Option<Element>, EvalError> {
-        let outcome = self.eval(&find_js("this", selector, text)).await;
+        let outcome = self.read(&find_js("this", selector, text)).await;
         resolve_match(&self.runtime, outcome)
     }
 
@@ -295,7 +287,7 @@ impl Element {
         selector: &str,
         text: Option<&str>,
     ) -> Result<Vec<Element>, EvalError> {
-        let outcome = self.eval(&find_all_js("this", selector, text)).await;
+        let outcome = self.read(&find_all_js("this", selector, text)).await;
         resolve_matches(&self.runtime, outcome)
     }
 
@@ -325,6 +317,14 @@ impl Element {
         let event_init_js = serde_json::json!({"bubbles": true}).to_string();
         let set_value_js = format!("el.value = {}", json_str(value));
         let js = dispatch_js(self.handle, "change", &event_init_js, &set_value_js);
+        full_eval(&self.runtime, js).await?;
+        Ok(())
+    }
+
+    /// Set the element's value, dispatch `input`, and wait for the page to settle.
+    pub async fn r#type(&self, value: &str) -> Result<(), EvalError> {
+        let set_value_js = format!("el.value = {}", json_str(value));
+        let js = dispatch_js(self.handle, "input", DEFAULT_EVENT_INIT_JS, &set_value_js);
         full_eval(&self.runtime, js).await?;
         Ok(())
     }

@@ -6,7 +6,7 @@ import pytest
 from conftest import HTMX_RESOURCE_MOUNT, HTMX_SCRIPT_TAG
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.page import Element, FormElement, Page
+from miniclient.page import Element, Page
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -103,13 +103,13 @@ def test_click_and_form_submit_via_htmx(htmx_page: Page, httpx_mock: HTTPXMock) 
     assert btn is not None
     btn.click()
     out = htmx_page.find("#out")
-    assert out and out.innerHTML == "<b>clicked</b>"
+    assert out and out.inner_html == "<b>clicked</b>"
 
     form = htmx_page.find("form")
-    assert isinstance(form, FormElement)
-    form.requestSubmit()
+    assert form is not None and form.tag_name == "FORM"
+    form.request_submit()
     result = htmx_page.find("#result")
-    assert result and result.innerHTML == "<p>submitted</p>"
+    assert result and result.inner_html == "<p>submitted</p>"
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ def test_page_resource_mounts(tmp_path: Path) -> None:
 
 
 def test_gc_regression_held_element() -> None:
-    # Element/FormElement kept alive past Page.close() must not raise when
+    # Element kept alive past Page.close() must not raise when
     # it's eventually garbage collected.
     with Page() as b:
         b.load("<button id='x'>hi</button>")

@@ -8,7 +8,7 @@ import pytest_asyncio
 from conftest import HTMX_RESOURCE_MOUNT, HTMX_SCRIPT_TAG
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.page import AsyncFormElement, AsyncPage
+from miniclient.page import AsyncPage
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -46,11 +46,11 @@ async def test_goto_processes_htmx(htmx_page: AsyncPage, httpx_mock: HTTPXMock) 
     await btn.click()
     el = htmx_page.find("#out")
     assert el is not None
-    assert el.innerHTML == "<b>done</b>"
+    assert el.inner_html == "<b>done</b>"
 
 
 # ---------------------------------------------------------------------------
-# AsyncPage.trigger / AsyncElement.click / AsyncElement.dispatch_event
+# AsyncPage.trigger / Element.click / Element.dispatch_event
 # ---------------------------------------------------------------------------
 
 
@@ -71,7 +71,7 @@ async def test_element_click_hx_get(htmx_page: AsyncPage, httpx_mock: HTTPXMock)
     await btn.click()
     el = htmx_page.find("#out")
     assert el is not None
-    assert el.innerHTML == "<b>clicked</b>"
+    assert el.inner_html == "<b>clicked</b>"
 
 
 async def test_element_trigger_custom(htmx_page: AsyncPage, httpx_mock: HTTPXMock) -> None:
@@ -92,11 +92,11 @@ async def test_element_trigger_custom(htmx_page: AsyncPage, httpx_mock: HTTPXMoc
     await btn.trigger("my-event")
     el = htmx_page.find("#out")
     assert el is not None
-    assert el.innerHTML == "<i>custom</i>"
+    assert el.inner_html == "<i>custom</i>"
 
 
 # ---------------------------------------------------------------------------
-# AsyncFormElement.requestSubmit / submit-via-click
+# Element.request_submit / submit-via-click
 # ---------------------------------------------------------------------------
 
 
@@ -115,11 +115,11 @@ async def test_element_request_submit_form(htmx_page: AsyncPage, httpx_mock: HTT
         <div id="result"></div>"""
     )
     form = htmx_page.find("form")
-    assert isinstance(form, AsyncFormElement)
-    await form.requestSubmit()
+    assert form is not None and form.tag_name == "FORM"
+    await form.request_submit()
     result = htmx_page.find("#result")
     assert result is not None
-    assert result.innerHTML == "<p>submitted</p>"
+    assert result.inner_html == "<p>submitted</p>"
 
 
 @pytest.mark.parametrize(
@@ -150,7 +150,7 @@ async def test_submit_via_submitter_click(
     await sub.click()
     result = htmx_page.find("#result")
     assert result is not None
-    assert result.innerHTML == "<p>sent</p>"
+    assert result.inner_html == "<p>sent</p>"
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ async def test_page_context_manager(httpx_mock: HTTPXMock, htmx_page: AsyncPage)
         await btn.click()
         result = b.find("#r")
         assert result is not None
-        assert result.innerHTML == "<b>hi</b>"
+        assert result.inner_html == "<b>hi</b>"
 
 
 async def test_page_async_context_manager(httpx_mock: HTTPXMock, htmx_page: AsyncPage) -> None:
@@ -185,7 +185,7 @@ async def test_page_async_context_manager(httpx_mock: HTTPXMock, htmx_page: Asyn
             await btn.click()
             result = b.find("#r")
             assert result is not None
-            assert result.innerHTML == "<b>hi</b>"
+            assert result.inner_html == "<b>hi</b>"
     close_mock.assert_called_once()
 
 
@@ -218,9 +218,9 @@ async def test_click_not_blocked_by_unrelated_poller(
     await asyncio.wait_for(btn.click(), timeout=2)
     out = htmx_page.find("#out")
     assert out is not None
-    assert out.innerHTML == "<b>clicked</b>"
+    assert out.inner_html == "<b>clicked</b>"
     # Let the poller fire at least once (it would have deadlocked click() above if
     # tracked) so httpx_mock's teardown sees its mocked response as actually used.
     # asyncio.sleep() alone wouldn't drive the JS engine's own timers -- await a JS-side
     # timer instead, same as runtime.eval is used elsewhere to pump real time.
-    await htmx_page.runtime.eval("new Promise(resolve => setTimeout(resolve, 100))")
+    await htmx_page.eval("new Promise(resolve => setTimeout(resolve, 100))")

@@ -13,7 +13,7 @@ import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
-from miniclient.page import AsyncFormElement, AsyncPage
+from miniclient.page import AsyncPage
 from miniclient.wsgi import WSGITransport
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
@@ -148,7 +148,7 @@ class CrossCheck:
 
         client_talk = Talk()
         capturing_transport = _CapturingTransport(WSGITransport(_wrapped_wsgi), client_talk)
-        client = await AsyncPage(httpx_transport=capturing_transport)
+        client = AsyncPage(httpx_transport=capturing_transport)
 
         server = make_server("127.0.0.1", 0, _wrapped_wsgi, handler_class=_SilentHandler)
         port = server.server_address[1]
@@ -198,7 +198,7 @@ class CrossCheck:
         )
 
     async def assert_same_dom(self) -> None:
-        client_snapshot = await self._client.runtime.eval(f"f = {_JS_SERIALIZE}; f()")
+        client_snapshot = await self._client.eval(f"f = {_JS_SERIALIZE}; f()")
         page_snapshot = await self._page.evaluate(_JS_SERIALIZE)
         assert client_snapshot == page_snapshot, (
             f"DOM mismatch:\n  client: {client_snapshot}\n  page: {page_snapshot}"
@@ -235,9 +235,11 @@ class CrossCheck:
         if self._mode == "plain" and is_submit:
             # submit button lives in a single form; submit the form itself.
             form = self._client.find("form")
-            assert isinstance(form, AsyncFormElement), f"No form for submit control {selector!r}"
+            assert form is not None and form.tag_name == "FORM", (
+                f"No form for submit control {selector!r}"
+            )
             await asyncio.gather(
-                form.requestSubmit(),
+                form.request_submit(),
                 self._page_click_navigate(selector),
             )
             await self.assert_same_dom()
@@ -265,7 +267,7 @@ class CrossCheck:
             raise LookupError(f"No element matches {selector!r}")
         self._reset_capture()
         await self._page.evaluate("window.__htmxSettled = false;")
-        await el.fill(value)  # dispatches change only — see TODO in AsyncElement.fill
+        await el.fill(value)  # dispatches change only — see TODO in Element.fill
         # Use evaluate instead of locator.fill() + dispatch_event() to avoid Playwright's CDP
         # focus causing Chrome to fire a native trusted change event when htmx's swap removes
         # the focused element from the DOM, which would queue a second spurious htmx request.

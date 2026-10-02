@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
@@ -15,6 +17,24 @@ pyo3::create_exception!(
     "A JS exception, carrying the `name`, `message` and `stack` of the JS Error itself."
 );
 
+/// Turns an `EvalError` into the matching Python exception: a plain `RuntimeError`, or a
+/// `JavaScriptError` carrying the JS exception's `name`/`message`/`stack`.
+fn to_pyerr(py: Python<'_>, err: EvalError) -> PyErr {
+    match err {
+        EvalError::Other(message) => PyRuntimeError::new_err(message),
+        EvalError::Js(error) => {
+            let message = error.message.unwrap_or(error.exception_message);
+            let err = JavaScriptError::new_err(message.clone());
+            let value = err.value(py);
+            // Best-effort: these attrs are informational, not worth failing eval() over.
+            let _ = value.setattr("name", error.name.unwrap_or_else(|| "Error".into()));
+            let _ = value.setattr("message", message);
+            let _ = value.setattr("stack", error.stack);
+            err
+        }
+    }
+}
+
 /// Turns what the isolate thread sent back into a Python value via `pythonize`, straight from
 /// the parsed `serde_json::Value` rather than a `json.loads` text round-trip.
 fn to_python(py: Python<'_>, outcome: EvalOutcome) -> PyResult<Py<PyAny>> {
@@ -25,16 +45,7 @@ fn to_python(py: Python<'_>, outcome: EvalOutcome) -> PyResult<Py<PyAny>> {
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             Ok(pythonize::pythonize(py, &value)?.unbind())
         }
-        Err(EvalError::Other(message)) => Err(PyRuntimeError::new_err(message)),
-        Err(EvalError::Js(error)) => {
-            let message = error.message.unwrap_or(error.exception_message);
-            let err = JavaScriptError::new_err(message.clone());
-            let value = err.value(py);
-            value.setattr("name", error.name.unwrap_or_else(|| "Error".into()))?;
-            value.setattr("message", message)?;
-            value.setattr("stack", error.stack)?;
-            Err(err)
-        }
+        Err(err) => Err(to_pyerr(py, err)),
     }
 }
 
@@ -42,24 +53,39 @@ fn closed<E>(_: E) -> PyErr {
     PyRuntimeError::new_err("the runtime is closed")
 }
 
-/// Thin pyo3 wrapper around [`runtime::Page`], the host-state container that owns one
-/// isolate at a time: every method delegates straight to the isolate it currently owns. JS
-/// values cross as JSON in both directions: `undefined` and `null` both arrive as `None`, and
-/// anything JSON cannot carry raises.
-#[pyclass(module = "miniclient._miniclient", dict)]
-struct Page(runtime::Page);
+/// Blocks the calling thread (off-GIL) until `fut` resolves, driven by the same tokio runtime
+/// `pyo3-async-runtimes` already uses for every `async fn` pymethod -- backs the synchronous,
+/// no-settle-wait ergonomic methods (`find`/`find_all`/`text`/`attr`/...), which never need the
+/// Python event loop pumping concurrently the way a settle-wait does.
+fn block_on<T: Send>(
+    py: Python<'_>,
+    fut: impl Future<Output = Result<T, EvalError>> + Send,
+) -> PyResult<T> {
+    py.detach(|| pyo3_async_runtimes::tokio::get_runtime().block_on(fut))
+        .map_err(|e| to_pyerr(py, e))
+}
+
+/// Thin pyo3 wrapper around [`browser::Page`], delegating every ergonomic method straight to
+/// it. JS values cross as JSON in both directions: `undefined` and `null` both arrive as
+/// `None`, and anything JSON cannot carry raises. `subclass` lets the Python facade's
+/// `AsyncPage` extend this directly instead of wrapping an instance of it.
+#[pyclass(module = "miniclient._miniclient", subclass)]
+struct Page(browser::Page);
 
 #[pymethods]
 impl Page {
     #[new]
     #[pyo3(signature = (url="http://localhost/", resource_mounts_json="{}"))]
     fn new(url: &str, resource_mounts_json: &str) -> Self {
-        Self(runtime::Page::new(url, resource_mounts_json))
+        Self(browser::Page::new(url, resource_mounts_json))
     }
 
-    /// Awaits the script's result -- a promise is resolved -- while leaving Python's own loop
-    /// free to serve whatever that script is waiting on. Does not wait for unrelated pending
-    /// timers/requests: page interactions are the ones that settle.
+    /// Evaluate `source` as a top-level script, `this` bound to `globalThis` by the isolate's
+    /// own top-level semantics -- declarations (`var`/`function`) attach to `globalThis` and
+    /// persist across calls, same as separate `<script>` tags would. Awaits the script's result
+    /// -- a promise is resolved -- while leaving Python's own loop free to serve whatever that
+    /// script is waiting on. Does not wait for unrelated pending timers/requests: page
+    /// interactions are the ones that settle.
     async fn eval(&self, source: String) -> PyResult<Py<PyAny>> {
         let outcome = self
             .0
@@ -68,6 +94,42 @@ impl Page {
             .await
             .map_err(closed)?;
         Python::attach(|py| to_python(py, outcome))
+    }
+
+    /// Return the first element matching `selector`, or `None` -- no-settle-wait, since a plain
+    /// query never has anything to wait on.
+    #[pyo3(signature = (selector, text=None))]
+    fn find(
+        &self,
+        py: Python<'_>,
+        selector: &str,
+        text: Option<&str>,
+    ) -> PyResult<Option<Element>> {
+        block_on(py, self.0.find(selector, text)).map(|found| found.map(Element))
+    }
+
+    /// Like [`find`](Self::find), but returns every match.
+    #[pyo3(signature = (selector, text=None))]
+    fn find_all(
+        &self,
+        py: Python<'_>,
+        selector: &str,
+        text: Option<&str>,
+    ) -> PyResult<Vec<Element>> {
+        block_on(py, self.0.find_all(selector, text))
+            .map(|found| found.into_iter().map(Element).collect())
+    }
+
+    /// Navigate to `url` in a fresh isolate, fetching and loading the document.
+    async fn goto(&self, url: String) -> PyResult<()> {
+        let outcome = self.0.goto(&url).await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
+    }
+
+    /// Load `html` into the document and initialize htmx, same-document.
+    async fn load(&self, html: String) -> PyResult<()> {
+        let outcome = self.0.load(&html).await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
     }
 
     /// Detaches from the interpreter while waiting, same as `eval`: `close()` blocks on the
@@ -105,21 +167,125 @@ impl Page {
     }
 }
 
-impl Page {
-    /// No-settle-wait fast path for later read-only ergonomic methods (`find`, `text`, `attr`,
-    /// ...): skips the promise-resolve `eval` pays for, since a plain
-    /// read never has anything to wait on. Not exposed to pyo3 -- `eval` is the only public
-    /// escape hatch.
-    #[allow(dead_code)]
-    fn fast_eval(&self, py: Python<'_>, source: String) -> PyResult<Py<PyAny>> {
-        let rx = self.0.runtime().send_eval(source, Wait::None);
-        let outcome = py.detach(|| rx.blocking_recv());
-        to_python(py, outcome.map_err(closed)?)
+/// Thin pyo3 wrapper around [`browser::Element`], delegating every ergonomic method straight to
+/// it. Used directly as the async-facing element type -- the Python facade's sync `Element`
+/// wraps an instance of it instead of subclassing it.
+#[pyclass(module = "miniclient._miniclient")]
+struct Element(browser::Element);
+
+#[pymethods]
+impl Element {
+    /// `this.textContent`.
+    #[getter]
+    fn text(&self, py: Python<'_>) -> PyResult<String> {
+        block_on(py, self.0.text())
+    }
+
+    /// `this.innerHTML`.
+    #[getter]
+    fn inner_html(&self, py: Python<'_>) -> PyResult<String> {
+        block_on(py, self.0.inner_html())
+    }
+
+    /// `this.outerHTML`.
+    #[getter]
+    fn html(&self, py: Python<'_>) -> PyResult<String> {
+        block_on(py, self.0.html())
+    }
+
+    /// `this.tagName`.
+    #[getter]
+    fn tag_name(&self, py: Python<'_>) -> PyResult<String> {
+        block_on(py, self.0.tag_name())
+    }
+
+    /// `this.getAttribute(name)`, or `None` if absent.
+    fn attr(&self, py: Python<'_>, name: &str) -> PyResult<Option<String>> {
+        block_on(py, self.0.attr(name))
+    }
+
+    /// The parent element, or `None` if it has none.
+    #[getter]
+    fn parent(&self, py: Python<'_>) -> PyResult<Option<Element>> {
+        block_on(py, self.0.parent()).map(|found| found.map(Element))
+    }
+
+    /// Return the first descendant matching `selector`, or `None`.
+    #[pyo3(signature = (selector, text=None))]
+    fn find(
+        &self,
+        py: Python<'_>,
+        selector: &str,
+        text: Option<&str>,
+    ) -> PyResult<Option<Element>> {
+        block_on(py, self.0.find(selector, text)).map(|found| found.map(Element))
+    }
+
+    /// Like [`find`](Self::find), but returns every match.
+    #[pyo3(signature = (selector, text=None))]
+    fn find_all(
+        &self,
+        py: Python<'_>,
+        selector: &str,
+        text: Option<&str>,
+    ) -> PyResult<Vec<Element>> {
+        block_on(py, self.0.find_all(selector, text))
+            .map(|found| found.into_iter().map(Element).collect())
+    }
+
+    /// Dispatch a click `MouseEvent` and wait for the page to settle.
+    async fn click(&self) -> PyResult<()> {
+        let outcome = self.0.click().await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
+    }
+
+    /// Set the element's value, dispatch `change`, and wait for the page to settle.
+    async fn fill(&self, value: String) -> PyResult<()> {
+        let outcome = self.0.fill(&value).await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
+    }
+
+    /// Set the element's value, dispatch `input`, and wait for the page to settle.
+    #[pyo3(name = "type")]
+    async fn r#type(&self, value: String) -> PyResult<()> {
+        let outcome = self.0.r#type(&value).await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
+    }
+
+    /// Dispatch a DOM event and wait for the page to settle. `event_init` defaults to
+    /// `{bubbles: true, cancelable: true}` when `None`.
+    #[pyo3(signature = (event, event_init=None))]
+    async fn trigger(&self, event: String, event_init: Option<Py<PyAny>>) -> PyResult<()> {
+        let event_init = match event_init {
+            Some(obj) => {
+                let value = Python::attach(|py| {
+                    pythonize::depythonize::<deno_core::serde_json::Value>(obj.bind(py))
+                })?;
+                Some(value)
+            }
+            None => None,
+        };
+        let outcome = self.0.trigger(&event, event_init.as_ref()).await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
+    }
+
+    /// Submit this `<form>` element and wait for it to settle.
+    async fn request_submit(&self) -> PyResult<()> {
+        let outcome = self.0.request_submit().await;
+        Python::attach(|py| outcome.map_err(|e| to_pyerr(py, e)))
+    }
+
+    /// Generic escape-hatch eval, `this` bound to this element -- same semantics as
+    /// [`Page::eval`], scoped to the element.
+    async fn eval(&self, source: String) -> PyResult<Py<PyAny>> {
+        let outcome = self.0.eval(&source).await;
+        Python::attach(|py| to_python(py, outcome))
     }
 }
 
 #[pymodule]
 fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("JavaScriptError", m.py().get_type::<JavaScriptError>())?;
-    m.add_class::<Page>()
+    m.add_class::<Page>()?;
+    m.add_class::<Element>()
 }
