@@ -8,8 +8,11 @@
 //! Only the read-only half lands here -- `find`/`find_all`/`text`/`attr`/`parent`/`inner_html`,
 //! all backed by `fast_eval` (no settle-wait, since a plain read never has anything to wait on).
 
+use std::sync::Arc;
+
 use deno_core::serde_json;
 
+use crate::ops;
 use crate::runtime::{self, EvalError, EvalOutcome, Wait};
 
 /// `[__mini.ref(el), el.tagName]`, or `[null, null]` when nothing matched -- the wire shape
@@ -94,6 +97,45 @@ async fn fast_eval(runtime: &runtime::Handle, source: String) -> EvalOutcome {
         .unwrap_or_else(|_| Err(EvalError::Other("the runtime is closed".into())))
 }
 
+/// Settle-wait eval (promise resolved, event loop drained to idle) -- the path every mutation
+/// and navigation method below uses; the generic `eval` escape hatches don't settle.
+async fn full_eval(runtime: &runtime::Handle, source: String) -> EvalOutcome {
+    runtime
+        .send_eval(source, Wait::Settle)
+        .await
+        .unwrap_or_else(|_| Err(EvalError::Other("the runtime is closed".into())))
+}
+
+/// `dispatchEvent` needs the right constructor to see type-specific fields (e.g. `key` on a
+/// `KeyboardEvent`); anything not listed here still works as a plain `Event`.
+fn event_class(event_type: &str) -> &'static str {
+    match event_type {
+        "click" | "dblclick" | "mousedown" | "mouseup" | "mousemove" | "mouseover" | "mouseout"
+        | "mouseenter" | "mouseleave" => "MouseEvent",
+        "keydown" | "keyup" | "keypress" => "KeyboardEvent",
+        "focus" | "blur" => "FocusEvent",
+        "input" => "InputEvent",
+        "submit" => "SubmitEvent",
+        _ => "Event",
+    }
+}
+
+/// Deliberately not run through `element_js`'s `this`-scoping: `__mini.awaitSettle` derefs
+/// `handle` itself, so wrapping it in a second, redundant lookup would just risk the two
+/// disagreeing if the element is removed between them. `js`, when given, runs against the
+/// element first (used by `fill` to set the value before dispatching).
+fn dispatch_js(handle: i64, event: &str, event_init_js: &str, js: &str) -> String {
+    format!(
+        "__mini.awaitSettle({handle}, el => {{\n  {js};\n  el.dispatchEvent(new {event_cls}({event}, {event_init_js}));\n}});",
+        event_cls = event_class(event),
+        event = json_str(event),
+    )
+}
+
+/// Spliced straight into `dispatch_js`'s source as a literal, not through `json_str`/`to_string`
+/// -- there's no `serde_json::Value` behind it to serialize, just this fixed default.
+const DEFAULT_EVENT_INIT_JS: &str = "{bubbles: true, cancelable: true}";
+
 /// Turns a matched `(handle, tagName)` pair into an `Element`, or `None` when nothing matched --
 /// `tagName` only exists to pick a `FormElement` subclass at the pyo3/Python layer; this core
 /// just needs the handle.
@@ -158,6 +200,37 @@ impl Page {
         let handle = self.runtime().handle();
         let outcome = fast_eval(&handle, page_js(&find_all_js("document", selector, text))).await;
         resolve_matches(&handle, outcome)
+    }
+
+    /// Installs `backend` on the current realm, replayed into every later navigation -- see
+    /// `runtime::Page::install_fetch_backend`. Tests install an in-memory mock; production (at
+    /// the pyo3 layer) installs a Python-bridging one. Async, unlike `runtime::Page`'s own
+    /// `blocking_recv`-based version: that would panic here, called from inside a `tokio::test`.
+    pub async fn install_fetch_backend(&self, backend: Arc<dyn ops::FetchBackend + Send + Sync>) {
+        self.runtime()
+            .send_install_fetch_backend(backend)
+            .await
+            .expect("install channel dropped");
+    }
+
+    /// Navigate to `url` in a fresh isolate, fetching and loading the document -- same
+    /// mechanism as an in-page link click or `location.href =`.
+    pub async fn goto(&self, url: &str) -> Result<(), EvalError> {
+        let handle = self.runtime().handle();
+        full_eval(
+            &handle,
+            format!("__mini.navigateFetch(null, {})", json_str(url)),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Load `html` into the document and initialize htmx, same-document (no navigation, no
+    /// history change).
+    pub async fn load(&self, html: &str) -> Result<(), EvalError> {
+        let handle = self.runtime().handle();
+        full_eval(&handle, format!("__mini.documentWrite({})", json_str(html))).await?;
+        Ok(())
     }
 }
 
@@ -224,6 +297,45 @@ impl Element {
     ) -> Result<Vec<Element>, EvalError> {
         let outcome = self.eval(&find_all_js("this", selector, text)).await;
         resolve_matches(&self.runtime, outcome)
+    }
+
+    /// Dispatch a DOM event and wait for the page to settle. `event_init` defaults to
+    /// `{bubbles: true, cancelable: true}` when `None`.
+    pub async fn trigger(
+        &self,
+        event: &str,
+        event_init: Option<&serde_json::Value>,
+    ) -> Result<(), EvalError> {
+        let event_init_js = match event_init {
+            Some(init) => init.to_string(),
+            None => DEFAULT_EVENT_INIT_JS.to_string(),
+        };
+        let js = dispatch_js(self.handle, event, &event_init_js, "");
+        full_eval(&self.runtime, js).await?;
+        Ok(())
+    }
+
+    /// Dispatch a click `MouseEvent` and wait for the page to settle.
+    pub async fn click(&self) -> Result<(), EvalError> {
+        self.trigger("click", None).await
+    }
+
+    /// Set the element's value, dispatch `change`, and wait for the page to settle.
+    pub async fn fill(&self, value: &str) -> Result<(), EvalError> {
+        let event_init_js = serde_json::json!({"bubbles": true}).to_string();
+        let set_value_js = format!("el.value = {}", json_str(value));
+        let js = dispatch_js(self.handle, "change", &event_init_js, &set_value_js);
+        full_eval(&self.runtime, js).await?;
+        Ok(())
+    }
+
+    /// Submit this `<form>` element and wait for it to settle -- native navigation if
+    /// unintercepted, or just a settle-wait if a script (e.g. htmx) intercepts the submit.
+    /// Callable on any `Element` here: `__mini.submit` itself rejects a non-`<form>` handle, so
+    /// there's no need for this core to split out its own `FormElement` to enforce that.
+    pub async fn request_submit(&self) -> Result<(), EvalError> {
+        full_eval(&self.runtime, format!("__mini.submit({})", self.handle)).await?;
+        Ok(())
     }
 }
 
