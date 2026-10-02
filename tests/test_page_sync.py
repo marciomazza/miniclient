@@ -39,11 +39,12 @@ def htmx_page() -> Iterator[Page]:
 # Bridge relays calls/results correctly.
 #
 # JS-generation correctness (query selectors, attribute handling, htmx
-# settle logic, ...) is already covered exhaustively by test_page_async.py /
-# test_htmx_integration.py against AsyncPage. These only check that going
-# through the sync facade's run_until_complete bridge doesn't change the
-# result — so one broad test per bridge "shape" (plain queries/mutations,
-# htmx interactions) rather than one test per method.
+# settle logic, ...) is already covered exhaustively by cargo test
+# (tests/browser_queries.rs, tests/browser_navigation.rs, tests/browser_htmx.rs) against
+# browser::Page/Element, and by test_htmx_integration.py against AsyncPage. These only check
+# that going through the sync facade's run_until_complete bridge doesn't change the result —
+# so one broad test per bridge "shape" (plain queries/mutations, htmx interactions) rather than
+# one test per method.
 # ---------------------------------------------------------------------------
 
 

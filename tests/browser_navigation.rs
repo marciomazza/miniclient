@@ -10,6 +10,7 @@ use std::sync::Arc;
 use _miniclient::browser::Page;
 use _miniclient::runtime::Wait;
 use common::fetch_mock::MockFetchBackend;
+use common::{aeval_async, arun_async};
 
 /// Reads back a value through a promise-resolving eval -- `common::EvalExt` can't be used
 /// here, its `blocking_recv` panics inside an async `tokio::test`.
@@ -129,6 +130,280 @@ async fn request_submit_performs_the_forms_native_navigation() {
         "http://localhost/submitted?x=1"
     );
     assert!(page.find("#done", None).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn request_submit_post_sends_the_forms_encoded_body() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/action", "<body><p>done</p></body>");
+    page.install_fetch_backend(Arc::new(mock.clone())).await;
+    page.load(
+        r#"<form method="post" action="/action"><input name="x" value="42">
+           <button type="submit" id="btn">go</button></form>"#,
+    )
+    .await
+    .unwrap();
+
+    let form = page.find("form", None).await.unwrap().unwrap();
+    assert_eq!(form.tag_name().await.unwrap(), "FORM");
+    form.request_submit().await.unwrap();
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.body, b"x=42");
+    assert_eq!(
+        request.header("content-type"),
+        Some("application/x-www-form-urlencoded")
+    );
+    let el = page.find("p", None).await.unwrap().unwrap();
+    assert_eq!(el.text().await.unwrap(), "done");
+}
+
+/// `click()`/`trigger()`/`fill()` wait for the page to settle, even for a plain (non-htmx)
+/// `fetch()`-driven handler.
+#[tokio::test]
+async fn click_awaits_a_plain_fetch_settle() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/data", "done");
+    page.install_fetch_backend(Arc::new(mock)).await;
+    page.load(
+        r#"<button id="btn">go</button>
+           <div id="out"></div>
+           <script>
+               document.getElementById("btn").addEventListener("click", async () => {
+                   const res = await fetch("/data");
+                   document.getElementById("out").textContent = await res.text();
+               });
+           </script>"#,
+    )
+    .await
+    .unwrap();
+
+    let btn = page.find("#btn", None).await.unwrap().unwrap();
+    btn.click().await.unwrap();
+    let out = page.find("#out", None).await.unwrap().unwrap();
+    assert_eq!(out.text().await.unwrap(), "done");
+}
+
+#[tokio::test]
+async fn goto_loads_head_and_body() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/page",
+        "<html><head><title>T</title></head><body><span id='s'>ok</span></body></html>",
+    );
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/page").await.unwrap();
+    assert_eq!(eval_str(page.runtime(), "document.title").await, "T");
+    let s = page.find("#s", None).await.unwrap().unwrap();
+    assert_eq!(s.inner_html().await.unwrap(), "ok");
+}
+
+/// A failed fetch must not error out of `goto()` -- the new realm is already committed and the
+/// old document is gone, so `goto()` surfaces the failure as an error-state document, same as a
+/// real browser's top-level navigation. The error document's own shape is covered by
+/// `tests/navigation_fetch.rs`; this only checks `browser::Page::goto` doesn't propagate an
+/// `Err` for it.
+#[tokio::test]
+async fn goto_commits_an_error_document_on_failed_navigation() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    // No route registered for /unreachable -- the mock answers every unregistered URL with an
+    // error, same effect as a real connection failure.
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/unreachable").await.unwrap();
+    assert!(
+        page.find("[data-mini-navigation-error]", None)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn goto_navigates_across_domains() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/start",
+        "<html><body><p>start</p></body></html>",
+    );
+    mock.text(
+        "http://example.com/other",
+        "<html><body><p>other</p></body></html>",
+    );
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/start").await.unwrap();
+    assert_eq!(
+        eval_str(page.runtime(), "location.href").await,
+        "http://localhost/start"
+    );
+    assert_eq!(
+        eval_str(page.runtime(), "document.baseURI").await,
+        "http://localhost/start"
+    );
+
+    page.goto("http://example.com/other").await.unwrap();
+    assert_eq!(
+        eval_str(page.runtime(), "location.href").await,
+        "http://example.com/other"
+    );
+    assert_eq!(
+        eval_str(page.runtime(), "document.baseURI").await,
+        "http://example.com/other"
+    );
+}
+
+async fn assert_goto_resolves(initial_url: Option<&str>, relative_url: &str, expected_url: &str) {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    if let Some(initial_url) = initial_url {
+        mock.text(initial_url, "<html><body><p>start</p></body></html>");
+    }
+    mock.text(expected_url, "<html><body><p>target</p></body></html>");
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    if let Some(initial_url) = initial_url {
+        page.goto(initial_url).await.unwrap();
+    }
+    page.goto(relative_url).await.unwrap();
+    assert_eq!(
+        eval_str(page.runtime(), "location.href").await,
+        expected_url
+    );
+}
+
+#[tokio::test]
+async fn goto_resolves_relative_to_current_page() {
+    assert_goto_resolves(
+        Some("http://localhost/start/page"),
+        "other",
+        "http://localhost/start/other",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn goto_resolves_root_relative_after_a_prior_navigation() {
+    assert_goto_resolves(
+        Some("http://localhost/start/page"),
+        "/",
+        "http://localhost/",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn goto_resolves_root_relative_with_no_prior_navigation() {
+    assert_goto_resolves(None, "/", "http://localhost/").await;
+}
+
+/// A script's global writes and pending timers from one page must not survive navigation to
+/// the next: `goto()` boots a brand new isolate, so `globalThis` starts from a clean baseline
+/// rather than being reset in place.
+#[tokio::test]
+async fn goto_isolates_globals_and_timers_across_navigations() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/a",
+        r#"<html><body><script>
+            window.__foo = 1;
+            setTimeout(() => { window.__leaked = true; }, 20);
+        </script></body></html>"#,
+    );
+    mock.text("http://localhost/b", "<html><body><p>b</p></body></html>");
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/a").await.unwrap();
+    let foo: i64 = aeval_async(page.runtime(), "window.__foo").await;
+    assert_eq!(foo, 1);
+
+    page.goto("http://localhost/b").await.unwrap();
+    assert_eq!(
+        eval_str(page.runtime(), "typeof window.__foo").await,
+        "undefined"
+    );
+
+    // Give page A's pending timer a chance to fire; goto() must have cleared it.
+    page.runtime()
+        .send_eval(
+            "new Promise(resolve => setTimeout(resolve, 50))".into(),
+            Wait::Promise,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        eval_str(page.runtime(), "typeof window.__leaked").await,
+        "undefined"
+    );
+}
+
+/// Each full navigation replaces the whole jsdom `Window`, and with it
+/// `window._sessionHistory` -- `history.back()` must still reach the previous page, same as a
+/// real browser.
+#[tokio::test]
+async fn history_back_and_forward_span_full_navigations() {
+    let page = Page::new("http://localhost/", "{}");
+    let mock = MockFetchBackend::new();
+    // history.back()/forward() re-fetch each URL (no document cache, see
+    // __mini.navigateHistory), so the same route must answer more than once.
+    mock.text("http://localhost/a", "<html><body><p>a</p></body></html>");
+    mock.text("http://localhost/b", "<html><body><p>b</p></body></html>");
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/a").await.unwrap();
+    page.goto("http://localhost/b").await.unwrap();
+    assert_eq!(
+        eval_str(page.runtime(), "location.href").await,
+        "http://localhost/b"
+    );
+    let length: i64 = aeval_async(page.runtime(), "history.length").await;
+    assert!(length > 1);
+
+    arun_async(page.runtime(), "history.back()").await;
+    assert_eq!(
+        eval_str(page.runtime(), "location.href").await,
+        "http://localhost/a"
+    );
+
+    arun_async(page.runtime(), "history.forward()").await;
+    assert_eq!(
+        eval_str(page.runtime(), "location.href").await,
+        "http://localhost/b"
+    );
+}
+
+/// `goto()`'s self-fetched document can itself carry a `type="module" src="...">` script,
+/// backed by a resource mount rather than the mock's in-memory routes.
+#[tokio::test]
+async fn goto_executes_a_module_script_from_a_resource_mount() {
+    let dir = std::env::temp_dir().join(format!("miniclient-goto-module-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("entry.js"), b"window.__ran = 1;").unwrap();
+    let mounts = format!(
+        r#"{{"http://localhost/ext/": {:?}}}"#,
+        dir.to_str().unwrap()
+    );
+    let page = Page::new("http://localhost/", &mounts);
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/",
+        "<script type=\"module\" src=\"http://localhost/ext/entry.js\"></script>",
+    );
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/").await.unwrap();
+    let ran: i64 = aeval_async(page.runtime(), "window.__ran").await;
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(ran, 1);
 }
 
 /// A hash change queues a timer-driven `hashchange` dispatch; `goto()` right after must not

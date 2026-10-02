@@ -114,3 +114,28 @@ fn decode<T: serde::de::DeserializeOwned>(outcome: EvalOutcome) -> T {
     let raw = json(outcome).expect("eval returned undefined/null");
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("eval result did not decode ({e}): {raw}"))
 }
+
+/// Decodes an [`EvalOutcome`] a caller already has in hand (e.g. from `browser::Element::eval`),
+/// as opposed to [`EvalExt`]'s methods which run the eval themselves.
+pub fn decode_outcome<T: serde::de::DeserializeOwned>(outcome: EvalOutcome) -> T {
+    decode(outcome)
+}
+
+async fn aeval_outcome(rt: &Runtime, src: &str, wait: Wait) -> EvalOutcome {
+    rt.send_eval(format!("{{ {src} }}"), wait)
+        .await
+        .expect("isolate thread answered")
+}
+
+/// Async counterparts of [`EvalExt`]'s methods, for use inside a `#[tokio::test]` where
+/// `blocking_recv` would panic (the isolate thread never gets to run while this task blocks the
+/// executor it's also driven by).
+pub async fn aeval_async<T: serde::de::DeserializeOwned>(rt: &Runtime, src: &str) -> T {
+    decode(aeval_outcome(rt, src, Wait::Promise).await)
+}
+
+pub async fn arun_async(rt: &Runtime, src: &str) {
+    aeval_outcome(rt, src, Wait::Promise)
+        .await
+        .expect("eval succeeded");
+}

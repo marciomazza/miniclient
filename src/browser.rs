@@ -341,7 +341,7 @@ impl Element {
 
 #[cfg(test)]
 mod tests {
-    use super::Page;
+    use super::{Page, fast_eval, full_eval};
     use crate::runtime::Wait;
 
     #[tokio::test]
@@ -425,5 +425,55 @@ mod tests {
         page.runtime().close();
 
         assert!(p.text().await.is_err());
+    }
+
+    /// `Element` clones its own runtime handle rather than borrowing from `Page` (see the
+    /// struct's own doc comment), so dropping the `Page` outright -- not just closing it --
+    /// must tear the element's later access down silently too.
+    #[tokio::test]
+    async fn element_outlives_a_dropped_page_without_panicking() {
+        let page = Page::new("http://localhost/", "{}");
+        page.runtime()
+            .send_eval("document.body.innerHTML = '<p>hi</p>';".into(), Wait::None)
+            .await
+            .unwrap()
+            .unwrap();
+        let p = page.find("p", None).await.unwrap().unwrap();
+        drop(page);
+
+        assert!(p.text().await.is_err());
+    }
+
+    /// `fast_eval` (backing read-only methods like `text`) never waits for the event loop to
+    /// drain; `full_eval` (backing mutations/navigation and the public `eval()`) always does.
+    /// A pending timer distinguishes them: only the settle-waiting path observes its effect.
+    #[tokio::test]
+    async fn fast_eval_does_not_drain_while_full_eval_does() {
+        let page = Page::new("http://localhost/", "{}");
+        let handle = page.runtime().handle();
+        page.runtime()
+            .send_eval(
+                "window.__ran = 0; setTimeout(() => { window.__ran = 1; }, 0);".into(),
+                Wait::None,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        // fast_eval: no settle-wait, so the timer never gets a chance to run.
+        let before = fast_eval(&handle, "window.__ran".to_string())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(before, "0");
+
+        // full_eval: drains the event loop to idle after evaluating its own (unrelated,
+        // non-promise) script, letting the still-pending timer fire before returning.
+        full_eval(&handle, "1".to_string()).await.unwrap().unwrap();
+        let after = fast_eval(&handle, "window.__ran".to_string())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after, "1");
     }
 }

@@ -1,9 +1,7 @@
-import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 import pytest_asyncio
 from conftest import HTMX_RESOURCE_MOUNT, HTMX_SCRIPT_TAG
 from pytest_httpx2 import HTTPXMock
@@ -27,134 +25,9 @@ async def htmx_page() -> AsyncIterator[AsyncPage]:
 
 
 # ---------------------------------------------------------------------------
-# AsyncPage.goto
-# ---------------------------------------------------------------------------
-
-
-async def test_goto_processes_htmx(htmx_page: AsyncPage, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url="http://localhost/page",
-        text=f"""\
-        <html><head>{HTMX_SCRIPT_TAG}</head><body>
-        <div id="out"><button hx-get="/frag" hx-target="#out" hx-swap="innerHTML">go</button></div>
-        </body></html>""",
-    )
-    httpx_mock.add_response(url="http://localhost/frag", text="<b>done</b>")
-    await htmx_page.goto("http://localhost/page")
-    btn = htmx_page.find("button")
-    assert btn is not None
-    await btn.click()
-    el = htmx_page.find("#out")
-    assert el is not None
-    assert el.inner_html == "<b>done</b>"
-
-
-# ---------------------------------------------------------------------------
-# AsyncPage.trigger / Element.click / Element.dispatch_event
-# ---------------------------------------------------------------------------
-
-
-async def test_element_click_hx_get(htmx_page: AsyncPage, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url="http://localhost/click-target",
-        text="<b>clicked</b>",
-    )
-    await htmx_page.load(
-        f"""\
-        {HTMX_SCRIPT_TAG}
-        <div id="out">
-        <button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>
-        </div>"""
-    )
-    btn = htmx_page.find("button")
-    assert btn is not None
-    await btn.click()
-    el = htmx_page.find("#out")
-    assert el is not None
-    assert el.inner_html == "<b>clicked</b>"
-
-
-async def test_element_trigger_custom(htmx_page: AsyncPage, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url="http://localhost/custom",
-        text="<i>custom</i>",
-    )
-    await htmx_page.load(
-        f"""\
-        {HTMX_SCRIPT_TAG}
-        <div id="out">
-        <button hx-get="/custom" hx-trigger="my-event" hx-target="#out"
-        hx-swap="innerHTML">go</button>
-        </div>"""
-    )
-    btn = htmx_page.find("button")
-    assert btn is not None
-    await btn.trigger("my-event")
-    el = htmx_page.find("#out")
-    assert el is not None
-    assert el.inner_html == "<i>custom</i>"
-
-
-# ---------------------------------------------------------------------------
-# Element.request_submit / submit-via-click
-# ---------------------------------------------------------------------------
-
-
-async def test_element_request_submit_form(htmx_page: AsyncPage, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url="http://localhost/form-action",
-        text="<p>submitted</p>",
-    )
-    await htmx_page.load(
-        f"""\
-        {HTMX_SCRIPT_TAG}
-        <form id="f" hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">
-        <input name="x" value="1">
-        <button type="submit" id="btn">send</button>
-        </form>
-        <div id="result"></div>"""
-    )
-    form = htmx_page.find("form")
-    assert form is not None and form.tag_name == "FORM"
-    await form.request_submit()
-    result = htmx_page.find("#result")
-    assert result is not None
-    assert result.inner_html == "<p>submitted</p>"
-
-
-@pytest.mark.parametrize(
-    "submitter_html",
-    [
-        '<input type="text" name="q" value="search"><input type="submit" id="sub" value="go">',
-        '<input type="text" name="q" value="search"><button type="submit" id="sub">go</button>',
-    ],
-    ids=["input-submit", "button-submit"],
-)
-async def test_submit_via_submitter_click(
-    htmx_page: AsyncPage, httpx_mock: HTTPXMock, submitter_html: str
-) -> None:
-    httpx_mock.add_response(
-        url="http://localhost/form-action",
-        text="<p>sent</p>",
-    )
-    await htmx_page.load(
-        f"""\
-        {HTMX_SCRIPT_TAG}
-        <form hx-post="/form-action" hx-target="#result" hx-swap="innerHTML">
-        {submitter_html}
-        </form>
-        <div id="result"></div>"""
-    )
-    sub = htmx_page.find("#sub")
-    assert sub is not None
-    await sub.click()
-    result = htmx_page.find("#result")
-    assert result is not None
-    assert result.inner_html == "<p>sent</p>"
-
-
-# ---------------------------------------------------------------------------
-# AsyncPage as context manager
+# AsyncPage as context manager -- pyo3/Python facade's own `with`/`async with` protocol, not
+# reachable through browser::Page/Element (cargo test coverage of the underlying htmx/click/
+# goto behavior lives in tests/browser_htmx.rs and tests/browser_navigation.rs).
 # ---------------------------------------------------------------------------
 
 
@@ -187,40 +60,3 @@ async def test_page_async_context_manager(httpx_mock: HTTPXMock, htmx_page: Asyn
             assert result is not None
             assert result.inner_html == "<b>hi</b>"
     close_mock.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# Live polling must not block unrelated click()/trigger() calls
-# ---------------------------------------------------------------------------
-
-
-async def test_click_not_blocked_by_unrelated_poller(
-    htmx_page: AsyncPage, httpx_mock: HTTPXMock
-) -> None:
-    """A live hx-trigger="every ..." poller elsewhere on the page must not make
-    click()/trigger() on an unrelated element hang: bootstrap.js deliberately does not
-    track setInterval in the AsyncTaskManager reconnection (jsdom's native
-    Window.setInterval starts a timer with no matching endTimer() until clearInterval()),
-    so a live poller would otherwise keep waitUntilComplete() permanently pending."""
-    httpx_mock.add_response(
-        url="http://localhost/poll", text="<span id='poller'>tick</span>", is_reusable=True
-    )
-    httpx_mock.add_response(url="http://localhost/click-target", text="<b>clicked</b>")
-    await htmx_page.load(f"""
-        {HTMX_SCRIPT_TAG}
-        <span id="poller" hx-get="/poll" hx-trigger="every 50ms" hx-swap="outerHTML"></span>
-        <div id="out">
-        <button hx-get="/click-target" hx-target="#out" hx-swap="innerHTML">click</button>
-        </div>
-    """)
-    btn = htmx_page.find("button")
-    assert btn is not None
-    await asyncio.wait_for(btn.click(), timeout=2)
-    out = htmx_page.find("#out")
-    assert out is not None
-    assert out.inner_html == "<b>clicked</b>"
-    # Let the poller fire at least once (it would have deadlocked click() above if
-    # tracked) so httpx_mock's teardown sees its mocked response as actually used.
-    # asyncio.sleep() alone wouldn't drive the JS engine's own timers -- await a JS-side
-    # timer instead, same as runtime.eval is used elsewhere to pump real time.
-    await htmx_page.eval("new Promise(resolve => setTimeout(resolve, 100))")

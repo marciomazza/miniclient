@@ -148,6 +148,10 @@ impl FetchBackend for MockFetchBackend {
             });
 
         let mut url = req.url.clone();
+        // A `Set-Cookie` on an intermediate redirect hop (e.g. a login/session rotation that
+        // answers 302 + Set-Cookie) lands only here, never on the final response -- replayed
+        // onto it below, mirroring what `fetch.py`'s real backend does for the same reason.
+        let mut hop_set_cookies = Vec::new();
         for _ in 0..20 {
             let route = self
                 .0
@@ -184,9 +188,16 @@ impl FetchBackend for MockFetchBackend {
                             .iter()
                             .find(|(k, _)| k.eq_ignore_ascii_case("location"))
                     {
+                        hop_set_cookies.extend(
+                            headers
+                                .iter()
+                                .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
+                                .cloned(),
+                        );
                         url = loc.clone();
                         continue;
                     }
+                    let headers = hop_set_cookies.into_iter().chain(headers).collect();
                     return Ok(FetchResponse {
                         status,
                         status_text: String::new(),
