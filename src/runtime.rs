@@ -684,6 +684,28 @@ fn boot_jsruntime(
     (js, marshal)
 }
 
+/// A cloned-out handle to a [`Runtime`]'s command channel, decoupled from the `Runtime` value's
+/// own lifetime. See [`Runtime::handle`].
+#[derive(Clone)]
+pub struct Handle {
+    commands: mpsc::UnboundedSender<Command>,
+}
+
+impl Handle {
+    /// Same contract as [`Runtime::send_eval`].
+    pub fn send_eval(&self, source: String, wait: Wait) -> oneshot::Receiver<EvalOutcome> {
+        let (reply, rx) = oneshot::channel();
+        self.commands
+            .send(Command::Eval {
+                source,
+                wait,
+                reply,
+            })
+            .ok();
+        rx
+    }
+}
+
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
 pub struct Runtime {
     commands: mpsc::UnboundedSender<Command>,
@@ -816,15 +838,19 @@ impl Runtime {
     /// Queues a script and hands back the channel its result will arrive on, so the caller
     /// decides whether to block on it or await it.
     pub fn send_eval(&self, source: String, wait: Wait) -> oneshot::Receiver<EvalOutcome> {
-        let (reply, rx) = oneshot::channel();
-        self.commands
-            .send(Command::Eval {
-                source,
-                wait,
-                reply,
-            })
-            .ok();
-        rx
+        self.handle().send_eval(source, wait)
+    }
+
+    /// A cheap, independently clonable handle onto this `Runtime`'s command channel, usable
+    /// after the `Runtime` itself is dropped or closed: `browser::Element` keeps one of these
+    /// instead of borrowing from the `browser::Page` that produced it, so it outlives that
+    /// `Page`'s Rust-side lifetime (mirroring `__mini.deref`'s own `WeakRef`-based tolerance of
+    /// a since-removed element). Sending once the isolate thread is gone reaches no one; the
+    /// reply channel just closes instead of panicking.
+    pub fn handle(&self) -> Handle {
+        Handle {
+            commands: self.commands.clone(),
+        }
     }
 
     /// Binds `name` to a Rust closure via `op_call_rust`, queuing the binding on the isolate
@@ -928,6 +954,11 @@ impl Page {
     /// `send_eval` API `Runtime` always exposes.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
+    }
+
+    /// A clonable handle onto the current `Runtime`'s command channel -- see [`Runtime::handle`].
+    pub fn handle(&self) -> Handle {
+        self.runtime.handle()
     }
 
     /// Installs `backend` on the current realm. `Runtime` itself remembers it (`ReplayState`)
