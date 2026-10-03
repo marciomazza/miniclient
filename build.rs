@@ -5,6 +5,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+// Compiled here as well so the snapshot registers the same DOM extension as the runtime.
+#[allow(dead_code)]
+#[path = "src/dom.rs"]
+mod dom;
+#[allow(dead_code)]
+#[path = "src/dom_ops.rs"]
+mod dom_ops;
+
 // maturin's `include` cannot remap paths, so the copy into the package happens here and
 // maturin picks the package dir up as-is. Only licences: the wheel embeds the bundle and the
 // snapshot, so it redistributes this code but never reads these files at runtime.
@@ -118,6 +126,7 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
                 ),
                 deno_net::deno_net::init(None, None),
                 deno_fetch::deno_fetch::init(deno_fetch::Options::default()),
+                dom_ops::dom_extension(),
             ],
             extension_transpiler: None,
             with_runtime_cb: Some(Box::new(move |rt| {

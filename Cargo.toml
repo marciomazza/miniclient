@@ -32,6 +32,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
+# Rust-backed DOM tree. `deterministic` gives ordered IndexMap attributes.
+# `ego-tree`/`html5ever` are used directly at call sites, so they are declared here too,
+# pinned to what scraper 0.27 resolves.
+scraper = { version = "0.27.0", features = ["deterministic"] }
+ego-tree = "0.11"
+html5ever = "0.39"
 
 [dev-dependencies]
 glob = "0.3"
@@ -56,6 +62,12 @@ deno_webidl = "0.259.0"
 # Pinned to match pyo3 0.29 -- add_libpython_rpath_link_args() bakes LC_RPATH into the
 # test binary so `cargo test` finds libpython on macOS (mise-installed Python).
 pyo3-build-config = "=0.29.2"
+# build.rs compiles src/dom.rs and src/dom_ops.rs to register the DOM ops in the snapshot.
+# Keep these in lockstep with [dependencies] too.
+ego-tree = "0.11"
+html5ever = "0.39"
+scraper = { version = "0.27.0", features = ["deterministic"] }
+serde = { version = "1.0.229", features = ["derive"] }
 
 [lints.clippy]
 todo = "warn"

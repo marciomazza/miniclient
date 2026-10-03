@@ -62,6 +62,7 @@ pub(crate) fn extensions() -> Vec<Extension> {
         ),
         deno_net::deno_net::init(None, None),
         deno_fetch::deno_fetch::init(deno_fetch::Options::default()),
+        crate::dom_ops::dom_extension(),
         miniclient_extension(),
     ]
 }
