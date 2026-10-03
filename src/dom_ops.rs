@@ -37,6 +37,7 @@ pub fn dom_extension() -> Extension {
             op_dom_next_sibling(),
             op_dom_prev_sibling(),
             op_dom_get_by_id(),
+            op_dom_named_keys(),
             op_dom_parent_id(),
             op_dom_first_child(),
             op_dom_last_child(),
@@ -276,6 +277,16 @@ pub fn op_dom_prev_sibling(state: &mut OpState, id: u32) -> i32 {
 #[op2(fast)]
 pub fn op_dom_get_by_id(state: &mut OpState, scope: u32, #[string] id: &str) -> i32 {
     wire_or_none(dom(state).get_by_id(scope, id))
+}
+
+/// `[wire, id, name]` for each element of the subtree that names a window property.
+#[op2]
+#[serde]
+pub fn op_dom_named_keys(
+    state: &mut OpState,
+    id: u32,
+) -> Vec<(u32, Option<String>, Option<String>)> {
+    dom(state).named_keys(id)
 }
 
 #[op2(fast)]

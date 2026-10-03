@@ -321,6 +321,9 @@ impl DomState {
     /// `compareDocumentPosition`-style pairwise comparator (duplicate ids are rare, so this
     /// stays a cold path).
     pub fn get_by_id(&mut self, scope: u32, id: &str) -> Option<u32> {
+        if id.is_empty() {
+            return None;
+        }
         let scope_id = self.resolve(scope)?;
         let doc_root = self.topmost(scope_id)?;
         let matches: Vec<NodeId> = self
@@ -642,6 +645,30 @@ impl DomState {
     /// `wire` and its descendants, in tree order.
     pub fn tree_wires(&mut self, wire: u32) -> Vec<u32> {
         self.walk_wires(wire, |n| n.descendants().map(|c| c.id()).collect())
+    }
+
+    /// The HTML elements of `wire`'s inclusive subtree the window lists as named properties,
+    /// with their non-empty `id` and, for `NAMED_ELEMENTS`, `name`: one crossing per connect or
+    /// disconnect instead of attribute reads per element.
+    pub fn named_keys(&mut self, wire: u32) -> Vec<(u32, Option<String>, Option<String>)> {
+        let found: Vec<_> = match self.resolve(wire).and_then(|id| self.arena.get(id)) {
+            Some(root) => root
+                .descendants()
+                .filter_map(|n| {
+                    let e = n.value().as_element().filter(|e| &*e.name.ns == HTML_NS)?;
+                    let non_empty = |v: Option<&str>| v.filter(|v| !v.is_empty()).map(String::from);
+                    let id = non_empty(e.attr("id"));
+                    let name = non_empty(e.attr("name"))
+                        .filter(|_| NAMED_ELEMENTS.contains(&&*e.name.local));
+                    (id.is_some() || name.is_some()).then(|| (n.id(), id, name))
+                })
+                .collect(),
+            None => return Vec::new(),
+        };
+        found
+            .into_iter()
+            .map(|(n, id, name)| (self.wire(n), id, name))
+            .collect()
     }
 
     fn walk_wires(
@@ -1284,6 +1311,9 @@ const RAW_TEXT_ELEMENTS: &[&str] = &[
     "plaintext",
 ];
 
+/// Elements the window exposes by `name` as well as by `id`; jsdom also tracks frames here.
+const NAMED_ELEMENTS: &[&str] = &["embed", "form", "img", "object", "iframe", "frame"];
+
 /// The local name of an HTML element without a prefix. parse5 checks the qualified tag name,
 /// so `h:br` is neither void nor raw text.
 fn html_name(e: &Element) -> Option<&str> {
@@ -1785,6 +1815,24 @@ mod tests {
         assert_eq!(dom.get_by_id(html_b, "dup"), Some(only_b));
         // document a is unaffected by document b sharing the same id string
         assert_eq!(dom.get_by_id(html_a, "dup"), Some(first));
+    }
+
+    #[test]
+    fn named_keys_lists_only_what_names_a_window_property() {
+        let mut dom = DomState::new();
+        let roots = dom.parse(
+            "<div id='d'><form id='f' name='n'></form><p name='no'></p><img id='' name='i'>\
+             <svg><a id='svg'></a></svg></div>",
+            Some(""),
+        );
+        let div = child_named(&mut dom, roots[0].id, "DIV");
+        let keys: Vec<_> = dom
+            .named_keys(div)
+            .into_iter()
+            .map(|(_, id, name)| (id, name))
+            .collect();
+        let s = |v: &str| Some(v.to_string());
+        assert_eq!(keys, vec![(s("d"), None), (s("f"), s("n")), (None, s("i"))]);
     }
 
     #[test]

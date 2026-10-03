@@ -1,4 +1,4 @@
-# fork: kzvqnqvyytus 7e620d041e0f
+# fork: rrprnrloyyls 70b4dbcd0f6c
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 index 905b1c9d02..5cf2c22de0 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
@@ -1183,11 +1183,83 @@ index 6d3cf61cd4..1bf2157546 100644
    }
  
    const childNodes = outer ? [node] : node._childrenToArray();
+diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/by-id-cache.js b/node_modules/jsdom/lib/jsdom/living/helpers/by-id-cache.js
+deleted file mode 100644
+index 6e9883feb3..0000000000
+--- a/node_modules/jsdom/lib/jsdom/living/helpers/by-id-cache.js
++++ /dev/null
+@@ -1,66 +0,0 @@ constructor(root) {
+-"use strict";
+-
+-const NODE_TYPE = require("../node-type");
+-
+-// For use in implementing getElementById(). Notably it ensures that when you get the result, you will always get the
+-// first in tree order, not the most- or least-recently-inserted. Somewhat modeled after
+-// https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/dom/tree_ordered_map.h.
+-
+-module.exports = class ByIdCache {
+-  constructor(root) {
+-    this._root = root;
+-
+-    // Keys are IDs (strings).
+-    // Values are `{ element, count }` tuples, where `element` can be `null` indicating we need to recompute.
+-    // `count` tracks the count of times `add()` was called for this ID. We need to track it because it lets us
+-    // determine what to do when calling `delete()`: a count of 0 means we can remove the entry, whereas any other
+-    // count means we need to set `element` to `null` for future recomputation.
+-    this._map = new Map();
+-  }
+-
+-  add(id, element) {
+-    const value = this._map.get(id);
+-    if (!value) {
+-      this._map.set(id, { element, count: 1 });
+-    } else {
+-      value.element = null;
+-      ++value.count;
+-    }
+-  }
+-
+-  delete(id, element) {
+-    const value = this._map.get(id);
+-    if (!value) {
+-      return;
+-    }
+-
+-    --value.count;
+-    if (value.count === 0) {
+-      this._map.delete(id);
+-    } else if (value.element === element) {
+-      value.element = null;
+-    }
+-  }
+-
+-  get(id) {
+-    const value = this._map.get(id);
+-    if (!value) {
+-      return null;
+-    }
+-
+-    if (value.element) {
+-      return value.element;
+-    }
+-
+-    for (const descendant of this._root._inclusiveDescendants()) {
+-      if (descendant.nodeType === NODE_TYPE.ELEMENT_NODE && descendant.getAttributeNS(null, "id") === id) {
+-        value.element = descendant;
+-        return descendant;
+-      }
+-    }
+-
+-    // If we didn't find any elements for this key, we can remove it.
+-    this._map.delete(id);
+-    return null;
+-  }
+-};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..9dbbdf041a 100644
+index 7eb8408fc8..22941fb938 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,274 @@ function bind(node, w) {
+@@ -6,31 +6,290 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -1230,9 +1302,11 @@ index 7eb8408fc8..9dbbdf041a 100644
 +  op_dom_create_document,
 +  op_dom_first_child,
 +  op_dom_following,
++  op_dom_get_by_id,
 +  op_dom_index,
 +  op_dom_insert,
 +  op_dom_last_child,
++  op_dom_named_keys,
 +  op_dom_next_sibling,
 +  op_dom_parent_id,
 +  op_dom_preceding,
@@ -1437,6 +1511,20 @@ index 7eb8408fc8..9dbbdf041a 100644
 +  return batch(op_dom_query, node, selectors, mode, html, quirks, focus, targetWire(doc));
 +}
 +
++// The first element in `document`'s tree, in tree order, whose `id` is `id`.
++function elementById(document, id) {
++  return impl(op_dom_get_by_id(wire(document), id));
++}
++
++// The elements of `root`'s inclusive subtree that name window properties, with the `id` and
++// `name` they answer to, read in one op call.
++function namedKeys(root) {
++  if (root._wire < 0) {
++    return [];
++  }
++  return op_dom_named_keys(root._wire).map(([w, id, name]) => ({ element: impls[w], id, name }));
++}
++
 +// The element the URL's fragment indicates: the raw fragment first, then percent-decoded.
 +// `a[name]` anchors are not indicated, as no browser test navigates to one.
 +function targetWire(doc) {
@@ -1486,7 +1574,7 @@ index 7eb8408fc8..9dbbdf041a 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +283,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +299,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1523,7 +1611,7 @@ index 7eb8408fc8..9dbbdf041a 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +349,6 @@ next() {
+@@ -136,28 +365,6 @@ next() {
    }
  }
  
@@ -1552,7 +1640,7 @@ index 7eb8408fc8..9dbbdf041a 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +444,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +460,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1662,7 +1750,8 @@ index 7eb8408fc8..9dbbdf041a 100644
 -
  module.exports = {
    ChildrenIterator, DescendantsIterator, ShadowIncludingIterator,
-   childrenToArray, descendantsToArray,
+-  childrenToArray, descendantsToArray,
++  childrenToArray, descendantsToArray, elementById, namedKeys,
 +  parent, firstChild, lastChild, nextSibling, previousSibling, childCount,
    nextInTree, nextAfterSubtree, previousInTree, lastInclusiveDescendant,
    compareTreePosition, commonAncestorInfo,
@@ -1720,10 +1809,34 @@ index 8bbe4c8775..0f9e20b05b 100644
  
    // https://dom.spec.whatwg.org/#dom-characterdata-data
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
-index 1a4ff3d5a7..7a9667b098 100644
+index 1a4ff3d5a7..f778d7f4a5 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
-@@ -270,7 +270,8 @@ _getDOMSelector() {
+@@ -6,6 +6,7 @@
+ const NodeImpl = require("./Node-impl").implementation;
+ const idlUtils = require("../../../generated/idl/utils");
+ const NODE_TYPE = require("../node-type");
++const { elementById } = require("../helpers/dom-tree");
+ const { mixin } = require("../../utils");
+ const { firstChildWithLocalName, firstChildWithLocalNames, firstDescendantWithLocalName } =
+   require("../helpers/traversal");
+@@ -71,7 +72,6 @@ function clearChildNodes(node) {
+ const AsyncResourceQueue = require("../../browser/resources/async-resource-queue");
+ const ResourceQueue = require("../../browser/resources/resource-queue");
+ const PerDocumentResourceLoader = require("../../browser/resources/per-document-resource-loader");
+-const ByIdCache = require("../helpers/by-id-cache");
+ const { NAMED_PROPERTY_LOCAL_NAMES, isNamedPropertyElement } = require("../helpers/document-named-properties");
+ 
+ function clearChildNodes(node) {
+@@ -185,7 +185,6 @@ class DocumentImpl extends NodeImpl {
+     });
+ 
+     this._defaultView = defaultView;
+-    this._byIdCache = new ByIdCache(this);
+     this._isInDocumentTree = true;
+     this._currentScript = null;
+     this._pageShowingFlag = false;
+@@ -270,7 +269,8 @@ _getDOMSelector() {
    _getDOMSelector() {
      if (!this.#domSelector) {
        this.#domSelector = new DOMSelector(this._globalObject, this._ownerDocument, {
@@ -1733,7 +1846,19 @@ index 1a4ff3d5a7..7a9667b098 100644
        });
      }
      return this.#domSelector;
-@@ -1102,6 +1103,14 @@ _adoptNode(node) {
+@@ -490,9 +490,9 @@ writeln(...args) {
+     this.write(...args, "\n");
+   }
+ 
+-  // This is implemented separately for Document (which has a _byIdCache) and DocumentFragment (which does not).
++  // Document reads the arena's id index; DocumentFragment walks its tree.
+   getElementById(id) {
+-    return this._byIdCache.get(id);
++    return elementById(this, id);
+   }
+ 
+   get referrer() {
+@@ -1102,6 +1102,14 @@ _adoptNode(node) {
            inclusiveDescendant._adoptingSteps(oldDocument);
          }
        }
@@ -1748,8 +1873,21 @@ index 1a4ff3d5a7..7a9667b098 100644
      }
    }
  
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js
+index 71e3c38aee..133468e14f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js
+@@ -18,7 +18,7 @@ constructor(globalObject, args, privateData) {
+     this.nodeType = NODE_TYPE.DOCUMENT_FRAGMENT_NODE;
+   }
+ 
+-  // This is implemented separately for Document (which has a _byIdCache) and DocumentFragment (which does not).
++  // Document reads the arena's id index; DocumentFragment walks its tree.
+   getElementById(id) {
+     if (id === "") {
+       return null;
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
-index 86e0f40b48..7a0d8483ff 100644
+index 86e0f40b48..68185fd431 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
 @@ -5,6 +5,8 @@
@@ -1781,7 +1919,24 @@ index 86e0f40b48..7a0d8483ff 100644
    // Overrides call `super` first so document-dependent caches are cleared before further adoption work.
    _adoptingSteps() {
      // `tagName` depends on whether the node document is HTML, even before the element is inserted again.
-@@ -175,19 +181,11 @@ getAttributeNames() {
+@@ -64,16 +70,6 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+ 
+     windowProperties.elementAttributeModified(this, localName, value, oldValue, namespace);
+ 
+-    if (namespace === null && localName === "id" && this._isInDocumentTree) {
+-      const cache = this._ownerDocument._byIdCache;
+-      if (oldValue) {
+-        cache.delete(oldValue, this);
+-      }
+-      if (value) {
+-        cache.add(value, this);
+-      }
+-    }
+-
+     // update classList
+     if (namespace === null && localName === "class" && this._classList !== undefined) {
+       this._classList.attrModified();
+@@ -175,19 +171,11 @@ getAttributeNames() {
    }
  
    getAttribute(name) {
@@ -1803,7 +1958,7 @@ index 86e0f40b48..7a0d8483ff 100644
    }
  
    setAttribute(name, value) {
-@@ -197,18 +195,7 @@ setAttribute(name, value) {
+@@ -197,18 +185,7 @@ setAttribute(name, value) {
        name = asciiLowercase(name);
      }
  
@@ -1823,7 +1978,7 @@ index 86e0f40b48..7a0d8483ff 100644
    }
  
    setAttributeNS(namespace, name, value) {
-@@ -236,15 +223,9 @@ toggleAttribute(qualifiedName, force) {
+@@ -236,15 +213,9 @@ toggleAttribute(qualifiedName, force) {
        qualifiedName = asciiLowercase(qualifiedName);
      }
  
@@ -1841,7 +1996,7 @@ index 86e0f40b48..7a0d8483ff 100644
          return true;
        }
        return false;
-@@ -512,11 +493,19 @@ insertAdjacentHTML(position, text) {
+@@ -512,11 +483,19 @@ insertAdjacentHTML(position, text) {
    }
  
    closest(selectors) {
@@ -1967,10 +2122,69 @@ index 36633a1af9..8eef540e1c 100644
        vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
      } catch (e) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
-index 476421f2ef..71151c2c87 100644
+index 476421f2ef..5dabff62f7 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
-@@ -178,7 +178,7 @@ constructor(globalObject, args, privateData) {
+@@ -129,46 +129,25 @@ function isHostInclusiveAncestor(nodeImplA, nodeImplB) {
+ }
+ 
+ // Call these helpers before running element-specific steps, so `document.getElementById()` and `window[name]`
+-// see updated caches for the entire subtree.
++// see updated caches for the entire subtree. Both read the subtree in batched op calls.
+ function addSubtreeToDocumentCaches(root) {
+-  const document = root._ownerDocument;
+-  let affectsNamedProperties = false;
+-
+-  for (const node of root._inclusiveDescendants()) {
+-    node._isInDocumentTree = true;
+-    if (node.nodeType === NODE_TYPE.ELEMENT_NODE) {
+-      affectsNamedProperties ||= isNamedPropertyElement(node);
+-      windowProperties.elementAttached(node);
+-      const id = node.getAttributeNS(null, "id");
+-      if (id) {
+-        document._byIdCache.add(id, node);
+-      }
+-    }
+-  }
+-
+-  if (affectsNamedProperties) {
+-    document._clearNamedPropertyCache();
+-  }
++  setInDocumentTree(root, true);
++  windowProperties.subtreeAttached(root._ownerDocument, treeHelpers.namedKeys(root));
+ }
+ 
+ function removeSubtreeFromDocumentCaches(root) {
+-  const document = root._ownerDocument;
++  setInDocumentTree(root, false);
++  windowProperties.subtreeDetached(root._ownerDocument, treeHelpers.namedKeys(root));
++}
++
++function setInDocumentTree(root, value) {
+   let affectsNamedProperties = false;
+-
+-  for (const node of root._inclusiveDescendants()) {
+-    node._isInDocumentTree = false;
+-    if (node.nodeType === NODE_TYPE.ELEMENT_NODE) {
+-      affectsNamedProperties ||= isNamedPropertyElement(node);
+-      windowProperties.elementDetached(node);
+-      const id = node.getAttributeNS(null, "id");
+-      if (id) {
+-        document._byIdCache.delete(id, node);
+-      }
+-    }
++  for (const node of root._inclusiveDescendantsToArray()) {
++    node._isInDocumentTree = value;
++    affectsNamedProperties ||= isNamedPropertyElement(node);
+   }
+-
+   if (affectsNamedProperties) {
+-    document._clearNamedPropertyCache();
++    root._ownerDocument._clearNamedPropertyCache();
+   }
+ }
+ 
+@@ -178,7 +157,7 @@ constructor(globalObject, args, privateData) {
    constructor(globalObject, args, privateData) {
      super(globalObject, args, privateData);
  
@@ -1979,7 +2193,7 @@ index 476421f2ef..71151c2c87 100644
  
      this._ownerDocument = privateData.ownerDocument;
  
-@@ -289,7 +289,7 @@ _getTheParent() {
+@@ -289,7 +268,7 @@ _getTheParent() {
    }
  
    get parentNode() {
@@ -1988,7 +2202,7 @@ index 476421f2ef..71151c2c87 100644
    }
  
    _treeIndex() {
-@@ -303,7 +303,7 @@ get _length() {
+@@ -303,7 +282,7 @@ get _length() {
    }
  
    get _childCount() {
@@ -1997,7 +2211,7 @@ index 476421f2ef..71151c2c87 100644
    }
  
    _children() {
-@@ -421,7 +421,7 @@ get nodeName() {
+@@ -421,7 +400,7 @@ get nodeName() {
    }
  
    get firstChild() {
@@ -2006,7 +2220,7 @@ index 476421f2ef..71151c2c87 100644
    }
  
    // https://dom.spec.whatwg.org/#connected
-@@ -436,7 +436,7 @@ get ownerDocument() {
+@@ -436,7 +415,7 @@ get ownerDocument() {
    }
  
    get lastChild() {
@@ -2015,7 +2229,7 @@ index 476421f2ef..71151c2c87 100644
    }
  
    get childNodes() {
-@@ -453,11 +453,11 @@ query: () => this._childrenToArray()
+@@ -453,11 +432,11 @@ query: () => this._childrenToArray()
    }
  
    get nextSibling() {
@@ -2066,6 +2280,19 @@ index 3fed0cd5d1..0d4ac23d96 100644
      return NodeList.createImpl(this._globalObject, [], { nodes });
    }
  }
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js
+index 10061e8162..3b2b61e0b2 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js
+@@ -15,7 +15,7 @@ createSVGRect() {
+   }
+ 
+   // Unlike `Document`'s `getElementById()`, this searches within this element's subtree, so the document-level
+-  // `ByIdCache` can't be used (it might return an element outside this subtree). A per-`<svg>` cache isn't worthwhile
++  // id index can't be used (it might return an element outside this subtree). A per-`<svg>` cache isn't worthwhile
+   // since `SVGSVGElement`'s `getElementById()` is rarely called and `<svg>` subtrees are typically small.
+   getElementById(elementId) {
+     for (const node of this._inclusiveDescendants()) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 index 0084dc004a..fba816ef06 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
@@ -2142,3 +2369,93 @@ index 0037250412..aedfcb0ab7 100644
  }
  
  // https://url.spec.whatwg.org/#concept-url-equals
+diff --git a/node_modules/jsdom/lib/jsdom/living/window-properties.js b/node_modules/jsdom/lib/jsdom/living/window-properties.js
+index f20fd1078b..aa5275ab31 100644
+--- a/node_modules/jsdom/lib/jsdom/living/window-properties.js
++++ b/node_modules/jsdom/lib/jsdom/living/window-properties.js
+@@ -85,21 +85,11 @@ query() {
+   });
+ }
+ 
+-exports.elementAttached = element => {
+-  if (element._namespaceURI !== HTML_NS) {
+-    return;
+-  }
+-
+-  const idAttr = element.getAttributeNS(null, "id");
+-  const nameAttr = nameAttributeElementLocalNames.has(element._localName) ?
+-    element.getAttributeNS(null, "name") :
+-    null;
+-  if (!idAttr && !nameAttr) {
+-    return;
+-  }
+-
+-  const window = element._ownerDocument._globalObject;
+-  if (!inAssociatedDocument(element)) {
++// `keys` lists a subtree's elements with the `id` and `name` they answer to; only HTML elements
++// with a non-empty one are listed.
++exports.subtreeAttached = (document, keys) => {
++  const window = document._globalObject;
++  if (keys.length === 0 || window._document !== document) {
+     return;
+   }
+ 
+@@ -109,41 +99,30 @@ query() {
+     trackers.set(window, tracker);
+   }
+ 
+-  if (nameAttr) {
+-    upsert(tracker, nameAttr, element);
+-  }
+-
+-  if (idAttr) {
+-    upsert(tracker, idAttr, element);
++  for (const { element, id, name } of keys) {
++    if (name) {
++      upsert(tracker, name, element);
++    }
++    if (id) {
++      upsert(tracker, id, element);
++    }
+   }
+ };
+ 
+-exports.elementDetached = element => {
+-  if (element._namespaceURI !== HTML_NS) {
+-    return;
+-  }
+-
+-  const idAttr = element.getAttributeNS(null, "id");
+-  const nameAttr = nameAttributeElementLocalNames.has(element._localName) ?
+-    element.getAttributeNS(null, "name") :
+-    null;
+-  if (!idAttr && !nameAttr) {
+-    return;
+-  }
+-
+-  const window = element._ownerDocument._globalObject;
+-  if (!inAssociatedDocument(element)) {
++exports.subtreeDetached = (document, keys) => {
++  const window = document._globalObject;
++  if (keys.length === 0 || window._document !== document) {
+     return;
+   }
+ 
+   const tracker = trackers.get(window);
+-
+-  if (idAttr) {
+-    remove(tracker, idAttr, element);
+-  }
+-
+-  if (nameAttr) {
+-    remove(tracker, nameAttr, element);
++  for (const { element, id, name } of keys) {
++    if (id) {
++      remove(tracker, id, element);
++    }
++    if (name) {
++      remove(tracker, name, element);
++    }
+   }
+ 
+   if (tracker.size === 0) {
