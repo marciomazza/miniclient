@@ -1,7 +1,7 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-use crate::runtime::{EvalError, EvalOutcome};
+use crate::runtime::{EvalError, EvalOutcome, Wait};
 
 pub mod ops;
 pub mod runtime;
@@ -56,15 +56,14 @@ impl Page {
         Self(runtime::Page::new(url, resource_mounts_json))
     }
 
-    /// Awaits the script's result -- a promise is resolved and the event loop pumped -- while
-    /// leaving Python's own loop free to serve whatever that script is waiting on. Always takes
-    /// this settle-wait path regardless of whether `source` returns a promise: `runtime.rs`
-    /// still checks `v8::Local<Value>::is_promise()` internally, but the caller no longer picks.
+    /// Awaits the script's result -- a promise is resolved -- while leaving Python's own loop
+    /// free to serve whatever that script is waiting on. Does not wait for unrelated pending
+    /// timers/requests: page interactions are the ones that settle.
     async fn eval(&self, source: String) -> PyResult<Py<PyAny>> {
         let outcome = self
             .0
             .runtime()
-            .send_eval(source, true)
+            .send_eval(source, Wait::Promise)
             .await
             .map_err(closed)?;
         Python::attach(|py| to_python(py, outcome))
@@ -107,12 +106,12 @@ impl Page {
 
 impl Page {
     /// No-settle-wait fast path for later read-only ergonomic methods (`find`, `text`, `attr`,
-    /// ...): skips the promise-resolve/event-loop-drain `eval` always pays for, since a plain
+    /// ...): skips the promise-resolve `eval` pays for, since a plain
     /// read never has anything to wait on. Not exposed to pyo3 -- `eval` is the only public
     /// escape hatch.
     #[allow(dead_code)]
     fn fast_eval(&self, py: Python<'_>, source: String) -> PyResult<Py<PyAny>> {
-        let rx = self.0.runtime().send_eval(source, false);
+        let rx = self.0.runtime().send_eval(source, Wait::None);
         let outcome = py.detach(|| rx.blocking_recv());
         to_python(py, outcome.map_err(closed)?)
     }

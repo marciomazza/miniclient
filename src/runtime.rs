@@ -91,14 +91,27 @@ pub enum EvalError {
     Other(String),
 }
 
+/// How long an eval holds its answer back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wait {
+    /// Run and marshal the value as is.
+    None,
+    /// Also resolve a returned promise, but not unrelated pending page work -- a script may
+    /// legitimately own a long-lived timer.
+    Promise,
+    /// Also drain the event loop to idle. For page interactions: a click handler can fire a
+    /// fetch it never returns (htmx's own dispatch does), and the page hasn't settled until
+    /// that is done.
+    Settle,
+}
+
 /// Everything Python asks of the isolate thread crosses as one of these. The ops of §4 land
 /// here as further variants, each carrying the channel its answer goes back on.
 enum Command {
     Close,
     Eval {
         source: String,
-        /// Resolve the result and pump the event loop before answering.
-        is_async: bool,
+        wait: Wait,
         reply: oneshot::Sender<EvalOutcome>,
     },
     RegisterRustFunction {
@@ -232,21 +245,21 @@ async fn eval(
     js: &mut JsRuntime,
     marshal: &v8::Global<v8::Value>,
     source: String,
-    is_async: bool,
+    wait: Wait,
     rx: &mut mpsc::UnboundedReceiver<Command>,
     stop: &mut bool,
     allow_navigate: bool,
     replay: &mut ReplayState,
 ) -> Result<EvalStep, EvalError> {
     let value = js.execute_script("<eval>", source).map_err(EvalError::Js)?;
-    let value = if is_async {
+    let value = if wait != Wait::None {
         let resolve = Box::pin(js.resolve(value));
         let value = run_with_interleaved_commands(js, marshal, resolve, rx, stop, replay).await?;
-        // Settle wait: the returned promise resolving only means *that* chain is done, not
-        // that the page has gone quiet (a click handler can fire a fetch it never returns,
-        // htmx's own dispatch does this routinely). Drain the isolate's real event loop -- not
-        // a JS-side task counter -- to idle before handing control back.
-        run_event_loop_to_idle(js, marshal, rx, stop, replay).await?;
+        // The returned promise resolving only means *that* chain is done. Drain the isolate's
+        // real event loop -- not a JS-side task counter -- to idle before handing control back.
+        if wait == Wait::Settle {
+            run_event_loop_to_idle(js, marshal, rx, stop, replay).await?;
+        }
         value
     } else {
         value
@@ -483,7 +496,7 @@ async fn bind_rust_function(
     );
     // `allow_navigate: false` -- this is mini's own plumbing script, not a caller-visible eval; a
     // pending navigation just waits for the next real one to find it.
-    match eval(js, marshal, binding_js, false, rx, stop, false, replay).await {
+    match eval(js, marshal, binding_js, Wait::None, rx, stop, false, replay).await {
         Ok(EvalStep::Done(value)) => Ok(value),
         Ok(EvalStep::Navigate { .. }) => {
             unreachable!("allow_navigate: false never yields Navigate")
@@ -527,21 +540,10 @@ async fn handle_command(
         Command::Close => *stop = true,
         Command::Eval {
             source,
-            is_async,
+            wait,
             reply,
         } => {
-            match eval(
-                js,
-                marshal,
-                source,
-                is_async,
-                rx,
-                stop,
-                allow_navigate,
-                replay,
-            )
-            .await
-            {
+            match eval(js, marshal, source, wait, rx, stop, allow_navigate, replay).await {
                 // A dropped receiver just means Python stopped caring.
                 Ok(EvalStep::Done(value)) => {
                     reply.send(Ok(value)).ok();
@@ -813,12 +815,12 @@ impl Runtime {
 
     /// Queues a script and hands back the channel its result will arrive on, so the caller
     /// decides whether to block on it or await it.
-    pub fn send_eval(&self, source: String, is_async: bool) -> oneshot::Receiver<EvalOutcome> {
+    pub fn send_eval(&self, source: String, wait: Wait) -> oneshot::Receiver<EvalOutcome> {
         let (reply, rx) = oneshot::channel();
         self.commands
             .send(Command::Eval {
                 source,
-                is_async,
+                wait,
                 reply,
             })
             .ok();
@@ -970,7 +972,7 @@ impl Page {
 /// recover from.
 fn eval_or_panic(runtime: &Runtime, source: &str) -> Option<String> {
     runtime
-        .send_eval(source.to_string(), false)
+        .send_eval(source.to_string(), Wait::None)
         .blocking_recv()
         .expect("eval channel dropped")
         .unwrap_or_else(|e| panic!("{source} failed: {e:?}"))
@@ -1001,27 +1003,27 @@ mod tests {
 
 #[cfg(test)]
 mod settle_regression {
-    use super::Runtime;
+    use super::{Runtime, Wait};
 
     // A cancelled setTimeout's underlying op_sleep promise used to stay refed until its
     // original delay elapsed (pre_globals.js only dropped the JS callback on clearTimeout(),
     // never unrefed the op), so a page that cleared a long timer -- e.g. htmx's own 60s
     // per-request timeout, cleared the instant the response arrives -- would silently pin
-    // every subsequent eval_async's native settle-wait until that timer's original delay ran
+    // every subsequent settled eval's native settle-wait until that timer's original delay ran
     // out. Regression test for that fix: clearTimeout() must unref immediately.
     #[test]
     fn clearing_a_long_timeout_does_not_pin_native_settle_wait() {
         let rt = Runtime::new("http://localhost/", "{}");
         rt.send_eval(
             "const id = setTimeout(() => {}, 60000); clearTimeout(id); void 0;".into(),
-            false,
+            Wait::None,
         )
         .blocking_recv()
         .expect("channel must not drop")
         .expect("script must not error");
 
         let started = std::time::Instant::now();
-        rt.send_eval("Promise.resolve(1)".into(), true)
+        rt.send_eval("Promise.resolve(1)".into(), Wait::Settle)
             .blocking_recv()
             .expect("channel must not drop")
             .expect("eval_async must not error");
@@ -1029,5 +1031,21 @@ mod settle_regression {
             started.elapsed() < std::time::Duration::from_secs(5),
             "eval_async waited on a cleared timer's original delay instead of returning immediately"
         );
+    }
+
+    #[test]
+    fn promise_wait_ignores_an_unowned_long_timer() {
+        let rt = Runtime::new("http://localhost/", "{}");
+        rt.send_eval("setTimeout(() => {}, 60000); void 0;".into(), Wait::None)
+            .blocking_recv()
+            .expect("channel must not drop")
+            .expect("script must not error");
+
+        let started = std::time::Instant::now();
+        rt.send_eval("Promise.resolve(1)".into(), Wait::Promise)
+            .blocking_recv()
+            .expect("channel must not drop")
+            .expect("eval must not error");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 }

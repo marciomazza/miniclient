@@ -6,6 +6,7 @@
 
 mod common;
 
+use _miniclient::runtime::Wait;
 use common::EvalExt;
 use common::fetch_mock::{MockFetchBackend, runtime_with_mock};
 
@@ -70,7 +71,7 @@ fn navigation_trigger_from_a_reentrant_eval_defers_until_the_outer_eval_settles(
     let outer = rt.send_eval(
         "fetch('http://localhost/slow', {signal: __controller.signal}).catch(() => 'aborted')"
             .into(),
-        true,
+        Wait::Promise,
     );
 
     // Reentrant, while the outer eval above is still in flight: `handle_command` processes this

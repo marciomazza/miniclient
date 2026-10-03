@@ -8,7 +8,7 @@ pub mod fetch_mock;
 pub mod htmx_fetch_mock;
 
 pub use _miniclient::runtime::Runtime;
-use _miniclient::runtime::{EvalError, EvalOutcome};
+use _miniclient::runtime::{EvalError, EvalOutcome, Wait};
 
 /// No `install_host_ops()`: fetch and fs are unavailable, but the default snapshot's jsdom
 /// `document`, `Buffer`, timers and deno_web globals are all live from construction.
@@ -38,35 +38,35 @@ pub trait EvalExt {
 
 impl EvalExt for Runtime {
     fn eval<T: serde::de::DeserializeOwned>(&self, src: &str) -> T {
-        decode(eval_blocking(self, src, false))
+        decode(eval_blocking(self, src, Wait::None))
     }
 
     fn eval_async<T: serde::de::DeserializeOwned>(&self, src: &str) -> T {
-        decode(eval_blocking(self, src, true))
+        decode(eval_blocking(self, src, Wait::Promise))
     }
 
     fn eval_json(&self, src: &str) -> Option<String> {
-        json(eval_blocking(self, src, false))
+        json(eval_blocking(self, src, Wait::None))
     }
 
     fn eval_json_async(&self, src: &str) -> Option<String> {
-        json(eval_blocking(self, src, true))
+        json(eval_blocking(self, src, Wait::Promise))
     }
 
     fn run(&self, src: &str) {
-        eval_blocking(self, src, false).expect("eval succeeded");
+        eval_blocking(self, src, Wait::None).expect("eval succeeded");
     }
 
     fn run_async(&self, src: &str) {
-        eval_blocking(self, src, true).expect("eval succeeded");
+        eval_blocking(self, src, Wait::Promise).expect("eval succeeded");
     }
 
     fn try_eval(&self, src: &str) -> EvalOutcome {
-        eval_blocking(self, src, false)
+        eval_blocking(self, src, Wait::None)
     }
 
     fn try_eval_async(&self, src: &str) -> EvalOutcome {
-        eval_blocking(self, src, true)
+        eval_blocking(self, src, Wait::Promise)
     }
 }
 
@@ -92,8 +92,8 @@ pub fn refusal(outcome: EvalOutcome) -> String {
     }
 }
 
-fn eval_blocking(rt: &Runtime, src: &str, is_async: bool) -> EvalOutcome {
-    rt.send_eval(format!("{{ {src} }}"), is_async)
+fn eval_blocking(rt: &Runtime, src: &str, wait: Wait) -> EvalOutcome {
+    rt.send_eval(format!("{{ {src} }}"), wait)
         .blocking_recv()
         .expect("isolate thread answered")
 }
