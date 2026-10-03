@@ -159,6 +159,7 @@ fn invalid_selectors_throw_a_syntax_error_from_the_page_realm() {
         r##"document.querySelectorAll(":has(:has(p))")"##,
         r##"document.body.matches("[")"##,
         r##"document.body.closest("p::totallyfake")"##,
+        r##"document.querySelectorAll("div,")"##,
     ] {
         let check: bool = rt.eval(&format!(
             "try {{ {call}; false }} catch (e) {{ e instanceof DOMException }}"
@@ -167,6 +168,22 @@ fn invalid_selectors_throw_a_syntax_error_from_the_page_realm() {
         let (name, _, _) = js_error(rt.try_eval(call));
         assert_eq!(name, "SyntaxError", "{call}");
     }
+}
+
+#[test]
+fn escapes_dash_match_selector_lists_and_unclosed_blocks() {
+    let rt = runtime();
+    let out: Vec<String> = rt.eval(
+        r##"document.body.innerHTML = `<div id="r">
+            <i id="c1" class="before:after"></i><i id="c2" class="class1-x"></i>
+            <i id="c3" class="x class1-y"></i><b id="b1"></b><b id="b2" type="x"></b></div>`;
+        const ids = (s) => [...document.querySelectorAll(s)].map((e) => e.id).join(" ");
+        // `|=` is equal-or-prefix on the whole value, not on a token; CSS closes open blocks
+        // at the end of input, so a missing `)` is no error.
+        [ids(".before\\:after"), ids('[class|="class1"]'), ids("#r :nth-last-child(2 of b)"),
+            ids("#r b:not([type]")]"##,
+    );
+    assert_eq!(out, ["c1", "c2", "b1", "b1"]);
 }
 
 #[test]

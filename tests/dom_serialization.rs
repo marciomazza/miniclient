@@ -208,3 +208,15 @@ fn xml_documents_keep_xml_serialization() {
         )
     );
 }
+
+#[test]
+fn attributes_keep_non_ascii_and_same_local_names_in_other_namespaces() {
+    assert_serializes(
+        r#"node = document.createElement("div");
+        node.setAttribute("title", "café ☃ <b>");
+        node.setAttributeNS("urn:a", "a:key", "1");
+        node.setAttributeNS("urn:b", "b:key", "2");"#,
+        true,
+        r#"<div title="café ☃ <b>" a:key="1" b:key="2"></div>"#,
+    );
+}

@@ -265,3 +265,19 @@ fn edits_to_nodes_scripts_already_saw_run_their_steps() {
         ])
     );
 }
+
+#[test]
+fn elements_defined_by_a_later_script_upgrade_before_they_are_queried() {
+    let rt = runtime();
+    let js = load_js(
+        r#"<my-el></my-el><script>customElements.define("my-el", class extends HTMLElement {
+            constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = "<b>hi</b>"; }
+        })</script>"#,
+    );
+    let out: Vec<String> = rt.eval(&format!(
+        r#"{js}
+        const el = document.querySelector("my-el");
+        [String(!!el.shadowRoot), el.shadowRoot ? el.shadowRoot.innerHTML : ""]"#
+    ));
+    assert_eq!(out, ["true", "<b>hi</b>"]);
+}

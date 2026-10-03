@@ -224,3 +224,18 @@ fn materialized_node_count_covers_the_parsed_fragment() {
     // the fragment, <p>, "a", <b>, "b" and the comment
     assert_eq!(added, 6);
 }
+
+#[test]
+fn parsed_svg_elements_get_the_svg_interface() {
+    let rt = runtime();
+    let out: Vec<String> = rt.eval(
+        r##"document.body.innerHTML = '<svg id="s"><circle id="c"></circle></svg>';
+        const c = document.querySelector("circle");
+        [c.id, String(c instanceof SVGElement), String(c instanceof HTMLElement),
+            c.namespaceURI, document.querySelectorAll("svg *").length + ""]"##,
+    );
+    assert_eq!(
+        out,
+        ["c", "true", "false", "http://www.w3.org/2000/svg", "1"]
+    );
+}
