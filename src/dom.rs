@@ -436,6 +436,12 @@ impl DomState {
         });
     }
 
+    pub fn set_checked(&mut self, wire: u32, checked: bool) {
+        if self.edit_element(wire, |e| e.checked = checked).is_some() {
+            self.mutations += 1;
+        }
+    }
+
     /// Creates a detached `Document` (JS `createDocument` / `createHTMLDocument` /
     /// `DOMParser`), flagged HTML or XML.
     pub fn create_document(&mut self, html: bool) -> u32 {

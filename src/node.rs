@@ -62,6 +62,8 @@ pub struct Element {
     pub template_contents: Option<NodeId>,
     /// The `is` value, which serialization writes even without an `is` attribute.
     pub is_value: Option<String>,
+    /// An input's checkedness or an option's selectedness, which `:checked` reads.
+    pub checked: bool,
 }
 
 impl Node {
@@ -112,6 +114,7 @@ impl Node {
             attrs,
             template_contents: None,
             is_value: None,
+            checked: false,
         })
     }
 

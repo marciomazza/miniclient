@@ -65,6 +65,7 @@ const PSEUDO_ELEMENTS: [&str; 12] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatePseudo {
     AnyLink,
+    Checked,
     Disabled,
     Enabled,
     Focus,
@@ -77,8 +78,9 @@ pub enum StatePseudo {
     Target,
 }
 
-const STATE_PSEUDO_CLASSES: [(&str, StatePseudo); 11] = [
+const STATE_PSEUDO_CLASSES: [(&str, StatePseudo); 12] = [
     ("any-link", StatePseudo::AnyLink),
+    ("checked", StatePseudo::Checked),
     ("disabled", StatePseudo::Disabled),
     ("enabled", StatePseudo::Enabled),
     ("focus", StatePseudo::Focus),
@@ -444,6 +446,13 @@ impl<'a> MiniElement<'a> {
         let id = self.node.id();
         match pc {
             P::AnyLink | P::Link => self.is_link(),
+            P::Checked => match self.html_local() {
+                Some("input") => {
+                    matches!(self.input_type().as_str(), "checkbox" | "radio") && self.el().checked
+                }
+                Some("option") => self.el().checked,
+                _ => false,
+            },
             P::Disabled => self.is_disabled(),
             P::Enabled => {
                 matches!(
@@ -862,5 +871,16 @@ mod tests {
             assert!(q(&mut dom, root, selector, true).is_empty(), "{selector}");
         }
         assert_eq!(q(&mut dom, root, "a:not(:visited)", true), ["A"]);
+    }
+
+    #[test]
+    fn checked_reads_the_arena_flag_of_checkable_inputs_and_options() {
+        let (mut dom, root) = doc("<html><body><input type='RADIO'><input><select>
+             <option>a</option><option selected>b</option></select></body></html>");
+        let all = |dom: &mut DomState, s| dom.query(root, s, QueryMode::All, &html()).unwrap();
+        for wire in all(&mut dom, "input, option:first-child") {
+            dom.set_checked(wire, true);
+        }
+        assert_eq!(q(&mut dom, root, ":checked", true), ["INPUT", "OPTION"]);
     }
 }

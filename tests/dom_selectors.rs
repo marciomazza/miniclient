@@ -267,6 +267,12 @@ const STATE_CASES: &[(&str, &str, &str)] = &[
     ("", "#f :checked", "o2"),
     ("$('r2').click()", "#f:has(:checked[type=radio])", "f"),
     ("$('sel').value = 'a'", "option:checked", "o1"),
+    ("$('cb').checked = true", "#f :checked", "cb o2"),
+    (
+        "$('cb').checked = true",
+        ":is(#cb, #r1):not(:checked)",
+        "r1",
+    ),
     ("", ":disabled", "fs infs og o3"),
     ("$('fs').disabled = false", "#fs :disabled", ""),
     ("", "#fs :enabled", "inleg"),
@@ -338,13 +344,6 @@ const STATE_CASES: &[(&str, &str, &str)] = &[
 /// `(state change, selector, a browser's ids, dom-selector's ids)`: state pseudo-classes the
 /// native matcher declines, where `dom-selector` answers wrong. Pinned so a fix shows up.
 const STATE_DIVERGENCES: &[(&str, &str, &str, &str)] = &[
-    ("$('cb').checked = true", "#f :checked", "cb o2", "o2"),
-    (
-        "$('cb').checked = true",
-        ":is(#cb, #r1):not(:checked)",
-        "r1",
-        "cb r1",
-    ),
     (
         "$('cb').defaultChecked = true",
         ":default",
@@ -422,6 +421,25 @@ fn state_pseudo_classes_in_closest_and_matches() {
     );
 }
 
+/// State set before an element joins a tree, or copied by cloning, is what `:checked` sees.
+#[test]
+fn checked_state_set_while_detached_is_matched_once_inserted() {
+    let rt = runtime();
+    let out: String = rt.eval(&format!(
+        r##"{RESET}{FORM_PAGE}
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.id = "new";
+        box.checked = true;
+        const option = new Option("z", "z", false, true);
+        option.id = "o9";
+        $("sel").append(option);
+        $("f").append(box, Object.assign(box.cloneNode(), {{ id: "copy" }}));
+        ids(document.querySelectorAll(":checked"))"##
+    ));
+    assert_eq!(out, "o9 new copy");
+}
+
 /// Which state pseudo-classes the native matcher answers; the rest go to `dom-selector`.
 #[test]
 fn only_the_native_state_set_matches_natively() {
@@ -437,9 +455,6 @@ fn only_the_native_state_set_matches_natively() {
     assert_eq!(
         fallbacks,
         [
-            "#f :checked",
-            "#f:has(:checked[type=radio])",
-            "option:checked",
             ":placeholder-shown",
             ":default",
             ":indeterminate",
@@ -448,7 +463,6 @@ fn only_the_native_state_set_matches_natively() {
             ":in-range",
             ":out-of-range",
             ":focus-visible",
-            "body:has(:target) :is(:link, :checked)",
             "#f:not(:has(:placeholder-shown))",
             "form:has(:default:is(option))",
             "#f :is(:in-range, :out-of-range)",

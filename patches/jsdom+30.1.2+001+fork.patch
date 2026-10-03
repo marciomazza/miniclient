@@ -1,4 +1,4 @@
-# fork: rrprnrloyyls 70b4dbcd0f6c
+# fork: szzutkmuokyu 621f1f407d5f
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 index 905b1c9d02..5cf2c22de0 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
@@ -1256,10 +1256,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..22941fb938 100644
+index 7eb8408fc8..365b39fb85 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,290 @@ function bind(node, w) {
+@@ -6,31 +6,302 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -1313,6 +1313,7 @@ index 7eb8408fc8..22941fb938 100644
 +  op_dom_prev_sibling,
 +  op_dom_query,
 +  op_dom_remove,
++  op_dom_set_checked,
 +  op_dom_set_data,
 +  op_dom_set_is_value,
 +  op_dom_set_template_contents,
@@ -1382,7 +1383,18 @@ index 7eb8408fc8..22941fb938 100644
 +  if (node._templateContents !== undefined) {
 +    op_dom_set_template_contents(slot, wire(node._templateContents));
 +  }
++  if (node._checkedness || node._selectedness) {
++    op_dom_set_checked(slot, true);
++  }
 +  return slot;
++}
++
++// An input's checkedness or an option's selectedness, mirrored for `:checked`. A node without a
++// slot yet gets it from `elementSlot`.
++function setChecked(node, checked) {
++  if (node._wire >= 0) {
++    op_dom_set_checked(node._wire, checked);
++  }
 +}
 +
 +// The HTML parser swaps in its own fragment, possibly after the template got its slot.
@@ -1574,7 +1586,7 @@ index 7eb8408fc8..22941fb938 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +299,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +311,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1611,7 +1623,7 @@ index 7eb8408fc8..22941fb938 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +365,6 @@ next() {
+@@ -136,28 +377,6 @@ next() {
    }
  }
  
@@ -1640,7 +1652,7 @@ index 7eb8408fc8..22941fb938 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +460,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +472,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1757,7 +1769,7 @@ index 7eb8408fc8..22941fb938 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove,
-+  QUERY, query, impl, wire, materialize, materializedCount, setTemplateContents, clearBindings
++  QUERY, query, impl, wire, materialize, materializedCount, setChecked, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644
@@ -2071,6 +2083,46 @@ index 8d9b994e20..fd14208c4f 100644
    }
  
    _doReset() {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js
+index 42421cc7d7..393c76c54b 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js
+@@ -12,6 +12,7 @@
+ const { fireAnEvent } = require("../helpers/events");
+ const { firstElementWithId } = require("../helpers/traversal");
+ const { HTML_NS } = require("../helpers/namespaces");
++const { setChecked } = require("../helpers/dom-tree");
+ const {
+   isDisabled,
+   isValidEmailAddress,
+@@ -366,6 +367,7 @@ set _checkedness(checkedness) {
+   set _checkedness(checkedness) {
+     if (this.#checkedness !== checkedness) {
+       this.#checkedness = checkedness;
++      setChecked(this, checkedness);
+       this._invalidateSelectorState();
+     }
+     if (checkedness) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
+index 8e551d3f5e..8fc052f00f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
+@@ -6,6 +6,7 @@ class HTMLOptionElementImpl extends HTMLElementImpl {
+ const { HTML_NS, SVG_NS } = require("../helpers/namespaces");
+ const { closest } = require("../helpers/traversal");
+ const { formOwner } = require("../helpers/form-controls");
++const { setChecked } = require("../helpers/dom-tree");
+ 
+ class HTMLOptionElementImpl extends HTMLElementImpl {
+   #cachedNearestAncestorSelect = null;
+@@ -152,6 +153,7 @@ set _selectedness(value) {
+   set _selectedness(value) {
+     if (this.#selectedness !== value) {
+       this.#selectedness = value;
++      setChecked(this, value);
+       this._invalidateSelectorState();
+       for (let ancestor = this.parentNode; ancestor !== null; ancestor = ancestor.parentNode) {
+         if (ancestor._namespaceURI === HTML_NS && ancestor._localName === "select") {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
 index 36633a1af9..8eef540e1c 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js

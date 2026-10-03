@@ -34,6 +34,7 @@ pub fn dom_extension() -> Extension {
             op_dom_serialize(),
             op_dom_set_template_contents(),
             op_dom_set_is_value(),
+            op_dom_set_checked(),
             op_dom_next_sibling(),
             op_dom_prev_sibling(),
             op_dom_get_by_id(),
@@ -260,6 +261,11 @@ pub fn op_dom_set_template_contents(state: &mut OpState, template: u32, contents
 #[op2(fast)]
 pub fn op_dom_set_is_value(state: &mut OpState, id: u32, #[string] value: &str) {
     dom(state).set_is_value(id, value)
+}
+
+#[op2(fast)]
+pub fn op_dom_set_checked(state: &mut OpState, id: u32, checked: bool) {
+    dom(state).set_checked(id, checked)
 }
 
 #[op2(fast)]
