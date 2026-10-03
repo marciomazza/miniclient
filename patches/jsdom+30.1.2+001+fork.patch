@@ -1,4 +1,4 @@
-# fork: zwzyluxlnptp 1648e875f966
+# fork: yqzmzyltzlzp 960a39a495ea
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -116,6 +116,228 @@ index 446e495518..a63d7dc772 100644
          element.hasAttributeNS(null, "defer") &&
          this._document.readyState !== "interactive") {
        this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
+diff --git a/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js b/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js
+index e5d4daa20d..15e1d62588 100644
+--- a/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js
+@@ -3,6 +3,11 @@ constructor(globalObject, args, privateData) {
+ const { setAnExistingAttributeValue } = require("../attributes.js");
+ const NodeImpl = require("../nodes/Node-impl.js").implementation;
+ const { ATTRIBUTE_NODE } = require("../node-type.js");
++const { wire } = require("../helpers/dom-tree.js");
++
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_attr_value, op_dom_set_attr } = Deno.core.ops;
+ 
+ exports.implementation = class AttrImpl extends NodeImpl {
+   constructor(globalObject, args, privateData) {
+@@ -11,8 +16,8 @@ constructor(globalObject, args, privateData) {
+     this._namespace = privateData.namespace !== undefined ? privateData.namespace : null;
+     this._namespacePrefix = privateData.namespacePrefix !== undefined ? privateData.namespacePrefix : null;
+     this._localName = privateData.localName;
+-    this._value = privateData.value !== undefined ? privateData.value : "";
+     this._element = privateData.element !== undefined ? privateData.element : null;
++    this._ownValue = privateData.value !== undefined ? privateData.value : "";
+ 
+     this.nodeType = ATTRIBUTE_NODE;
+     this.specified = true;
+@@ -45,6 +50,24 @@ set value(value) {
+     setAnExistingAttributeValue(this, value);
+   }
+ 
++  // An attached attribute's value lives in the native arena; a detached one keeps its own.
++  get _value() {
++    const element = this._element;
++    if (element === null) {
++      return this._ownValue;
++    }
++    return op_dom_attr_value(element._wire, this._namespace ?? "", this._localName) ?? "";
++  }
++  set _value(value) {
++    const element = this._element;
++    if (element === null) {
++      this._ownValue = value;
++      return;
++    }
++    const prefix = this._namespacePrefix ?? "";
++    op_dom_set_attr(wire(element), this._namespace ?? "", prefix, this._localName, value);
++  }
++
+   get ownerElement() {
+     return this._element;
+   }
+diff --git a/node_modules/jsdom/lib/jsdom/living/attributes.js b/node_modules/jsdom/lib/jsdom/living/attributes.js
+index 65486849e6..ab0694b879 100644
+--- a/node_modules/jsdom/lib/jsdom/living/attributes.js
++++ b/node_modules/jsdom/lib/jsdom/living/attributes.js
+@@ -6,6 +6,63 @@ function invalidate(element) {
+ const { queueAttributeMutationRecord } = require("./helpers/mutation-observers");
+ const { enqueueCECallbackReaction } = require("./helpers/custom-elements");
+ 
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_attrs, op_dom_remove_attr } = Deno.core.ops;
++
++// The native arena holds attribute values and order. `_attrNodes` maps each attached attribute's
++// namespace and local name to its `Attr`, so the arena order maps onto existing identities.
++// jsdom normalizes the empty namespace to null, so "" cannot collide with a real one.
++const attrKey = (namespace, localName) => (namespace ?? "") + "\0" + localName;
++
++exports.attributeList = function (element) {
++  if (element._attrNodes === null) {
++    return [];
++  }
++  return op_dom_attrs(element._wire).map(a => element._attrNodes.get(attrKey(a.ns, a.local)));
++};
++
++exports.attributesByName = function (element) {
++  const names = new Map();
++  for (const attribute of element._attributeList) {
++    const entry = names.get(attribute._qualifiedName);
++    if (entry === undefined) {
++      names.set(attribute._qualifiedName, [attribute]);
++    } else {
++      entry.push(attribute);
++    }
++  }
++  return names;
++};
++
++function invalidate(element) {
++  element._attrView = null;
++  element._attrNames = null;
++}
++
++function attach(element, attribute) {
++  const value = attribute._value;
++  attribute._element = element;
++  attribute._ownerDocument = element._ownerDocument;
++  attribute._ownValue = undefined;
++  attribute._value = value;
++  (element._attrNodes ??= new Map()).set(attrKey(attribute._namespace, attribute._localName), attribute);
++  invalidate(element);
++}
++
++// A detached `Attr` keeps the value it had, outside the arena.
++function detach(element, attribute) {
++  const value = attribute._value;
++  element._attrNodes.delete(attrKey(attribute._namespace, attribute._localName));
++  attribute._element = null;
++  attribute._ownValue = value;
++  invalidate(element);
++}
++
++function isAttached(element, attribute) {
++  return element._attrNodes?.get(attrKey(attribute._namespace, attribute._localName)) === attribute;
++}
++
+ // The following three are for https://dom.spec.whatwg.org/#concept-element-attribute-has. We don't just have a
+ // predicate tester since removing that kind of flexibility gives us the potential for better future optimizations.
+ 
+@@ -51,86 +108,31 @@ function handleAttributeChanges(element, attribute, oldValue, value) {
+ 
+ // https://dom.spec.whatwg.org/#concept-element-attributes-append
+ exports.appendAttribute = function (element, attribute) {
+-  const attributeList = element._attributeList;
+-
+-  attributeList.push(attribute);
+-  attribute._element = element;
+-  attribute._ownerDocument = element._ownerDocument;
+-
+-  // Sync name cache
+-  const name = attribute._qualifiedName;
+-  const cache = element._attributesByNameMap;
+-  // This is a hot path, and measurements show that branching to avoid `push()` in the common case is worthwhile:
+-  // https://github.com/jsdom/jsdom/pull/4266
+-  const entry = cache.get(name);
+-  if (entry === undefined) {
+-    cache.set(name, [attribute]);
+-  } else {
+-    entry.push(attribute);
+-  }
+-
++  attach(element, attribute);
+   handleAttributeChanges(element, attribute, null, attribute._value);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-remove
+ exports.removeAttribute = function (element, attribute) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-remove
+-
+-  const attributeList = element._attributeList;
+-
+-  for (let i = 0; i < attributeList.length; ++i) {
+-    if (attributeList[i] === attribute) {
+-      attributeList.splice(i, 1);
+-      attribute._element = null;
+-
+-      // Sync name cache
+-      const name = attribute._qualifiedName;
+-      const cache = element._attributesByNameMap;
+-      const entry = cache.get(name);
+-      entry.splice(entry.indexOf(attribute), 1);
+-      if (entry.length === 0) {
+-        cache.delete(name);
+-      }
+-
+-      handleAttributeChanges(element, attribute, attribute._value, null);
+-
+-      return;
+-    }
++  if (!isAttached(element, attribute)) {
++    return;
+   }
++  const value = attribute._value;
++  op_dom_remove_attr(element._wire, attribute._namespace ?? "", attribute._localName);
++  detach(element, attribute);
++  handleAttributeChanges(element, attribute, value, null);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-replace
++// Both share namespace and local name, so the arena swaps the new one in at the same position.
+ exports.replaceAttribute = function (element, oldAttr, newAttr) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-replace
+-
+-  const attributeList = element._attributeList;
+-
+-  for (let i = 0; i < attributeList.length; ++i) {
+-    if (attributeList[i] === oldAttr) {
+-      attributeList.splice(i, 1, newAttr);
+-      oldAttr._element = null;
+-      newAttr._element = element;
+-      newAttr._ownerDocument = element._ownerDocument;
+-
+-      // Sync name cache
+-      const oldName = oldAttr._qualifiedName;
+-      const name = newAttr._qualifiedName;
+-      const cache = element._attributesByNameMap;
+-      const entry = cache.get(oldName);
+-      if (oldName === name) {
+-        entry.splice(entry.indexOf(oldAttr), 1, newAttr);
+-      } else {
+-        entry.splice(entry.indexOf(oldAttr), 1);
+-        if (entry.length === 0) {
+-          cache.delete(oldName);
+-        }
+-        // The replacement keeps its position in the attribute list, including among same-name attributes.
+-        cache.set(name, attributeList.filter(attr => attr._qualifiedName === name));
+-      }
+-
+-      handleAttributeChanges(element, oldAttr, oldAttr._value, newAttr._value);
+-
+-      return;
+-    }
++  if (!isAttached(element, oldAttr)) {
++    return;
+   }
++  const oldValue = oldAttr._value;
++  detach(element, oldAttr);
++  attach(element, newAttr);
++  handleAttributeChanges(element, oldAttr, oldValue, newAttr._value);
+ };
+ 
+ exports.getAttributeByName = function (element, name) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 index 26a1aec94c..c16a15ce1e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
@@ -333,10 +555,10 @@ index 270a6209f5..dfff87ed5a 100644
    return sheetImpl;
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..e52201c70d 100644
+index 7eb8408fc8..6f7046f9ab 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,179 @@ function wire(node) {
+@@ -6,31 +6,192 @@ function wire(node) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -387,6 +609,7 @@ index 7eb8408fc8..e52201c70d 100644
 +  op_dom_preceding,
 +  op_dom_prev_sibling,
 +  op_dom_remove,
++  op_dom_set_data,
 +  op_dom_tree_ids
 +} = Deno.core.ops;
 +
@@ -406,16 +629,28 @@ index 7eb8408fc8..e52201c70d 100644
 +  switch (node.nodeType) {
 +    case 1:
 +      return op_dom_create(1, node._localName, node._namespaceURI ?? "", node._prefix ?? "");
-+    case 7:
-+      return op_dom_create(7, node.target, "", "");
++    case 3:
++    case 4:
++    case 8:
++      return adoptData(node, op_dom_create(node.nodeType, node._ownData, "", ""));
++    case 7: {
++      const slot = op_dom_create(7, node.target, "", "");
++      op_dom_set_data(slot, node._ownData);
++      return adoptData(node, slot);
++    }
 +    case 9:
 +      return op_dom_create_document(node._parsingMode === "html");
 +    case 10:
 +      return op_dom_create(10, node.name, "", "");
-+    // Character data stays on the impl; the slot only carries the node kind.
 +    default:
 +      return op_dom_create(node.nodeType, "", "", "");
 +  }
++}
++
++// From here on the arena holds the data (CharacterData-impl.js).
++function adoptData(node, slot) {
++  node._ownData = undefined;
++  return slot;
 +}
 +
 +function impl(w) {
@@ -540,7 +775,7 @@ index 7eb8408fc8..e52201c70d 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +188,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +201,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -577,7 +812,7 @@ index 7eb8408fc8..e52201c70d 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +254,6 @@ next() {
+@@ -136,28 +267,6 @@ next() {
    }
  }
  
@@ -606,7 +841,7 @@ index 7eb8408fc8..e52201c70d 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +349,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +362,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -722,7 +957,7 @@ index 7eb8408fc8..e52201c70d 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove,
-+  clearBindings
++  wire, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644
@@ -740,6 +975,39 @@ index 5f7b2ab850..ca3ae26290 100644
  }
  
  // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js
+index 8bbe4c8775..0f9e20b05b 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js
+@@ -8,13 +8,27 @@ class CharacterDataImpl extends NodeImpl {
+ const NonDocumentTypeChildNodeImpl = require("./NonDocumentTypeChildNode-impl").implementation;
+ 
+ const { MUTATION_TYPE, queueMutationRecord } = require("../helpers/mutation-observers");
++const { wire } = require("../helpers/dom-tree");
++
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_data, op_dom_set_data } = Deno.core.ops;
+ 
+ // https://dom.spec.whatwg.org/#characterdata
+ class CharacterDataImpl extends NodeImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+ 
+-    this._data = privateData.data;
++    // The subclass sets `nodeType` only after this, so no arena slot can be created yet.
++    this._ownData = privateData.data;
++  }
++
++  // Writes allocate the slot, reads never do: until a node has one, its data stays here.
++  get _data() {
++    return this._wire < 0 ? this._ownData : op_dom_data(this._wire);
++  }
++  set _data(data) {
++    op_dom_set_data(wire(this), data);
+   }
+ 
+   // https://dom.spec.whatwg.org/#dom-characterdata-data
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
 index 1a4ff3d5a7..7a9667b098 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
@@ -769,6 +1037,35 @@ index 1a4ff3d5a7..7a9667b098 100644
      }
    }
  
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
+index 86e0f40b48..eff36f9a06 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
+@@ -44,12 +44,21 @@ constructor(globalObject, args, privateData) {
+     this.scrollTop = 0;
+     this.scrollLeft = 0;
+ 
+-    this._attributeList = [];
+-    // Used for caching.
+-    this._attributesByNameMap = new Map();
++    this._attrNodes = null;
++    // Views over the arena's attributes, dropped whenever one is added or removed.
++    this._attrView = null;
++    this._attrNames = null;
+     this._attributes = null;
+   }
+ 
++  get _attributeList() {
++    return (this._attrView ??= attributes.attributeList(this));
++  }
++
++  get _attributesByNameMap() {
++    return (this._attrNames ??= attributes.attributesByName(this));
++  }
++
+   // Overrides call `super` first so document-dependent caches are cleared before further adoption work.
+   _adoptingSteps() {
+     // `tagName` depends on whether the node document is HTML, even before the element is inserted again.
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 index ace803c6bb..5949ae2d48 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js

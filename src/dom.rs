@@ -257,8 +257,9 @@ impl DomState {
         }
     }
 
-    /// `setAttributeNS`-style write. Identity is the namespace plus local name, as in the DOM
-    /// spec: writing over an existing attribute changes its value and keeps its prefix.
+    /// Identity is the namespace plus local name, as in the DOM spec. Writing over an existing
+    /// attribute replaces it in place, prefix included: jsdom's `replaceAttribute` can swap in
+    /// an `Attr` with another prefix, and a plain value change passes the current one.
     pub fn set_attr(
         &mut self,
         wire: u32,
@@ -270,12 +271,16 @@ impl DomState {
         let ns = Namespace::from(ns.unwrap_or_default());
         self.reindex_id_attr(wire, &ns, local, Some(value));
         self.mutate_attrs(wire, |attrs| {
-            match attrs.iter_mut().find(|a| same_attr(&a.name, &ns, local)) {
-                Some(a) => a.value = value.into(),
-                None => attrs.push(Attribute {
-                    name: QualName::new(prefix.map(Prefix::from), ns, LocalName::from(local)),
-                    value: value.into(),
-                }),
+            let attr = Attribute {
+                name: QualName::new(prefix.map(Prefix::from), ns, LocalName::from(local)),
+                value: value.into(),
+            };
+            match attrs
+                .iter_mut()
+                .find(|a| same_attr(&a.name, &attr.name.ns, local))
+            {
+                Some(a) => *a = attr,
+                None => attrs.push(attr),
             }
         });
     }
@@ -326,7 +331,7 @@ impl DomState {
         self.mutations += 1;
     }
 
-    /// Text / comment `data` write. No-op for anything else.
+    /// Text / comment / processing-instruction `data` write. No-op for anything else.
     pub fn set_data(&mut self, wire: u32, data: &str) {
         let Some(id) = self.resolve(wire) else { return };
         let Some(mut node) = self.arena.get_mut(id) else {
@@ -335,6 +340,7 @@ impl DomState {
         match node.value() {
             Node::Text(t) => t.text = data.into(),
             Node::Comment(c) => c.comment = data.into(),
+            Node::ProcessingInstruction(p) => p.data = data.into(),
             _ => return,
         }
         self.mutations += 1;
@@ -490,6 +496,18 @@ impl DomState {
         }
     }
 
+    pub fn attr_value(&self, wire: u32, ns: Option<&str>, local: &str) -> Option<String> {
+        let ns = Namespace::from(ns.unwrap_or_default());
+        match self.arena.get(self.resolve(wire)?)?.value() {
+            Node::Element(e) => e
+                .attrs
+                .iter()
+                .find(|(k, _)| same_attr(k, &ns, local))
+                .map(|(_, v)| v.to_string()),
+            _ => None,
+        }
+    }
+
     /// `outerHTML` of an element node -- html5ever serialization of the arena subtree via
     /// scraper's `ElementRef`. `None` for a non-element or unknown id.
     ///
@@ -509,12 +527,13 @@ impl DomState {
         ElementRef::wrap(node).map(|el| el.html())
     }
 
-    /// `data` for a text or comment node; `None` for anything else.
+    /// `data` for a text, comment or processing-instruction node; `None` for anything else.
     pub fn data(&self, wire: u32) -> Option<String> {
         let id = self.resolve(wire)?;
         match self.arena.get(id)?.value() {
             Node::Text(t) => Some(t.text.to_string()),
             Node::Comment(c) => Some(c.comment.to_string()),
+            Node::ProcessingInstruction(p) => Some(p.data.to_string()),
             _ => None,
         }
     }
@@ -688,6 +707,10 @@ mod tests {
         );
         assert_eq!(dom.data(kids[1].id).as_deref(), Some(" c "));
         assert_eq!(dom.data(div), None);
+
+        let pi = dom.create(7, Some("target"), None, None);
+        dom.set_data(pi, "d");
+        assert_eq!(dom.data(pi).as_deref(), Some("d"));
 
         // parent walks back up, identity is stable through the wire table
         assert_eq!(dom.parent_wire(div).unwrap(), body);
@@ -904,13 +927,17 @@ mod tests {
         };
         assert_eq!(dom.attrs(a), vec![xlink_href("#x"), plain("id", "p")]);
 
-        // identity is (namespace, local name): a different prefix still overwrites the value
-        // and keeps the original prefix, while a no-namespace `href` is a separate attribute
+        // identity is (namespace, local name): a different prefix replaces the attribute in
+        // place, while a no-namespace `href` is a separate attribute
         dom.set_attr(a, Some(XLINK), Some("other"), "href", "#y");
         dom.set_attr(a, None, None, "href", "plain");
+        let other_href = AttrRecord {
+            prefix: Some("other".into()),
+            ..xlink_href("#y")
+        };
         assert_eq!(
             dom.attrs(a),
-            vec![xlink_href("#y"), plain("id", "p"), plain("href", "plain")]
+            vec![other_href, plain("id", "p"), plain("href", "plain")]
         );
 
         // a namespaced `id` is not the element's id
