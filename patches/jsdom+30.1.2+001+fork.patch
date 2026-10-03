@@ -1,17 +1,29 @@
-# fork: qztkvrymksnp c700f83e8efc
+# fork: yukwuxvqmyzz 2de051574590
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-index 905b1c9d02..8bf3aa344d 100644
+index 905b1c9d02..e725168734 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-@@ -4,6 +4,7 @@
+@@ -4,6 +4,8 @@
  
  const { createElement } = require("../../living/helpers/create-element");
  const { HTML_NS } = require("../../living/helpers/namespaces");
-+const { setTemplateContents } = require("../../living/helpers/dom-tree");
++const { materialize, setTemplateContents } = require("../../living/helpers/dom-tree");
++const { updateRadioButtonGroupsForTreeChange } = require("../../living/helpers/form-controls");
  
  const DocumentType = require("../../../generated/idl/DocumentType");
  const DocumentFragment = require("../../../generated/idl/DocumentFragment");
-@@ -117,7 +118,7 @@ setTemplateContent(templateElement, contentFragment) {
+@@ -13,6 +15,10 @@
+ const attributes = require("../../living/attributes");
+ const nodeTypes = require("../../living/node-type");
+ 
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_attr_value, op_dom_attrs, op_dom_parse_fragment, op_dom_tree_records } = Deno.core.ops;
++
+ const serializationAdapter = require("../../living/domparsing/parse5-adapter-serialization");
+ const {
+   customElementReactionsStack, invokeCEReactions, lookupCEDefinition
+@@ -117,7 +123,7 @@ setTemplateContent(templateElement, contentFragment) {
      contentFragment._ownerDocument = _ownerDocument;
      contentFragment._host = _host;
  
@@ -20,6 +32,102 @@ index 905b1c9d02..8bf3aa344d 100644
    }
  
    setDocumentType(document, name, publicId, systemId) {
+@@ -179,18 +185,87 @@ onItemPop(before, newTop) {
+ // Assign shared adapters with serializer.
+ Object.assign(JSDOMParse5Adapter.prototype, serializationAdapter);
+ 
++// A `<form>` among the context's inclusive ancestors keeps a nested `<form>` tag from opening
++// one, as parse5 checks it: by qualified name, in any namespace.
++function inForm(contextElement) {
++  for (let node = contextElement; node; node = node.parentNode) {
++    if (node._qualifiedName === "form") {
++      return true;
++    }
++  }
++  return false;
++}
++
++function createNode(record, ownerDocument) {
++  const { _globalObject } = ownerDocument;
++  switch (record.type) {
++    case nodeTypes.ELEMENT_NODE: {
++      const isValue = op_dom_attr_value(record.id, "", "is") ?? null;
++      const element = createElement(ownerDocument, record.name, record.ns, null, isValue, false);
++      if ("_parserInserted" in element) {
++        element._parserInserted = true;
++      }
++      return element;
++    }
++    case nodeTypes.TEXT_NODE:
++      return Text.createImpl(_globalObject, [], { ownerDocument });
++    case nodeTypes.COMMENT_NODE:
++      return Comment.createImpl(_globalObject, [], { ownerDocument });
++    default:
++      throw new Error(`Unexpected node type ${record.type} in a parsed fragment`);
++  }
++}
++
++// Impls for the arena fragment `w` and its subtree, template contents included, created in tree
++// order as parse5 would; `created` collects them.
++function materializeFragment(w, ownerDocument, host, created) {
++  const { _globalObject } = ownerDocument;
++  const fragment = materialize(DocumentFragment.createImpl(_globalObject, [], { ownerDocument, host }), w);
++  for (const record of op_dom_tree_records(w)) {
++    const node = materialize(createNode(record, ownerDocument), record.id);
++    created.push(node);
++    if (record.contents !== null) {
++      const contentsDocument = node._templateContents._ownerDocument;
++      node._templateContents = materializeFragment(record.contents, contentsDocument, node, created);
++    }
++  }
++  return fragment;
++}
++
++// What the parse5 adapter's attribute writes and appends change on brand-new nodes of a
++// detached fragment; nothing is connected or observed yet.
++function runParserSteps(nodes) {
++  for (const node of nodes) {
++    if (node.nodeType === nodeTypes.ELEMENT_NODE) {
++      for (const { ns, local, value } of op_dom_attrs(node._wire)) {
++        node._attributeChangeSteps(local, null, value, ns);
++      }
++    }
++    const parent = node.parentNode;
++    parent._invalidateCaches();
++    updateRadioButtonGroupsForTreeChange(node, parent);
++    node._insertionSteps?.();
++    parent._childrenInsertedSteps();
++  }
++}
++
++// html5ever parses straight into the native arena; the impls are then created from it.
+ function parseFragment(markup, contextElement) {
+   const ownerDocument = contextElement.localName === "template" && contextElement.namespaceURI === HTML_NS ?
+     contextElement.content._ownerDocument :
+     contextElement._ownerDocument;
+-
+-  const config = {
+-    ...ownerDocument._parseOptions,
+-    sourceCodeLocationInfo: false,
+-    treeAdapter: new JSDOMParse5Adapter(ownerDocument, { fragment: true })
+-  };
+-
+-  return parse5.parseFragment(contextElement, markup, config);
++  const scripting = ownerDocument._parseOptions.scriptingEnabled !== false;
++  const w = op_dom_parse_fragment(
++    markup,
++    contextElement._localName,
++    contextElement._namespaceURI ?? "",
++    inForm(contextElement),
++    scripting
++  );
++  const created = [];
++  const fragment = materializeFragment(w, ownerDocument, null, created);
++  runParserSteps(created);
++  return fragment;
+ }
+ 
+ function parseIntoDocument(markup, ownerDocument) {
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -823,10 +931,10 @@ index 6d3cf61cd4..1bf2157546 100644
  
    const childNodes = outer ? [node] : node._childrenToArray();
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..e4ea1b8e96 100644
+index 7eb8408fc8..6a998f331c 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,253 @@ function wire(node) {
+@@ -6,31 +6,274 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -885,15 +993,35 @@ index 7eb8408fc8..e4ea1b8e96 100644
 +} = Deno.core.ops;
 +
 +let impls = [];
++let materialized = 0;
++
++function bind(node, w) {
++  node._wire = w;
++  impls[w] = node;
++  materialized++;
++}
 +
 +// Created on the first insertion, not in the constructor: NodeImpl's subclasses only set
 +// `nodeType` and the local name after NodeImpl's constructor ran.
 +function wire(node) {
 +  if (node._wire < 0) {
-+    node._wire = createSlot(node);
-+    impls[node._wire] = node;
++    bind(node, createSlot(node));
 +  }
 +  return node._wire;
++}
++
++// Binds a freshly constructed impl to the existing arena node `w`. Its constructor saw no slot,
++// so no attributes or children, as under parse5; `elementSlot` never runs, so `is` is set here.
++function materialize(node, w) {
++  bind(node, w);
++  if (node._isValue) {
++    op_dom_set_is_value(w, node._isValue);
++  }
++  return node;
++}
++
++function materializedCount() {
++  return materialized;
 +}
 +
 +function createSlot(node) {
@@ -1099,12 +1227,13 @@ index 7eb8408fc8..e4ea1b8e96 100644
 +// empty arena that reuses those ids, so the bindings must not survive the snapshot.
 +function clearBindings() {
 +  impls = [];
++  materialized = 0;
 +}
 +
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +262,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +283,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1141,7 +1270,7 @@ index 7eb8408fc8..e4ea1b8e96 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +328,6 @@ next() {
+@@ -136,28 +349,6 @@ next() {
    }
  }
  
@@ -1170,7 +1299,7 @@ index 7eb8408fc8..e4ea1b8e96 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +423,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +444,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1286,7 +1415,7 @@ index 7eb8408fc8..e4ea1b8e96 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove,
-+  QUERY, query, wire, setTemplateContents, clearBindings
++  QUERY, query, wire, materialize, materializedCount, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644

@@ -3,7 +3,7 @@
 
 use deno_core::{Extension, OpState, op2};
 
-use crate::dom::{AttrRecord, DomState, NodeRecord};
+use crate::dom::{AttrRecord, DomState, NodeRecord, TreeRecord};
 use crate::dom_query::QueryMode;
 
 /// Registered right after `deno_web` by both the runtime and the snapshot build, so the
@@ -12,6 +12,8 @@ pub fn dom_extension() -> Extension {
     Extension {
         name: "miniclient_dom",
         ops: std::borrow::Cow::Owned(vec![
+            op_dom_parse_fragment(),
+            op_dom_tree_records(),
             op_dom_children(),
             op_dom_data(),
             op_dom_attrs(),
@@ -69,6 +71,26 @@ fn fill(out: &mut [u32], wires: Vec<u32>) -> u32 {
         dst.copy_from_slice(&wires);
     }
     wires.len() as u32
+}
+
+/// Parses `html` as a fragment in the context of a `ctx_local` element in `ctx_ns`; see
+/// `DomState::parse_fragment`. Returns the fragment's wire id.
+#[op2(fast)]
+pub fn op_dom_parse_fragment(
+    state: &mut OpState,
+    #[string] html: &str,
+    #[string] ctx_local: &str,
+    #[string] ctx_ns: &str,
+    in_form: bool,
+    scripting: bool,
+) -> u32 {
+    dom(state).parse_fragment(html, ctx_local, ctx_ns, in_form, scripting)
+}
+
+#[op2]
+#[serde]
+pub fn op_dom_tree_records(state: &mut OpState, id: u32) -> Vec<TreeRecord> {
+    dom(state).tree_records(id)
 }
 
 #[op2]

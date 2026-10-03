@@ -39,6 +39,19 @@ pub struct AttrRecord {
     pub value: String,
 }
 
+/// One node of a subtree JS creates impls for: what jsdom's constructors need. `name` is an
+/// element's local name.
+#[derive(Serialize)]
+pub struct TreeRecord {
+    pub id: u32,
+    #[serde(rename = "type")]
+    pub node_type: u8,
+    pub name: String,
+    pub ns: String,
+    /// A `<template>`'s content fragment.
+    pub contents: Option<u32>,
+}
+
 /// One `ego-tree` arena per isolate, held in `OpState`. Every parsed document and detached
 /// fragment shares this single id space. Detached nodes keep their slot: the runtime lives for
 /// one navigation only, so nothing needs reclaiming.
@@ -174,14 +187,71 @@ impl DomState {
     /// a full document.
     #[cfg(test)]
     pub fn parse(&mut self, html: &str, context: Option<&str>) -> Vec<NodeRecord> {
-        let parsed = match context {
-            None => Html::parse_document(html),
-            Some(ctx) => parse_fragment(html, if ctx.is_empty() { "body" } else { ctx }),
+        let root = match context {
+            None => self.adopt_parsed(Html::parse_document(html)),
+            Some(ctx) => {
+                let ctx = if ctx.is_empty() { "body" } else { ctx };
+                let wire = self.parse_fragment(html, ctx, HTML_NS, false, true);
+                self.resolve(wire).expect("fresh fragment")
+            }
         };
+        self.record(root).into_iter().collect()
+    }
+
+    /// The fragment parsing algorithm: `html` parsed in the context of a `ctx_local` element in
+    /// `ctx_ns`, into a detached fragment whose wire id is returned. `in_form` stands for a
+    /// `<form>` among the context's inclusive ancestors, which makes a nested `<form>` tag a
+    /// no-op; `scripting` is the document's flag that keeps `<noscript>` content raw.
+    pub fn parse_fragment(
+        &mut self,
+        html: &str,
+        ctx_local: &str,
+        ctx_ns: &str,
+        in_form: bool,
+        scripting: bool,
+    ) -> u32 {
+        let parsed = parse_fragment(html, ctx_local, ctx_ns, in_form, scripting);
+        let root = self.adopt_parsed(parsed);
+        // scraper wraps the content in an `<html>` element under the fragment root.
+        let wrapper = self
+            .arena
+            .get(root)
+            .and_then(|r| r.first_child())
+            .map(|w| w.id());
+        if let Some(wrapper) = wrapper {
+            let mut root_mut = self.arena.get_mut(root).expect("fresh fragment");
+            root_mut.reparent_from_id_append(wrapper);
+            self.arena.get_mut(wrapper).expect("fresh wrapper").detach();
+        }
+        self.wire(root)
+    }
+
+    /// Folds a parsed tree into the arena. scraper keeps a template's content as a fragment
+    /// under the template element; it moves out to its own root, the template's content.
+    fn adopt_parsed(&mut self, parsed: Html) -> NodeId {
         let root = self.arena.extend_tree(parsed.tree).id();
         self.mutations += 1;
         self.index_ids_in_subtree(root);
-        self.record(root).into_iter().collect()
+        let templates: Vec<NodeId> = self
+            .arena
+            .get(root)
+            .into_iter()
+            .flat_map(|r| r.descendants())
+            .filter(|n| n.value().as_element().and_then(html_name) == Some("template"))
+            .map(|n| n.id())
+            .collect();
+        for template in templates {
+            let contents = self.arena.get(template).and_then(|t| t.first_child());
+            if let Some(contents) = contents.filter(|c| matches!(c.value(), Node::Fragment)) {
+                let contents = contents.id();
+                self.arena
+                    .get_mut(contents)
+                    .expect("template content")
+                    .detach();
+                self.template_contents.insert(template, contents);
+            }
+        }
+        root
     }
 
     /// Walks a freshly parsed subtree once, indexing every element's `id` attribute.
@@ -587,6 +657,31 @@ impl DomState {
         walk(node).into_iter().map(|id| self.wire(id)).collect()
     }
 
+    /// `wire`'s descendants in tree order, without template content.
+    pub fn tree_records(&mut self, wire: u32) -> Vec<TreeRecord> {
+        let Some(root) = self.resolve(wire).and_then(|id| self.arena.get(id)) else {
+            return Vec::new();
+        };
+        let nodes: Vec<NodeId> = root.descendants().skip(1).map(|n| n.id()).collect();
+        nodes
+            .into_iter()
+            .map(|id| {
+                let (node_type, name, ns) = match self.arena.get(id).expect("listed").value() {
+                    Node::Element(e) => (1, e.name.local.to_string(), e.name.ns.to_string()),
+                    other => (classify(other).0, String::new(), String::new()),
+                };
+                let contents = self.template_contents.get(&id).copied();
+                TreeRecord {
+                    id: self.wire(id),
+                    node_type,
+                    name,
+                    ns,
+                    contents: contents.map(|c| self.wire(c)),
+                }
+            })
+            .collect()
+    }
+
     #[cfg(test)]
     pub fn nodes(&mut self, wires: &[u32]) -> Vec<NodeRecord> {
         let ids: Vec<NodeId> = wires.iter().filter_map(|&w| self.resolve(w)).collect();
@@ -847,25 +942,31 @@ fn id_of(e: &Element) -> Option<String> {
         .map(|(_, v)| v.to_string())
 }
 
-/// `scraper::Html::parse_fragment` hardcodes a `<body>` context; this is the same call with
-/// the context element's tag threaded through, so `<td>` / `<tr>` fragments land under the
-/// right insertion mode instead of being dropped.
-fn parse_fragment(html: &str, context: &str) -> Html {
+/// `scraper::Html::parse_fragment` hardcodes a `<body>` context; this threads the real context
+/// element through, so `<td>` / `<tr>` fragments land under the right insertion mode and SVG
+/// contexts parse as foreign content.
+fn parse_fragment(html: &str, local: &str, ns: &str, in_form: bool, scripting: bool) -> Html {
+    use html5ever::interface::{ElementFlags, TreeSink};
     use html5ever::tendril::TendrilSink;
+    use html5ever::tree_builder::TreeBuilderOpts;
 
-    let ctx = QualName::new(
-        None,
-        ns_full(None),
-        LocalName::from(context.to_ascii_lowercase()),
-    );
-    html5ever::driver::parse_fragment(
-        scraper::HtmlTreeSink::new(Html::new_fragment()),
-        html5ever::driver::ParseOpts::default(),
-        ctx,
-        Vec::new(),
-        false,
-    )
-    .one(html)
+    let sink = scraper::HtmlTreeSink::new(Html::new_fragment());
+    // ponytail: scraper's sink never reports a MathML `annotation-xml` integration point, so
+    // HTML content in one parses as MathML; wrap the sink if a page ever needs it.
+    let element = |local: &str, ns: &str| {
+        let name = QualName::new(None, Namespace::from(ns), LocalName::from(local));
+        sink.create_element(name, Vec::new(), ElementFlags::default())
+    };
+    let context = element(local, ns);
+    let form = in_form.then(|| element("form", HTML_NS));
+    let opts = html5ever::driver::ParseOpts {
+        tree_builder: TreeBuilderOpts {
+            scripting_enabled: scripting,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    html5ever::driver::parse_fragment_for_element(sink, opts, context, scripting, form).one(html)
 }
 
 fn classify(node: &Node) -> (u8, Option<String>, Option<String>) {
@@ -989,7 +1090,7 @@ mod tests {
             "<div id='a' class='b'>hi &amp; <span>x</span><br></div>",
             Some(""),
         );
-        let wrapper = dom.children(roots[0].id)[0].id;
+        let wrapper = roots[0].id;
         let a = child_named(&mut dom, wrapper, "DIV");
 
         assert_eq!(
@@ -1042,21 +1143,77 @@ mod tests {
         let mut dom = DomState::new();
         let roots = dom.parse("<p>one</p><p>two</p>", Some(""));
         assert_eq!(roots[0].node_type, 11);
-        // scraper wraps fragment content in an <html> element under the Fragment root
-        let wrapper = dom.children(roots[0].id);
-        assert_eq!(wrapper[0].name.as_deref(), Some("HTML"));
-        let ps = dom.children(wrapper[0].id);
-        assert_eq!(
-            ps.iter().filter(|r| r.name.as_deref() == Some("P")).count(),
-            2
+        let names: Vec<_> = dom
+            .children(roots[0].id)
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(names, vec![Some("P".into()), Some("P".into())]);
+    }
+
+    #[test]
+    fn template_content_is_its_own_root() {
+        let mut dom = DomState::new();
+        let frag = dom.parse_fragment(
+            "<template id='t'><b>x</b><template><i></i></template></template>",
+            "div",
+            HTML_NS,
+            false,
+            true,
         );
+        let outer = child_named(&mut dom, frag, "TEMPLATE");
+        assert!(dom.children(outer).is_empty());
+        assert_eq!(
+            dom.serialize(frag, false, true).as_deref(),
+            Some(r#"<template id="t"><b>x</b><template><i></i></template></template>"#)
+        );
+        let contents = dom.template_contents[&dom.resolve(outer).unwrap()];
+        let contents = dom.wire(contents);
+        assert!(dom.parent_wire(contents).is_none());
+        let inner = child_named(&mut dom, contents, "TEMPLATE");
+        assert!(dom.children(inner).is_empty());
+    }
+
+    #[test]
+    fn fragment_context_namespace_form_and_scripting() {
+        let mut dom = DomState::new();
+        let svg = "http://www.w3.org/2000/svg";
+        let frag = dom.parse_fragment("<circle/><a>x</a>", "svg", svg, false, true);
+        let ns: Vec<_> = dom.children(frag).into_iter().map(|r| r.ns).collect();
+        assert_eq!(ns, vec![Some("svg".into()), Some("svg".into())]);
+
+        let html = "<form id='inner'><input></form>";
+        let outside = dom.parse_fragment(html, "div", HTML_NS, false, true);
+        assert!(
+            dom.serialize(outside, false, true)
+                .unwrap()
+                .contains("<form")
+        );
+        let inside = dom.parse_fragment(html, "div", HTML_NS, true, true);
+        assert_eq!(
+            dom.serialize(inside, false, true).as_deref(),
+            Some("<input>")
+        );
+
+        let noscript = "<noscript><b>x</b></noscript>";
+        let on = dom.parse_fragment(noscript, "div", HTML_NS, false, true);
+        let off = dom.parse_fragment(noscript, "div", HTML_NS, false, false);
+        let noscript_kids = |dom: &mut DomState, frag| {
+            let n = child_named(dom, frag, "NOSCRIPT");
+            dom.children(n)
+                .into_iter()
+                .map(|r| r.node_type)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(noscript_kids(&mut dom, on), vec![3]);
+        assert_eq!(noscript_kids(&mut dom, off), vec![1]);
     }
 
     #[test]
     fn insert_and_remove_mirror_the_js_tree() {
         let mut dom = DomState::new();
         let roots = dom.parse("<div id='a'></div>", Some(""));
-        let wrapper = dom.children(roots[0].id)[0].id;
+        let wrapper = roots[0].id;
         let a = child_named(&mut dom, wrapper, "DIV");
 
         let span = dom.create(1, Some("span"), Some("html"), None);
@@ -1111,7 +1268,7 @@ mod tests {
     fn sibling_nav_crosses_non_elements() {
         let mut dom = DomState::new();
         let roots = dom.parse("<p>a</p>text<!--c--><span>b</span>", Some(""));
-        let wrapper = dom.children(roots[0].id)[0].id;
+        let wrapper = roots[0].id;
         let kids = dom.children(wrapper);
         let (p, text, comment, span) = (kids[0].id, kids[1].id, kids[2].id, kids[3].id);
 
@@ -1173,9 +1330,8 @@ mod tests {
         let mut dom = DomState::new();
         // <body> context drops a bare <tr>; a <tbody> context keeps it.
         let roots = dom.parse("<tr><td>a</td></tr><tr><td>b</td></tr>", Some("tbody"));
-        let wrapper = dom.children(roots[0].id);
         let rows: Vec<_> = dom
-            .children(wrapper[0].id)
+            .children(roots[0].id)
             .into_iter()
             .filter(|r| r.name.as_deref() == Some("TR"))
             .collect();
@@ -1186,7 +1342,7 @@ mod tests {
     fn attributes_keep_prefix_and_namespace() {
         let mut dom = DomState::new();
         let roots = dom.parse("<svg><a xlink:href='#x' id='p'></a></svg>", Some(""));
-        let wrapper = dom.children(roots[0].id)[0].id;
+        let wrapper = roots[0].id;
         let svg = child_named(&mut dom, wrapper, "SVG");
         let a = child_named(&mut dom, svg, "A");
         let xlink_href = |value: &str| AttrRecord {
