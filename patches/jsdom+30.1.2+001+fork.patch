@@ -1,4 +1,4 @@
-# fork: szzutkmuokyu 621f1f407d5f
+# fork: xlnmkpntktln 4aafecefcc2b
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 index 905b1c9d02..5cf2c22de0 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
@@ -2174,10 +2174,21 @@ index 36633a1af9..8eef540e1c 100644
        vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
      } catch (e) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
-index 476421f2ef..5dabff62f7 100644
+index 476421f2ef..2f612ede67 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
-@@ -129,46 +129,25 @@ function isHostInclusiveAncestor(nodeImplA, nodeImplB) {
+@@ -25,6 +25,10 @@ function nodeEquals(a, b) {
+   isShadowRoot, shadowIncludingRoot, assignSlot, assignSlotableForTree, assignSlotable, signalSlotChange, isSlot
+ } = require("../helpers/shadow-dom");
+ 
++/* global Deno */
++/* eslint-disable-next-line camelcase -- the native op name */
++const { op_dom_text_content } = Deno.core.ops;
++
+ function nodeEquals(a, b) {
+   if (a.nodeType !== b.nodeType) {
+     return false;
+@@ -129,46 +133,25 @@ function isHostInclusiveAncestor(nodeImplA, nodeImplB) {
  }
  
  // Call these helpers before running element-specific steps, so `document.getElementById()` and `window[name]`
@@ -2236,7 +2247,7 @@ index 476421f2ef..5dabff62f7 100644
    }
  }
  
-@@ -178,7 +157,7 @@ constructor(globalObject, args, privateData) {
+@@ -178,7 +161,7 @@ constructor(globalObject, args, privateData) {
    constructor(globalObject, args, privateData) {
      super(globalObject, args, privateData);
  
@@ -2245,7 +2256,7 @@ index 476421f2ef..5dabff62f7 100644
  
      this._ownerDocument = privateData.ownerDocument;
  
-@@ -289,7 +268,7 @@ _getTheParent() {
+@@ -289,7 +272,7 @@ _getTheParent() {
    }
  
    get parentNode() {
@@ -2254,7 +2265,7 @@ index 476421f2ef..5dabff62f7 100644
    }
  
    _treeIndex() {
-@@ -303,7 +282,7 @@ get _length() {
+@@ -303,7 +286,7 @@ get _length() {
    }
  
    get _childCount() {
@@ -2263,7 +2274,7 @@ index 476421f2ef..5dabff62f7 100644
    }
  
    _children() {
-@@ -421,7 +400,7 @@ get nodeName() {
+@@ -421,7 +404,7 @@ get nodeName() {
    }
  
    get firstChild() {
@@ -2272,7 +2283,7 @@ index 476421f2ef..5dabff62f7 100644
    }
  
    // https://dom.spec.whatwg.org/#connected
-@@ -436,7 +415,7 @@ get ownerDocument() {
+@@ -436,7 +419,7 @@ get ownerDocument() {
    }
  
    get lastChild() {
@@ -2281,7 +2292,7 @@ index 476421f2ef..5dabff62f7 100644
    }
  
    get childNodes() {
-@@ -453,11 +432,11 @@ query: () => this._childrenToArray()
+@@ -453,11 +436,11 @@ query: () => this._childrenToArray()
    }
  
    get nextSibling() {
@@ -2295,6 +2306,17 @@ index 476421f2ef..5dabff62f7 100644
    }
  
    // Selector-visible state can affect styles anywhere in the document, without changing structural collections.
+@@ -771,6 +754,10 @@ get textContent() {
+     switch (this.nodeType) {
+       case NODE_TYPE.DOCUMENT_FRAGMENT_NODE:
+       case NODE_TYPE.ELEMENT_NODE: {
++        // One native call instead of crossing for every descendant and its data.
++        if (this._wire >= 0) {
++          return op_dom_text_content(this._wire);
++        }
+         let text = "";
+         for (const child of this._descendants()) {
+           if (child.nodeType === NODE_TYPE.TEXT_NODE || child.nodeType === NODE_TYPE.CDATA_SECTION_NODE) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
 index 3fed0cd5d1..0d4ac23d96 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js

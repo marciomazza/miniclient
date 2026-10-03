@@ -20,6 +20,7 @@ pub fn dom_extension() -> Extension {
             op_dom_tree_records(),
             op_dom_children(),
             op_dom_data(),
+            op_dom_text_content(),
             op_dom_attrs(),
             op_dom_attr_value(),
             op_dom_attr(),
@@ -147,6 +148,13 @@ pub fn op_dom_children(state: &mut OpState, id: u32) -> Vec<NodeRecord> {
 #[string]
 pub fn op_dom_data(state: &mut OpState, id: u32) -> Option<String> {
     state.borrow::<DomState>().data(id)
+}
+
+/// `textContent` of an element or fragment.
+#[op2]
+#[string]
+pub fn op_dom_text_content(state: &mut OpState, id: u32) -> Option<String> {
+    state.borrow::<DomState>().text_content(id)
 }
 
 #[op2]

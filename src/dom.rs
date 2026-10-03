@@ -956,6 +956,22 @@ impl DomState {
         }
     }
 
+    /// `textContent` of an element or fragment: its text descendants' data, CDATA included.
+    pub fn text_content(&self, wire: u32) -> Option<String> {
+        let node = self.arena.get(self.resolve(wire)?)?;
+        if !matches!(node.value(), Node::Element(_) | Node::Fragment(_)) {
+            return None;
+        }
+        Some(
+            node.descendants()
+                .filter_map(|d| match d.value() {
+                    Node::Text(t) => Some(&*t.text),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
     fn record(&mut self, id: NodeId) -> Option<NodeRecord> {
         let (node_type, name, ns) = classify(self.arena.get(id)?.value());
         let wire = self.wire(id);
