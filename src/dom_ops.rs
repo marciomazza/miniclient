@@ -4,6 +4,7 @@
 use deno_core::{Extension, OpState, op2};
 
 use crate::dom::{AttrRecord, DomState, NodeRecord};
+use crate::dom_query::QueryMode;
 
 /// Registered right after `deno_web` by both the runtime and the snapshot build, so the
 /// snapshot's extension list stays a prefix of the runtime's.
@@ -37,6 +38,7 @@ pub fn dom_extension() -> Extension {
             op_dom_preceding(),
             op_dom_child_ids(),
             op_dom_tree_ids(),
+            op_dom_query(),
         ]),
         op_state_fn: Some(Box::new(|state| state.put(DomState::new()))),
         ..Default::default()
@@ -239,4 +241,25 @@ pub fn op_dom_child_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32])
 #[op2(fast)]
 pub fn op_dom_tree_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32]) -> u32 {
     fill(out, dom(state).tree_wires(id))
+}
+
+/// `mode` is a `QueryMode` index (first, all, closest, matches). Returns `-1` when the
+/// selector does not parse natively, so JS falls back to `dom-selector`.
+#[op2(fast)]
+pub fn op_dom_query(
+    state: &mut OpState,
+    scope: u32,
+    #[string] selector: &str,
+    mode: u8,
+    html: bool,
+    quirks: bool,
+    #[buffer] out: &mut [u32],
+) -> i32 {
+    let Some(mode) = QueryMode::from_u8(mode) else {
+        return -1;
+    };
+    match dom(state).query(scope, selector, mode, html, quirks) {
+        Some(wires) => fill(out, wires) as i32,
+        None => -1,
+    }
 }

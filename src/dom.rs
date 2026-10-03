@@ -9,6 +9,12 @@ use scraper::node::{Comment, Doctype, Element, ProcessingInstruction, Text};
 use scraper::{ElementRef, Html, Node};
 use serde::Serialize;
 
+use crate::dom_query::{self, MatchSelector, QueryMode};
+
+/// Bounds the parsed-selector cache, which pages that build selectors from data would grow
+/// without limit.
+const SELECTOR_CACHE_SIZE: usize = 256;
+
 /// Minimal node record crossing the op boundary. No attributes, no text data, no structure --
 /// those are fetched lazily (`op_dom_data`, `op_dom_attrs`), so a record JS caches stays
 /// correct after any mutation.
@@ -51,6 +57,8 @@ pub struct DomState {
     /// `Document` nodes that are XML documents; every other document is HTML. Selector
     /// matching needs this for its case rules.
     xml_documents: HashSet<NodeId>,
+    /// Parsed selectors by source text; `None` caches a selector that does not parse natively.
+    selectors: HashMap<String, Option<MatchSelector>>,
 }
 
 impl DomState {
@@ -62,12 +70,68 @@ impl DomState {
             mutations: 0,
             id_index: HashMap::new(),
             xml_documents: HashSet::new(),
+            selectors: HashMap::new(),
         }
     }
 
     /// Read access to the arena for the native selector walk.
     pub fn arena(&self) -> &Tree<Node> {
         &self.arena
+    }
+
+    /// The wire ids `scope` selects in `mode` (see `dom_query::query`). `None` when the
+    /// selector does not parse natively, so the caller falls back to another matcher.
+    pub fn query(
+        &mut self,
+        scope: u32,
+        selector: &str,
+        mode: QueryMode,
+        html: bool,
+        quirks: bool,
+    ) -> Option<Vec<u32>> {
+        if !self.selectors.contains_key(selector) {
+            // ponytail: dropping the whole cache when full beats LRU bookkeeping on every hit.
+            if self.selectors.len() >= SELECTOR_CACHE_SIZE {
+                self.selectors.clear();
+            }
+            self.selectors
+                .insert(selector.to_owned(), MatchSelector::parse(selector));
+        }
+        let parsed = self.selectors.get(selector)?.as_ref()?;
+        let Some(node) = self.resolve(scope).and_then(|id| self.arena.get(id)) else {
+            return Some(Vec::new());
+        };
+        let bearers = match mode {
+            QueryMode::First | QueryMode::All => {
+                parsed.subject_id().map(|id| self.id_bearers(id, quirks))
+            }
+            _ => None,
+        };
+        let hits = match bearers.as_deref() {
+            // Several bearers need the walk to come out in document order; duplicate ids are rare.
+            None | Some([_, _, ..]) => dom_query::query(node, parsed, mode, html, quirks),
+            Some(bearers) => {
+                let inside = bearers
+                    .iter()
+                    .filter_map(|&b| self.arena.get(b))
+                    .filter(|b| b.ancestors().any(|a| a.id() == node.id()));
+                dom_query::select(node, inside, parsed, mode, html, quirks)
+            }
+        };
+        Some(hits.into_iter().map(|id| self.wire(id)).collect())
+    }
+
+    /// Elements whose `id` is `id`, connected or not; ASCII case-insensitively in quirks mode,
+    /// as `#id` matches there.
+    fn id_bearers(&self, id: &str, quirks: bool) -> Vec<NodeId> {
+        if !quirks {
+            return self.id_index.get(id).cloned().unwrap_or_default();
+        }
+        self.id_index
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case(id))
+            .flat_map(|(_, nodes)| nodes.iter().copied())
+            .collect()
     }
 
     /// Parses `html` and folds it into the arena as an orphan subtree. Returns the roots only

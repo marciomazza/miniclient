@@ -1,4 +1,4 @@
-# fork: mnuomlzwsqqq d8646a302b0a
+# fork: qqlyxtvrzlrt 123abaa12a98
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -769,10 +769,10 @@ index 270a6209f5..dfff87ed5a 100644
    return sheetImpl;
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..6f7046f9ab 100644
+index 7eb8408fc8..d05dfa8c10 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,192 @@ function wire(node) {
+@@ -6,31 +6,210 @@ function wire(node) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -822,6 +822,7 @@ index 7eb8408fc8..6f7046f9ab 100644
 +  op_dom_parent_id,
 +  op_dom_preceding,
 +  op_dom_prev_sibling,
++  op_dom_query,
 +  op_dom_remove,
 +  op_dom_set_data,
 +  op_dom_tree_ids
@@ -879,14 +880,18 @@ index 7eb8408fc8..6f7046f9ab 100644
 +let scratch = new Uint32Array(1024);
 +
 +// One op call per batched read; the result is copied out, so nested reads can reuse `scratch`.
-+function batch(op, node) {
++// A negative count from `op` means it had no answer, so the result is null.
++function batch(op, node, ...args) {
 +  if (node._wire < 0) {
 +    return [node];
 +  }
-+  let n = op(node._wire, scratch);
++  let n = op(node._wire, ...args, scratch);
 +  if (n > scratch.length) {
 +    scratch = new Uint32Array(Math.max(n, scratch.length * 2));
-+    n = op(node._wire, scratch);
++    n = op(node._wire, ...args, scratch);
++  }
++  if (n < 0) {
++    return null;
 +  }
 +  const out = new Array(n);
 +  for (let i = 0; i < n; i++) {
@@ -959,6 +964,19 @@ index 7eb8408fc8..6f7046f9ab 100644
 +  return filter === undefined ? nodes : nodes.filter(filter);
 +}
 +
++const QUERY = { first: 0, all: 1, closest: 2, matches: 3 };
++
++// The impls the native matcher selects from `node` in `mode`, or null for a selector it cannot
++// parse (namespace prefixes, `:lang`, state pseudo-classes, invalid ones) or a node without a slot.
++function query(node, selectors, mode) {
++  if (node._wire < 0) {
++    return null;
++  }
++  const doc = node._ownerDocument;
++  const html = doc._parsingMode === "html";
++  return batch(op_dom_query, node, selectors, mode, html, html && doc.compatMode === "BackCompat");
++}
++
 +function treeIndex(node) {
 +  return node._wire < 0 ? -1 : op_dom_index(node._wire);
 +}
@@ -989,7 +1007,7 @@ index 7eb8408fc8..6f7046f9ab 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +201,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +219,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1026,7 +1044,7 @@ index 7eb8408fc8..6f7046f9ab 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +267,6 @@ next() {
+@@ -136,28 +285,6 @@ next() {
    }
  }
  
@@ -1055,7 +1073,7 @@ index 7eb8408fc8..6f7046f9ab 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +362,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +380,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1171,7 +1189,7 @@ index 7eb8408fc8..6f7046f9ab 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove,
-+  wire, clearBindings
++  QUERY, query, wire, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644
@@ -1252,10 +1270,19 @@ index 1a4ff3d5a7..7a9667b098 100644
    }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
-index 86e0f40b48..07ba83eea7 100644
+index 86e0f40b48..7a0d8483ff 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
-@@ -44,12 +44,16 @@ constructor(globalObject, args, privateData) {
+@@ -5,6 +5,8 @@
+ const ParentNodeImpl = require("./ParentNode-impl").implementation;
+ const ChildNodeImpl = require("./ChildNode-impl").implementation;
+ const attributes = require("../attributes");
++const { QUERY, query } = require("../helpers/dom-tree");
++const { wrapperForImpl } = require("../../../generated/idl/utils");
+ const windowProperties = require("../window-properties");
+ const NODE_TYPE = require("../node-type");
+ const { parseFragment } = require("../../browser/parser");
+@@ -44,12 +46,16 @@ constructor(globalObject, args, privateData) {
      this.scrollTop = 0;
      this.scrollLeft = 0;
  
@@ -1275,7 +1302,7 @@ index 86e0f40b48..07ba83eea7 100644
    // Overrides call `super` first so document-dependent caches are cleared before further adoption work.
    _adoptingSteps() {
      // `tagName` depends on whether the node document is HTML, even before the element is inserted again.
-@@ -175,19 +179,11 @@ getAttributeNames() {
+@@ -175,19 +181,11 @@ getAttributeNames() {
    }
  
    getAttribute(name) {
@@ -1297,7 +1324,7 @@ index 86e0f40b48..07ba83eea7 100644
    }
  
    setAttribute(name, value) {
-@@ -197,18 +193,7 @@ setAttribute(name, value) {
+@@ -197,18 +195,7 @@ setAttribute(name, value) {
        name = asciiLowercase(name);
      }
  
@@ -1317,7 +1344,7 @@ index 86e0f40b48..07ba83eea7 100644
    }
  
    setAttributeNS(namespace, name, value) {
-@@ -236,15 +221,9 @@ toggleAttribute(qualifiedName, force) {
+@@ -236,15 +223,9 @@ toggleAttribute(qualifiedName, force) {
        qualifiedName = asciiLowercase(qualifiedName);
      }
  
@@ -1335,6 +1362,26 @@ index 86e0f40b48..07ba83eea7 100644
          return true;
        }
        return false;
+@@ -512,11 +493,19 @@ insertAdjacentHTML(position, text) {
+   }
+ 
+   closest(selectors) {
++    const hits = query(this, selectors, QUERY.closest);
++    if (hits !== null) {
++      return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
++    }
+     const domSelector = this._ownerDocument._getDOMSelector();
+     return domSelector.closest(selectors, this);
+   }
+ 
+   matches(selectors) {
++    const hits = query(this, selectors, QUERY.matches);
++    if (hits !== null) {
++      return hits.length > 0;
++    }
+     const domSelector = this._ownerDocument._getDOMSelector();
+     return domSelector.matches(selectors, this);
+   }
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 index ace803c6bb..5949ae2d48 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
@@ -1503,6 +1550,43 @@ index 476421f2ef..71151c2c87 100644
    }
  
    // Selector-visible state can affect styles anywhere in the document, without changing structural collections.
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
+index 3fed0cd5d1..0d4ac23d96 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
+@@ -4,6 +4,8 @@ class ParentNodeImpl {
+ const HTMLCollection = require("../../../generated/idl/HTMLCollection");
+ const NODE_TYPE = require("../node-type");
+ const { convertNodesIntoNode } = require("../node");
++const { wrapperForImpl } = require("../../../generated/idl/utils");
++const { QUERY, query } = require("../helpers/dom-tree");
+ 
+ class ParentNodeImpl {
+   get children() {
+@@ -60,6 +62,10 @@ querySelector(selectors) {
+     if (shouldAlwaysSelectNothing(this)) {
+       return null;
+     }
++    const hits = query(this, selectors, QUERY.first);
++    if (hits !== null) {
++      return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
++    }
+     const domSelector = this._ownerDocument._getDOMSelector();
+     return domSelector.querySelector(selectors, this);
+   }
+@@ -71,8 +77,10 @@ querySelectorAll(selectors) {
+     if (shouldAlwaysSelectNothing(this)) {
+       return NodeList.createImpl(this._globalObject, [], { nodes: [] });
+     }
+-    const domSelector = this._ownerDocument._getDOMSelector();
+-    const nodes = domSelector.querySelectorAll(selectors, this);
++    const hits = query(this, selectors, QUERY.all);
++    const nodes = hits !== null ?
++      hits.map(wrapperForImpl) :
++      this._ownerDocument._getDOMSelector().querySelectorAll(selectors, this);
+     return NodeList.createImpl(this._globalObject, [], { nodes });
+   }
+ }
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 index 0084dc004a..fba816ef06 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js

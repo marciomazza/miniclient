@@ -2031,6 +2031,7 @@ name = "miniclient"
 version = "0.3.0-dev"
 dependencies = [
  "async-trait",
+ "cssparser 0.37.0",
  "deno_core",
  "deno_error",
  "deno_fetch",
@@ -2048,6 +2049,7 @@ dependencies = [
  "pythonize",
  "regex",
  "scraper",
+ "selectors",
  "serde",
  "serde_json",
  "tokio",
