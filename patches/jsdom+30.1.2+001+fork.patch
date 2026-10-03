@@ -1,9 +1,9 @@
-# fork: xzytxotkryow cd4e2d9a79f5
+# fork: kzvqnqvyytus 7e620d041e0f
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-index 905b1c9d02..cb6104bbac 100644
+index 905b1c9d02..5cf2c22de0 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-@@ -1,205 +1,196 @@ function inForm(contextElement) {
+@@ -1,205 +1,191 @@ function formAncestor(contextElement) {
  "use strict";
  
 -const parse5 = require("parse5");
@@ -199,13 +199,13 @@ index 905b1c9d02..cb6104bbac 100644
 +
 +// A `<form>` among the context's inclusive ancestors keeps a nested `<form>` tag from opening
 +// one, as parse5 checks it: by qualified name, in any namespace.
-+function inForm(contextElement) {
++function formAncestor(contextElement) {
 +  for (let node = contextElement; node; node = node.parentNode) {
 +    if (node._qualifiedName === "form") {
-+      return true;
++      return node;
 +    }
 +  }
-+  return false;
++  return null;
 +}
 +
 +// `synchronous` runs a defined custom element's constructor right away, as the document parser
@@ -291,13 +291,8 @@ index 905b1c9d02..cb6104bbac 100644
 -
 -  return parse5.parse(markup, config);
 +  const scripting = ownerDocument._parseOptions.scriptingEnabled !== false;
-+  const w = op_dom_parse_fragment(
-+    markup,
-+    contextElement._localName,
-+    contextElement._namespaceURI ?? "",
-+    inForm(contextElement),
-+    scripting
-+  );
++  const form = formAncestor(contextElement);
++  const w = op_dom_parse_fragment(markup, wire(contextElement), form ? wire(form) : -1, scripting);
 +  const created = [];
 +  const fragment = materializeFragment(w, ownerDocument, null, created);
 +  runParserSteps(created);

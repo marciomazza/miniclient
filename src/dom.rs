@@ -218,36 +218,32 @@ impl DomState {
             None => self.parse_document(html),
             Some(ctx) => {
                 let ctx = if ctx.is_empty() { "body" } else { ctx };
-                let wire = self.parse_fragment(html, ctx, HTML_NS, false, true);
+                let context = self.create(1, Some(ctx), Some("html"), None);
+                let wire = self.parse_fragment(html, context, None, true);
                 self.resolve(wire).expect("fresh fragment")
             }
         };
         self.record(root).into_iter().collect()
     }
 
-    /// The fragment parsing algorithm: `html` parsed in the context of a `ctx_local` element in
-    /// `ctx_ns`, into a detached fragment whose wire id is returned. `in_form` stands for a
-    /// `<form>` among the context's inclusive ancestors, which makes a nested `<form>` tag a
-    /// no-op; `scripting` is the document's flag that keeps `<noscript>` content raw.
+    /// The fragment parsing algorithm: `html` parsed in the context of the element `context`,
+    /// into a detached fragment whose wire id is returned. `form` is the nearest `<form>`
+    /// among the context's inclusive ancestors, which makes a nested `<form>` tag a no-op;
+    /// `scripting` is the document's flag that keeps `<noscript>` content raw. The parser reads
+    /// the context's name and namespace, so `<td>` / `<tr>` fragments land under the right
+    /// insertion mode and SVG contexts parse as foreign content.
     pub fn parse_fragment(
         &mut self,
         html: &str,
-        ctx_local: &str,
-        ctx_ns: &str,
-        in_form: bool,
+        context: u32,
+        form: Option<u32>,
         scripting: bool,
     ) -> u32 {
+        let context = self.resolve(context).expect("fragment context");
+        let form = form.and_then(|f| self.resolve(f));
         let root = self.arena.orphan(Node::fragment()).id();
         let sink = ArenaSink::new(root);
         std::mem::swap(self, &mut sink.dom.borrow_mut());
-        // The real context element, so `<td>` / `<tr>` fragments land under the right insertion
-        // mode and SVG contexts parse as foreign content.
-        let element = |local: &str, ns: &str| {
-            let name = QualName::new(None, Namespace::from(ns), LocalName::from(local));
-            sink.create_element(name, Vec::new(), ElementFlags::default())
-        };
-        let context = element(ctx_local, ctx_ns);
-        let form = in_form.then(|| element("form", HTML_NS));
         let opts = html5ever::driver::ParseOpts {
             tree_builder: TreeBuilderOpts {
                 scripting_enabled: scripting,
@@ -1586,10 +1582,41 @@ mod tests {
         assert_eq!(names, vec![Some("P".into()), Some("P".into())]);
     }
 
+    /// Parses `html` in a fresh `ctx_local` context element, inside a `<form>` when `in_form`.
+    fn fragment(
+        dom: &mut DomState,
+        html: &str,
+        ctx_local: &str,
+        ctx_ns: &str,
+        in_form: bool,
+        scripting: bool,
+    ) -> u32 {
+        let context = dom.create(1, Some(ctx_local), Some(ctx_ns), None);
+        let form = in_form.then(|| {
+            let form = dom.create(1, Some("form"), Some("html"), None);
+            dom.insert(form, context, None);
+            form
+        });
+        dom.parse_fragment(html, context, form, scripting)
+    }
+
+    #[test]
+    fn fragment_parse_reuses_the_context_nodes() {
+        let mut dom = DomState::new();
+        let form = dom.create(1, Some("form"), Some("html"), None);
+        let context = dom.create(1, Some("div"), Some("html"), None);
+        dom.insert(form, context, None);
+        let before = dom.arena.nodes().count();
+        dom.parse_fragment("<p>x</p>", context, Some(form), true);
+        // The fragment root, the tree builder's `<html>` wrapper, `<p>` and its text.
+        assert_eq!(dom.arena.nodes().count(), before + 4);
+    }
+
     #[test]
     fn template_content_is_its_own_root() {
         let mut dom = DomState::new();
-        let frag = dom.parse_fragment(
+        let frag = fragment(
+            &mut dom,
             "<template id='t'><b>x</b><template><i></i></template></template>",
             "div",
             HTML_NS,
@@ -1613,26 +1640,26 @@ mod tests {
     fn fragment_context_namespace_form_and_scripting() {
         let mut dom = DomState::new();
         let svg = "http://www.w3.org/2000/svg";
-        let frag = dom.parse_fragment("<circle/><a>x</a>", "svg", svg, false, true);
+        let frag = fragment(&mut dom, "<circle/><a>x</a>", "svg", svg, false, true);
         let ns: Vec<_> = dom.children(frag).into_iter().map(|r| r.ns).collect();
         assert_eq!(ns, vec![Some("svg".into()), Some("svg".into())]);
 
         let html = "<form id='inner'><input></form>";
-        let outside = dom.parse_fragment(html, "div", HTML_NS, false, true);
+        let outside = fragment(&mut dom, html, "div", HTML_NS, false, true);
         assert!(
             dom.serialize(outside, false, true)
                 .unwrap()
                 .contains("<form")
         );
-        let inside = dom.parse_fragment(html, "div", HTML_NS, true, true);
+        let inside = fragment(&mut dom, html, "div", HTML_NS, true, true);
         assert_eq!(
             dom.serialize(inside, false, true).as_deref(),
             Some("<input>")
         );
 
         let noscript = "<noscript><b>x</b></noscript>";
-        let on = dom.parse_fragment(noscript, "div", HTML_NS, false, true);
-        let off = dom.parse_fragment(noscript, "div", HTML_NS, false, false);
+        let on = fragment(&mut dom, noscript, "div", HTML_NS, false, true);
+        let off = fragment(&mut dom, noscript, "div", HTML_NS, false, false);
         let noscript_kids = |dom: &mut DomState, frag| {
             let n = child_named(dom, frag, "NOSCRIPT");
             dom.children(n)

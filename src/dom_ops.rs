@@ -80,18 +80,18 @@ fn fill(out: &mut [u32], wires: Vec<u32>) -> u32 {
     wires.len() as u32
 }
 
-/// Parses `html` as a fragment in the context of a `ctx_local` element in `ctx_ns`; see
-/// `DomState::parse_fragment`. Returns the fragment's wire id.
+/// Parses `html` as a fragment in the context of the element `context`, whose nearest `<form>`
+/// inclusive ancestor is `form` (`-1` for none); see `DomState::parse_fragment`. Returns the
+/// fragment's wire id.
 #[op2(fast)]
 pub fn op_dom_parse_fragment(
     state: &mut OpState,
     #[string] html: &str,
-    #[string] ctx_local: &str,
-    #[string] ctx_ns: &str,
-    in_form: bool,
+    context: u32,
+    form: i32,
     scripting: bool,
 ) -> u32 {
-    dom(state).parse_fragment(html, ctx_local, ctx_ns, in_form, scripting)
+    dom(state).parse_fragment(html, context, u32::try_from(form).ok(), scripting)
 }
 
 /// Documents being parsed, by wire id: a script paused in one can parse another (for example
