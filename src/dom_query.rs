@@ -18,7 +18,7 @@ use selectors::matching::{
 use selectors::parser::{self, Component, ParseRelative, SelectorList, SelectorParseErrorKind};
 use selectors::{Element, OpaqueElement};
 
-const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
+pub(crate) const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
 
 /// Legal pseudo-classes no element can be in here: no history, media, fullscreen or autofill.
 const NEVER_MATCHING_PSEUDO_CLASSES: [&str; 21] = [

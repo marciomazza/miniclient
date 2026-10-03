@@ -1,4 +1,25 @@
-# fork: vwylzmqknzst 5605d97ad8ec
+# fork: qztkvrymksnp c700f83e8efc
+diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
+index 905b1c9d02..8bf3aa344d 100644
+--- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
++++ b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
+@@ -4,6 +4,7 @@
+ 
+ const { createElement } = require("../../living/helpers/create-element");
+ const { HTML_NS } = require("../../living/helpers/namespaces");
++const { setTemplateContents } = require("../../living/helpers/dom-tree");
+ 
+ const DocumentType = require("../../../generated/idl/DocumentType");
+ const DocumentFragment = require("../../../generated/idl/DocumentFragment");
+@@ -117,7 +118,7 @@ setTemplateContent(templateElement, contentFragment) {
+     contentFragment._ownerDocument = _ownerDocument;
+     contentFragment._host = _host;
+ 
+-    templateElement._templateContents = contentFragment;
++    setTemplateContents(templateElement, contentFragment);
+   }
+ 
+   setDocumentType(document, name, publicId, systemId) {
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -768,11 +789,44 @@ index 270a6209f5..dfff87ed5a 100644
  
    return sheetImpl;
  };
+diff --git a/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js b/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js
+index 6d3cf61cd4..1bf2157546 100644
+--- a/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js
++++ b/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js
+@@ -1,21 +1,21 @@
+ "use strict";
+ 
+ const produceXMLSerialization = require("w3c-xmlserializer");
+-const parse5 = require("parse5");
+ const DOMException = require("../../../generated/idl/DOMException");
+ const utils = require("../../../generated/idl/utils");
+-const treeAdapter = require("./parse5-adapter-serialization");
++const { wire } = require("../helpers/dom-tree");
+ const NODE_TYPE = require("../node-type");
+ 
++/* global Deno */
++/* eslint-disable camelcase -- the native op name */
++const { op_dom_serialize } = Deno.core.ops;
++
+ module.exports.fragmentSerialization = (node, { outer, requireWellFormed, globalObject }) => {
+   const contextDocument =
+     node.nodeType === NODE_TYPE.DOCUMENT_NODE ? node : node._ownerDocument;
+   if (contextDocument._parsingMode === "html") {
+-    const config = {
+-      ...contextDocument._parseOptions,
+-      treeAdapter
+-    };
+-    return outer ? parse5.serializeOuter(node, config) : parse5.serialize(node, config);
++    // The native arena serializes like parse5 does through jsdom's tree adapter.
++    return op_dom_serialize(wire(node), Boolean(outer), contextDocument._parseOptions.scriptingEnabled !== false);
+   }
+ 
+   const childNodes = outer ? [node] : node._childrenToArray();
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..512faae716 100644
+index 7eb8408fc8..e4ea1b8e96 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,231 @@ function wire(node) {
+@@ -6,31 +6,253 @@ function wire(node) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -825,6 +879,8 @@ index 7eb8408fc8..512faae716 100644
 +  op_dom_query,
 +  op_dom_remove,
 +  op_dom_set_data,
++  op_dom_set_is_value,
++  op_dom_set_template_contents,
 +  op_dom_tree_ids
 +} = Deno.core.ops;
 +
@@ -843,7 +899,7 @@ index 7eb8408fc8..512faae716 100644
 +function createSlot(node) {
 +  switch (node.nodeType) {
 +    case 1:
-+      return op_dom_create(1, node._localName, node._namespaceURI ?? "", node._prefix ?? "");
++      return elementSlot(node);
 +    case 3:
 +    case 4:
 +    case 8:
@@ -859,6 +915,26 @@ index 7eb8408fc8..512faae716 100644
 +      return op_dom_create(10, node.name, "", "");
 +    default:
 +      return op_dom_create(node.nodeType, "", "", "");
++  }
++}
++
++// `is` and a template's contents are set before the slot exists; the serializer needs both.
++function elementSlot(node) {
++  const slot = op_dom_create(1, node._localName, node._namespaceURI ?? "", node._prefix ?? "");
++  if (node._isValue) {
++    op_dom_set_is_value(slot, node._isValue);
++  }
++  if (node._templateContents !== undefined) {
++    op_dom_set_template_contents(slot, wire(node._templateContents));
++  }
++  return slot;
++}
++
++// The HTML parser swaps in its own fragment, possibly after the template got its slot.
++function setTemplateContents(template, contents) {
++  template._templateContents = contents;
++  if (template._wire >= 0) {
++    op_dom_set_template_contents(template._wire, wire(contents));
 +  }
 +}
 +
@@ -1028,7 +1104,7 @@ index 7eb8408fc8..512faae716 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +240,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +262,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1065,7 +1141,7 @@ index 7eb8408fc8..512faae716 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +306,6 @@ next() {
+@@ -136,28 +328,6 @@ next() {
    }
  }
  
@@ -1094,7 +1170,7 @@ index 7eb8408fc8..512faae716 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +401,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +423,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1210,7 +1286,7 @@ index 7eb8408fc8..512faae716 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove,
-+  QUERY, query, wire, clearBindings
++  QUERY, query, wire, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644

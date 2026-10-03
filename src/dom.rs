@@ -3,13 +3,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ego_tree::{NodeId, Tree};
+use ego_tree::{NodeId, NodeRef, Tree};
 use html5ever::{Attribute, LocalName, Namespace, Prefix, QualName};
 use scraper::node::{Comment, Doctype, Element, ProcessingInstruction, Text};
-use scraper::{ElementRef, Html, Node};
+use scraper::{Html, Node};
 use serde::Serialize;
 
-use crate::dom_query::{self, MatchSelector, QueryMode, QueryState};
+use crate::dom_query::{self, HTML_NS, MatchSelector, QueryMode, QueryState};
 
 /// Bounds the parsed-selector cache, which pages that build selectors from data would grow
 /// without limit.
@@ -59,6 +59,12 @@ pub struct DomState {
     xml_documents: HashSet<NodeId>,
     /// Parsed selectors by source text; `None` caches a selector that does not parse natively.
     selectors: HashMap<String, Option<MatchSelector>>,
+    /// CDATA sections, stored as text for selectors but dropped from HTML serialization.
+    cdata: HashSet<NodeId>,
+    /// `<template>` -> its content fragment, a separate root as in jsdom.
+    template_contents: HashMap<NodeId, NodeId>,
+    /// An element's `is` value, which serialization writes even without an `is` attribute.
+    is_values: HashMap<NodeId, String>,
 }
 
 impl DomState {
@@ -71,6 +77,9 @@ impl DomState {
             id_index: HashMap::new(),
             xml_documents: HashSet::new(),
             selectors: HashMap::new(),
+            cdata: HashSet::new(),
+            template_contents: HashMap::new(),
+            is_values: HashMap::new(),
         }
     }
 
@@ -322,8 +331,27 @@ impl DomState {
             }
         };
         let id = self.arena.orphan(node).id();
+        if node_type == 4 {
+            self.cdata.insert(id);
+        }
         self.mutations += 1;
         self.wire(id)
+    }
+
+    pub fn set_template_contents(&mut self, template: u32, contents: u32) {
+        if let (Some(t), Some(c)) = (self.resolve(template), self.resolve(contents)) {
+            self.template_contents.insert(t, c);
+        }
+    }
+
+    /// An empty `value` clears it, as jsdom skips a falsy `_isValue`.
+    pub fn set_is_value(&mut self, wire: u32, value: &str) {
+        let Some(id) = self.resolve(wire) else { return };
+        if value.is_empty() {
+            self.is_values.remove(&id);
+        } else {
+            self.is_values.insert(id, value.into());
+        }
     }
 
     /// Creates a detached `Document` (JS `createDocument` / `createHTMLDocument` /
@@ -613,23 +641,91 @@ impl DomState {
         }
     }
 
-    /// `outerHTML` of an element node -- html5ever serialization of the arena subtree via
-    /// scraper's `ElementRef`. `None` for a non-element or unknown id.
-    ///
-    /// Also `None` whenever the subtree holds a `<template>` (its content lives in a separate
-    /// fragment) or a `ProcessingInstruction` / `Document` / `Fragment` node (`scraper`'s
-    /// serializer silently drops these instead of erroring -- see its `_ => ()` catch-all), at
-    /// any depth: html5ever's recursion cannot special-case them once started.
-    pub fn serialize(&self, wire: u32) -> Option<String> {
+    /// `innerHTML`, or with `outer` `outerHTML`, of `wire` in an HTML document: what parse5
+    /// writes through jsdom's tree adapter, so names are qualified and processing instructions
+    /// and CDATA are dropped. `scripting` is the document's flag that keeps `<noscript>` raw.
+    pub fn serialize(&self, wire: u32, outer: bool, scripting: bool) -> Option<String> {
         let node = self.arena.get(self.resolve(wire)?)?;
-        if node.descendants().any(|n| match n.value() {
-            Node::ProcessingInstruction(_) | Node::Document | Node::Fragment => true,
-            Node::Element(e) => &e.name.local == "template",
-            _ => false,
-        }) {
-            return None;
+        let mut out = String::new();
+        if outer {
+            self.write_node(node, scripting, &mut out);
+        } else {
+            self.write_children(node, scripting, &mut out);
         }
-        ElementRef::wrap(node).map(|el| el.html())
+        Some(out)
+    }
+
+    fn write_children(&self, node: NodeRef<'_, Node>, scripting: bool, out: &mut String) {
+        let Some(e) = node.value().as_element() else {
+            return self.write_nodes(node, scripting, out);
+        };
+        if is_void(e) {
+            return;
+        }
+        let container = match html_name(e) {
+            Some("template") => self
+                .template_contents
+                .get(&node.id())
+                .and_then(|&c| self.arena.get(c))
+                .unwrap_or(node),
+            _ => node,
+        };
+        self.write_nodes(container, scripting, out);
+    }
+
+    fn write_nodes(&self, parent: NodeRef<'_, Node>, scripting: bool, out: &mut String) {
+        for child in parent.children() {
+            self.write_node(child, scripting, out);
+        }
+    }
+
+    fn write_node(&self, node: NodeRef<'_, Node>, scripting: bool, out: &mut String) {
+        match node.value() {
+            Node::Element(e) => {
+                let name = qualified(&e.name);
+                out.push('<');
+                out.push_str(&name);
+                if let Some(is) = self.is_values.get(&node.id())
+                    && !e.attrs.iter().any(|(k, _)| qualified(k) == "is")
+                {
+                    write_attr(out, "is", is);
+                }
+                for (k, v) in e.attrs.iter() {
+                    write_attr(out, &qualified(k), v);
+                }
+                out.push('>');
+                if !is_void(e) {
+                    self.write_children(node, scripting, out);
+                    out.push_str("</");
+                    out.push_str(&name);
+                    out.push('>');
+                }
+            }
+            Node::Text(t) if !self.cdata.contains(&node.id()) => {
+                let raw = node
+                    .parent()
+                    .and_then(|p| p.value().as_element().and_then(html_name))
+                    .is_some_and(|n| {
+                        RAW_TEXT_ELEMENTS.contains(&n) || (scripting && n == "noscript")
+                    });
+                if raw {
+                    out.push_str(&t.text);
+                } else {
+                    escape(out, &t.text, false);
+                }
+            }
+            Node::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(&c.comment);
+                out.push_str("-->");
+            }
+            Node::Doctype(d) => {
+                out.push_str("<!DOCTYPE ");
+                out.push_str(&d.name);
+                out.push('>');
+            }
+            _ => {}
+        }
     }
 
     /// `data` for a text, comment or processing-instruction node; `None` for anything else.
@@ -672,6 +768,60 @@ impl DomState {
 impl Default for DomState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+const VOID_ELEMENTS: &[&str] = &[
+    "area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input",
+    "keygen", "link", "meta", "param", "source", "track", "wbr",
+];
+
+const RAW_TEXT_ELEMENTS: &[&str] = &[
+    "style",
+    "script",
+    "xmp",
+    "iframe",
+    "noembed",
+    "noframes",
+    "plaintext",
+];
+
+/// The local name of an HTML element without a prefix. parse5 checks the qualified tag name,
+/// so `h:br` is neither void nor raw text.
+fn html_name(e: &Element) -> Option<&str> {
+    (e.name.prefix.is_none() && &*e.name.ns == HTML_NS).then_some(&*e.name.local)
+}
+
+fn is_void(e: &Element) -> bool {
+    html_name(e).is_some_and(|n| VOID_ELEMENTS.contains(&n))
+}
+
+fn qualified(name: &QualName) -> String {
+    match &name.prefix {
+        Some(p) => format!("{p}:{}", name.local),
+        None => name.local.to_string(),
+    }
+}
+
+fn write_attr(out: &mut String, name: &str, value: &str) {
+    out.push(' ');
+    out.push_str(name);
+    out.push_str("=\"");
+    escape(out, value, true);
+    out.push('"');
+}
+
+/// parse5's escaping: `<` and `>` stay raw in attribute values.
+fn escape(out: &mut String, text: &str, attr: bool) {
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '\u{a0}' => out.push_str("&nbsp;"),
+            '"' if attr => out.push_str("&quot;"),
+            '<' if !attr => out.push_str("&lt;"),
+            '>' if !attr => out.push_str("&gt;"),
+            c => out.push(c),
+        }
     }
 }
 
@@ -816,7 +966,7 @@ mod tests {
         assert_eq!(dom.data(kids[0].id).as_deref(), Some("bye"));
         dom.set_data(div, "ignored"); // element -> no-op
         assert_eq!(
-            dom.serialize(div).as_deref(),
+            dom.serialize(div, true, true).as_deref(),
             Some("<div id=\"x\">bye<!-- c --></div>")
         );
         assert_eq!(dom.data(kids[1].id).as_deref(), Some(" c "));
@@ -843,13 +993,19 @@ mod tests {
         let a = child_named(&mut dom, wrapper, "DIV");
 
         assert_eq!(
-            dom.serialize(a).as_deref(),
+            dom.serialize(a, true, true).as_deref(),
             Some(r#"<div id="a" class="b">hi &amp; <span>x</span><br></div>"#),
         );
-        // non-element / unknown id -> None
+        assert_eq!(
+            dom.serialize(a, false, true).as_deref(),
+            Some("hi &amp; <span>x</span><br>"),
+        );
         let text = dom.children(a)[0].id;
-        assert_eq!(dom.serialize(text), None);
-        assert_eq!(dom.serialize(9999), None);
+        assert_eq!(
+            dom.serialize(text, true, true).as_deref(),
+            Some("hi &amp; ")
+        );
+        assert_eq!(dom.serialize(9999, true, true), None);
     }
 
     #[test]
@@ -1077,7 +1233,7 @@ mod tests {
         dom.remove_attr(a, Some(XLINK), "href");
         assert_eq!(dom.attrs(a), vec![plain("id", "p"), plain("href", "plain")]);
         assert_eq!(
-            dom.serialize(a).as_deref(),
+            dom.serialize(a, true, true).as_deref(),
             Some(r#"<a id="p" href="plain"></a>"#)
         );
     }

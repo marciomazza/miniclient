@@ -26,6 +26,8 @@ pub fn dom_extension() -> Extension {
             op_dom_remove_attr(),
             op_dom_set_data(),
             op_dom_serialize(),
+            op_dom_set_template_contents(),
+            op_dom_set_is_value(),
             op_dom_next_sibling(),
             op_dom_prev_sibling(),
             op_dom_get_by_id(),
@@ -176,8 +178,23 @@ pub fn op_dom_set_data(state: &mut OpState, id: u32, #[string] data: &str) {
 
 #[op2]
 #[string]
-pub fn op_dom_serialize(state: &mut OpState, id: u32) -> Option<String> {
-    state.borrow::<DomState>().serialize(id)
+pub fn op_dom_serialize(
+    state: &mut OpState,
+    id: u32,
+    outer: bool,
+    scripting: bool,
+) -> Option<String> {
+    state.borrow::<DomState>().serialize(id, outer, scripting)
+}
+
+#[op2(fast)]
+pub fn op_dom_set_template_contents(state: &mut OpState, template: u32, contents: u32) {
+    dom(state).set_template_contents(template, contents)
+}
+
+#[op2(fast)]
+pub fn op_dom_set_is_value(state: &mut OpState, id: u32, #[string] value: &str) {
+    dom(state).set_is_value(id, value)
 }
 
 #[op2(fast)]
