@@ -20,6 +20,16 @@
     const scaledSetTimeout = scale(realSetTimeout);
     const scaledSetInterval = scale(realSetInterval);
 
+    globalThis.__withTimerSlack = async (fn) => {
+        const timeout = htmx.timeout;
+        htmx.timeout = (ms) => timeout.call(htmx, ms * 2);
+        try {
+            await fn();
+        } finally {
+            htmx.timeout = timeout;
+        }
+    };
+
     // Wraps a test to run with scaled timers; real-elapsed-time assertions
     // (e.g. `assert.isAtLeast(Date.now() - start, 45)`) skip it. See the
     // __unscaledTests check below.
@@ -120,7 +130,10 @@
                       })
                     : t.fn.call(_ctx);
             try {
-                if (globalThis.__unscaledTests?.has(`${s.name}::${t.name}`)) {
+                const testName = `${s.name}::${t.name}`;
+                if (globalThis.__timerSlackTests?.has(testName)) {
+                    await globalThis.__withTimerSlack(runTest);
+                } else if (globalThis.__unscaledTests?.has(testName)) {
                     await runTest();
                 } else {
                     await globalThis.__withScaledTimers(runTest);

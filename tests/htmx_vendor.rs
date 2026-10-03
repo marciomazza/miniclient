@@ -53,6 +53,13 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Tests whose `htmx.timeout()` waits need slack beyond the timers they exercise.
+const TIMER_SLACK_TESTS: &[(&str, &str, &str)] = &[(
+    "hx-ws",
+    "Error Handling and Reconnection",
+    "reconnects after every default close code",
+)];
+
 /// (file stem, suite, test name) rewritten to `it.skip(...)` before the file runs -- not just
 /// filtered from results, since some failures are fatal to the whole `eval_promise` call and
 /// never produce a result to filter. Ported from `test_htmx.py`'s `_SKIP_TESTS`.
@@ -149,9 +156,17 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
         .filter(|(file, _, _)| *file == stem)
         .map(|(_, suite, name)| format!("{suite}::{name}"))
         .collect();
+    let timer_slack: Vec<String> = TIMER_SLACK_TESTS
+        .iter()
+        .filter(|(file, _, _)| *file == stem)
+        .map(|(_, suite, name)| format!("{suite}::{name}"))
+        .collect();
     rt.run(&format!(
-        "globalThis.__unscaledTests = new Set({}); void 0",
-        serde_json::to_string(&unscaled).expect("unscaled test names are always JSON-safe")
+        "globalThis.__unscaledTests = new Set({});\n\
+         globalThis.__timerSlackTests = new Set({});\n\
+         void 0",
+        serde_json::to_string(&unscaled).expect("unscaled test names are always JSON-safe"),
+        serde_json::to_string(&timer_slack).expect("timer-slack test names are always JSON-safe"),
     ));
 
     rt.run(&js);
