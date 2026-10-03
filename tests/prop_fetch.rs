@@ -82,7 +82,7 @@ proptest! {
         let mock = MockFetchBackend::new();
         mock.text(&url, "ok");
         let rt = common::fetch_mock::runtime_with_mock(&mock);
-        let result = rt.eval_async::<String>(&format!("fetch({url:?}).then(r => r.text())"));
+        let result = rt.eval_promise::<String>(&format!("fetch({url:?}).then(r => r.text())"));
         prop_assert_eq!(result, "ok");
     }
 
@@ -93,7 +93,7 @@ proptest! {
         let mock = MockFetchBackend::new();
         mock.text(&url, "results");
         let rt = common::fetch_mock::runtime_with_mock(&mock);
-        let result = rt.eval_async::<String>(&format!("fetch({url:?}).then(r => r.text())"));
+        let result = rt.eval_promise::<String>(&format!("fetch({url:?}).then(r => r.text())"));
         prop_assert_eq!(result, "results");
     }
 
@@ -106,7 +106,7 @@ proptest! {
         let mock = MockFetchBackend::new();
         mock.status(&url, status_code);
         let rt = common::fetch_mock::runtime_with_mock(&mock);
-        let result = rt.eval_async::<Value>(&format!(
+        let result = rt.eval_promise::<Value>(&format!(
             "fetch({url:?}).then(r => ({{ok: r.ok, status: r.status}}))"
         ));
         prop_assert_eq!(result["status"].as_u64(), Some(status_code as u64));
@@ -119,7 +119,7 @@ proptest! {
         let mock = MockFetchBackend::new();
         mock.text(&url, &body);
         let rt = common::fetch_mock::runtime_with_mock(&mock);
-        let result = rt.eval_async::<String>(&format!("fetch({url:?}).then(r => r.text())"));
+        let result = rt.eval_promise::<String>(&format!("fetch({url:?}).then(r => r.text())"));
         prop_assert_eq!(result, body);
     }
 
@@ -132,7 +132,7 @@ proptest! {
         let mock = MockFetchBackend::new();
         mock.text(&url, &text_body);
         let rt = common::fetch_mock::runtime_with_mock(&mock);
-        let result = rt.eval_async::<String>(&format!("fetch({url:?}).then(r => r.text())"));
+        let result = rt.eval_promise::<String>(&format!("fetch({url:?}).then(r => r.text())"));
         prop_assert_eq!(result, text_body);
     }
 
@@ -145,7 +145,7 @@ proptest! {
         let mock = MockFetchBackend::new();
         mock.json(&url, expected.clone());
         let rt = common::fetch_mock::runtime_with_mock(&mock);
-        let result = rt.eval_async::<Value>(&format!("fetch({url:?}).then(r => r.json())"));
+        let result = rt.eval_promise::<Value>(&format!("fetch({url:?}).then(r => r.json())"));
         prop_assert_eq!(result, expected);
     }
 
@@ -156,7 +156,7 @@ proptest! {
         mock.text(&url, "saved");
         let rt = common::fetch_mock::runtime_with_mock(&mock);
         let body_js = serde_json::to_string(&payload).expect("Value serializes to JSON");
-        let result = rt.eval_async::<String>(&format!(
+        let result = rt.eval_promise::<String>(&format!(
             "fetch({url:?}, {{
                method: 'POST',
                headers: {{'content-type': 'application/json'}},
@@ -178,7 +178,7 @@ proptest! {
         mock.text(&url, "ok");
         let rt = common::fetch_mock::runtime_with_mock(&mock);
         let headers_js = serde_json::to_string(&headers).expect("headers serialize to JSON");
-        rt.eval_async::<String>(&format!(
+        rt.eval_promise::<String>(&format!(
             "fetch({url:?}, {{headers: {headers_js}}}).then(r => r.text())"
         ));
         let request = mock.last_request();
@@ -211,7 +211,7 @@ proptest! {
         for (key, value) in &response_headers {
             // `Headers.get` is case-insensitive per spec; iteration key casing is not, so
             // look each header up individually instead of collecting via `forEach`.
-            let actual = rt.eval_async::<Option<String>>(&format!(
+            let actual = rt.eval_promise::<Option<String>>(&format!(
                 "fetch({url:?}).then(r => r.headers.get({key:?}))"
             ));
             prop_assert_eq!(actual, Some(trim_http_whitespace(value).to_string()));

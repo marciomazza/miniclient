@@ -39,7 +39,7 @@ fn script_executed_on_dom_insertion() {
 fn script_with_data_uri_src_executed() {
     // document.write's script is parser-inserted, so it fetches and executes automatically.
     let rt = runtime();
-    let ran = rt.eval_async::<bool>(
+    let ran = rt.eval_promise::<bool>(
         r#"
         const loaded = new Promise(resolve =>
           window.addEventListener('load', resolve, {once: true}),
@@ -63,7 +63,7 @@ fn script_with_external_file_src_executed() {
         dir.to_str().unwrap()
     );
     let rt = Runtime::new("http://localhost/", &mounts);
-    let ran = rt.eval_async::<bool>(
+    let ran = rt.eval_promise::<bool>(
         r#"
         const loaded = new Promise(resolve =>
           window.addEventListener('load', resolve, {once: true}),
@@ -88,7 +88,7 @@ fn dynamically_inserted_defer_script_loads() {
         dir.to_str().unwrap()
     );
     let rt = Runtime::new("http://localhost/", &mounts);
-    let loaded = rt.eval_async::<bool>(
+    let loaded = rt.eval_promise::<bool>(
         r#"
         new Promise((resolve, reject) => {
             const script = document.createElement('script');

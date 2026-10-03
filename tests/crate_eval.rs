@@ -51,19 +51,22 @@ fn eval_sees_earlier_state() {
 }
 
 #[test]
-fn eval_async_resolves_a_promise() {
+fn eval_promise_resolves_a_promise() {
     let rt = runtime();
     assert_eq!(
-        rt.eval_json_async("Promise.resolve().then(() => ({ok: 1}))")
+        rt.eval_json_promise("Promise.resolve().then(() => ({ok: 1}))")
             .as_deref(),
         Some(r#"{"ok":1}"#),
     );
 }
 
 #[test]
-fn eval_async_returns_a_plain_value_too() {
+fn eval_promise_returns_a_plain_value_too() {
     let rt = runtime();
-    assert_eq!(rt.eval_json_async("'plain'").as_deref(), Some(r#""plain""#));
+    assert_eq!(
+        rt.eval_json_promise("'plain'").as_deref(),
+        Some(r#""plain""#)
+    );
 }
 
 #[test]
@@ -80,7 +83,7 @@ fn a_throw_becomes_a_javascript_error() {
 fn a_rejected_promise_becomes_a_javascript_error() {
     let rt = runtime();
     let (name, message, _) =
-        js_error(rt.try_eval_async("Promise.reject(new RangeError('too far'))"));
+        js_error(rt.try_eval_promise("Promise.reject(new RangeError('too far'))"));
     assert_eq!(name, "RangeError");
     assert_eq!(message, "too far");
 }

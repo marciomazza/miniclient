@@ -373,7 +373,7 @@ fn apply_navigation_mode(history_json: &str, nav: &ops::PendingNavigation) -> St
 
 /// Polls `resolve` to completion the same way a plain `.await` on `with_event_loop_promise`
 /// would, but also drains `rx` in between polls: a Python callback invoked from an in-flight op
-/// (e.g. a mocked fetch transport awaited by `op_fetch`) can call back into `eval`/`eval_async`
+/// (e.g. a mocked fetch transport awaited by `op_fetch`) can call back into another `eval`
 /// on the same runtime without the isolate thread deadlocking on itself, since the command loop
 /// no longer has to fully finish this eval before it can service another one.
 async fn run_with_interleaved_commands<F>(
@@ -1026,10 +1026,10 @@ mod settle_regression {
         rt.send_eval("Promise.resolve(1)".into(), Wait::Settle)
             .blocking_recv()
             .expect("channel must not drop")
-            .expect("eval_async must not error");
+            .expect("settled eval must not error");
         assert!(
             started.elapsed() < std::time::Duration::from_secs(5),
-            "eval_async waited on a cleared timer's original delay instead of returning immediately"
+            "settled eval waited on a cleared timer's original delay instead of returning immediately"
         );
     }
 

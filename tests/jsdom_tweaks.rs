@@ -158,8 +158,7 @@ fn goto(rt: &Runtime, url: &str) {
 }
 
 fn history_go(rt: &Runtime, delta: i32) {
-    // run_async already drains to idle natively -- no settle tracker to await.
-    rt.run_async(&format!("history.go({delta})"));
+    rt.run(&format!("history.go({delta})"));
 }
 
 fn href(rt: &Runtime) -> String {
@@ -243,7 +242,7 @@ fn location_replace_does_not_grow_history() {
 fn document_write_does_not_add_history_entry() {
     let rt = runtime();
     let before = rt.eval::<i32>("history.length");
-    rt.run_async("__mini.documentWrite('<p>x</p>')");
+    rt.run_promise("__mini.documentWrite('<p>x</p>')");
     assert_eq!(rt.eval::<i32>("history.length"), before);
 }
 

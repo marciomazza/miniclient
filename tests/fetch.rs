@@ -10,7 +10,7 @@ fn fetch_reads_text() {
     mock.text("http://api.example.com/hello", "hello world");
     let rt = runtime_with_mock(&mock);
     assert_eq!(
-        rt.eval_async::<String>("fetch('http://api.example.com/hello').then(r => r.text())"),
+        rt.eval_promise::<String>("fetch('http://api.example.com/hello').then(r => r.text())"),
         "hello world",
     );
 }
@@ -24,7 +24,7 @@ fn fetch_reads_json() {
     );
     let rt = runtime_with_mock(&mock);
     assert_eq!(
-        rt.eval_async::<Value>("fetch('http://api.example.com/data').then(r => r.json())"),
+        rt.eval_promise::<Value>("fetch('http://api.example.com/data').then(r => r.json())"),
         json!({"name": "Alice", "age": 30}),
     );
 }
@@ -35,7 +35,7 @@ fn fetch_status_ok() {
     mock.status("http://api.example.com/ok", 200);
     let rt = runtime_with_mock(&mock);
     assert_eq!(
-        rt.eval_async::<u16>("fetch('http://api.example.com/ok').then(r => r.status)"),
+        rt.eval_promise::<u16>("fetch('http://api.example.com/ok').then(r => r.status)"),
         200,
     );
 }
@@ -46,7 +46,7 @@ fn fetch_does_not_throw_on_404() {
     mock.status("http://api.example.com/missing", 404);
     let rt = runtime_with_mock(&mock);
     assert_eq!(
-        rt.eval_async::<Value>(
+        rt.eval_promise::<Value>(
             "fetch('http://api.example.com/missing').then(r => ({ok: r.ok, status: r.status}))",
         ),
         json!({"ok": false, "status": 404}),
@@ -60,7 +60,7 @@ fn fetch_follows_redirect() {
     mock.text("http://api.example.com/new", "moved");
     let rt = runtime_with_mock(&mock);
     assert_eq!(
-        rt.eval_async::<Value>(
+        rt.eval_promise::<Value>(
             "fetch('http://api.example.com/old').then(async r => ({
                url: r.url, status: r.status, body: await r.text(),
              }))",
@@ -75,7 +75,7 @@ fn fetch_uses_the_requested_method() {
         let mock = MockFetchBackend::new();
         mock.text("http://api.example.com/resource", method);
         let rt = runtime_with_mock(&mock);
-        let body = rt.eval_async::<String>(&format!(
+        let body = rt.eval_promise::<String>(&format!(
             "fetch('http://api.example.com/resource', {{method: '{method}'}}).then(r =>
   r.text(),
 )",
@@ -90,7 +90,7 @@ fn fetch_forwards_custom_request_headers() {
     let mock = MockFetchBackend::new();
     mock.text("http://api.example.com/auth", "ok");
     let rt = runtime_with_mock(&mock);
-    rt.eval_async::<String>(
+    rt.eval_promise::<String>(
         "fetch('http://api.example.com/auth', {
   headers: {Authorization: 'Bearer token123'},
 }).then(r => r.text())",
@@ -111,7 +111,7 @@ fn fetch_exposes_response_headers_to_js() {
         b"{}",
     );
     let rt = runtime_with_mock(&mock);
-    let ct = rt.eval_async::<String>(
+    let ct = rt.eval_promise::<String>(
         "fetch('http://api.example.com/typed').then(r => r.headers.get('content-type'))",
     );
     assert!(ct.contains("application/json"), "content-type was {ct:?}");
@@ -122,7 +122,7 @@ fn fetch_sends_a_post_json_body() {
     let mock = MockFetchBackend::new();
     mock.text("http://api.example.com/echo", "saved");
     let rt = runtime_with_mock(&mock);
-    let body = rt.eval_async::<String>(
+    let body = rt.eval_promise::<String>(
         "fetch('http://api.example.com/echo', {
   method: 'POST',
   headers: {'content-type': 'application/json'},
@@ -141,7 +141,7 @@ fn fetch_handles_an_empty_body() {
     mock.reply("http://api.example.com/empty", 204, &[], b"");
     let rt = runtime_with_mock(&mock);
     assert_eq!(
-        rt.eval_async::<u16>("fetch('http://api.example.com/empty').then(r => r.status)"),
+        rt.eval_promise::<u16>("fetch('http://api.example.com/empty').then(r => r.status)"),
         204,
     );
 }
@@ -151,7 +151,7 @@ fn fetch_abort_cancels_an_in_flight_request() {
     let mock = MockFetchBackend::new();
     mock.hang("http://api.example.com/slow");
     let rt = runtime_with_mock(&mock);
-    let outcome = rt.eval_async::<String>(
+    let outcome = rt.eval_promise::<String>(
         r#"
         (async () => {
           const controller = new AbortController();

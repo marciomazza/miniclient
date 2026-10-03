@@ -54,7 +54,7 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
 ];
 
 /// (file stem, suite, test name) rewritten to `it.skip(...)` before the file runs -- not just
-/// filtered from results, since some failures are fatal to the whole `eval_async` call and
+/// filtered from results, since some failures are fatal to the whole `eval_promise` call and
 /// never produce a result to filter. Ported from `test_htmx.py`'s `_SKIP_TESTS`.
 const SKIP_TESTS: &[(&str, &str, &str)] = &[(
     "hx-swap",
@@ -115,7 +115,7 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
         .expect("fetch backend installed");
 
     // document.write's script is parser-inserted, so it fetches and executes automatically.
-    rt.run_async(
+    rt.run_promise(
         r#"
         const loaded = new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
         document.open();
@@ -153,7 +153,7 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
     ));
 
     rt.run(&js);
-    let results: Vec<serde_json::Value> = rt.eval_async("__runAllTests()");
+    let results: Vec<serde_json::Value> = rt.eval_promise("__runAllTests()");
 
     results
         .into_iter()

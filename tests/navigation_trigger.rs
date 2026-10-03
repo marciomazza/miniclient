@@ -39,7 +39,7 @@ fn navigation_trigger_navigates_the_realm_mid_promise_chain() {
     let rt = runtime_with_route("http://localhost/next");
     rt.run("document.title = 'before'; void 0");
 
-    rt.run_async(
+    rt.run_promise(
         "(async () => { \
            await Promise.resolve();\
            Deno.core.ops.op_request_navigation('http://localhost/next', 'push')\

@@ -1,5 +1,5 @@
 //! Shared eval helpers for the integration tests. `send_eval` hands back the JSON text of the
-//! result; `eval`/`eval_async` decode that straight into the Rust value a test asserts on, and
+//! result; `eval`/`eval_promise` decode that straight into the Rust value a test asserts on, and
 //! `eval_json` keeps the raw JSON text for tests that compare on JSON shape.
 
 #![allow(dead_code)]
@@ -16,24 +16,23 @@ pub fn runtime() -> Runtime {
     Runtime::new("http://localhost/", "{}")
 }
 
-/// Lets tests write `rt.eval::<T>(src)` / `rt.eval_async::<T>(src)`. Each snippet is wrapped in a
+/// Lets tests write `rt.eval::<T>(src)` / `rt.eval_promise::<T>(src)`. Each snippet is wrapped in a
 /// block so its `let`/`const`/`class` bindings don't leak into the shared global scope — one
 /// `Runtime` can run many snippets that all declare the same names. The block's completion value
 /// is still returned, so keep the last line an expression.
 pub trait EvalExt {
     fn eval<T: serde::de::DeserializeOwned>(&self, src: &str) -> T;
-    fn eval_async<T: serde::de::DeserializeOwned>(&self, src: &str) -> T;
+    fn eval_promise<T: serde::de::DeserializeOwned>(&self, src: &str) -> T;
     /// Raw JSON text of a successful eval (`None` for `undefined`/`null`).
     fn eval_json(&self, src: &str) -> Option<String>;
-    fn eval_json_async(&self, src: &str) -> Option<String>;
-    /// A sync eval run only for its side effect; panics if it threw or was refused.
+    fn eval_json_promise(&self, src: &str) -> Option<String>;
+    /// An eval run only for its side effect; panics if it threw or was refused.
     fn run(&self, src: &str);
-    /// An async eval (Promise-returning scripts resolved, event loop pumped) run only for its
-    /// side effect; panics if it threw or was refused.
-    fn run_async(&self, src: &str);
+    /// Resolves a returned promise, but does not wait for unrelated page work.
+    fn run_promise(&self, src: &str);
     /// The raw outcome, for tests that assert on the error variant.
     fn try_eval(&self, src: &str) -> EvalOutcome;
-    fn try_eval_async(&self, src: &str) -> EvalOutcome;
+    fn try_eval_promise(&self, src: &str) -> EvalOutcome;
 }
 
 impl EvalExt for Runtime {
@@ -41,7 +40,7 @@ impl EvalExt for Runtime {
         decode(eval_blocking(self, src, Wait::None))
     }
 
-    fn eval_async<T: serde::de::DeserializeOwned>(&self, src: &str) -> T {
+    fn eval_promise<T: serde::de::DeserializeOwned>(&self, src: &str) -> T {
         decode(eval_blocking(self, src, Wait::Promise))
     }
 
@@ -49,7 +48,7 @@ impl EvalExt for Runtime {
         json(eval_blocking(self, src, Wait::None))
     }
 
-    fn eval_json_async(&self, src: &str) -> Option<String> {
+    fn eval_json_promise(&self, src: &str) -> Option<String> {
         json(eval_blocking(self, src, Wait::Promise))
     }
 
@@ -57,7 +56,7 @@ impl EvalExt for Runtime {
         eval_blocking(self, src, Wait::None).expect("eval succeeded");
     }
 
-    fn run_async(&self, src: &str) {
+    fn run_promise(&self, src: &str) {
         eval_blocking(self, src, Wait::Promise).expect("eval succeeded");
     }
 
@@ -65,7 +64,7 @@ impl EvalExt for Runtime {
         eval_blocking(self, src, Wait::None)
     }
 
-    fn try_eval_async(&self, src: &str) -> EvalOutcome {
+    fn try_eval_promise(&self, src: &str) -> EvalOutcome {
         eval_blocking(self, src, Wait::Promise)
     }
 }

@@ -183,7 +183,7 @@ fn performance_real_impl() {
 #[test]
 fn performance_observer_fires() {
     let rt = runtime();
-    let seen = rt.eval_async::<String>(
+    let seen = rt.eval_promise::<String>(
         r#"
         (async () => {
           const seen = [];
@@ -204,18 +204,18 @@ fn performance_observer_fires() {
 fn set_timeout_fires_passes_args_and_keeps_order() {
     let rt = runtime();
     assert_eq!(
-        rt.eval_async::<String>("new Promise(resolve => setTimeout(() => resolve('ok'), 10))",),
+        rt.eval_promise::<String>("new Promise(resolve => setTimeout(() => resolve('ok'), 10))",),
         "ok",
     );
     assert_eq!(
-        rt.eval_json_async("new Promise(resolve => setTimeout(() => resolve(42), 0))",)
+        rt.eval_json_promise("new Promise(resolve => setTimeout(() => resolve(42), 0))",)
             .as_deref(),
         Some("42"),
     );
     let js = "new Promise(resolve => setTimeout((a, b) => resolve(a + b), 0, 3, 4))";
-    assert_eq!(rt.eval_json_async(js).as_deref(), Some("7"));
+    assert_eq!(rt.eval_json_promise(js).as_deref(), Some("7"));
     assert_eq!(
-        rt.eval_json_async(
+        rt.eval_json_promise(
             r#"
             new Promise(resolve => {
               const log = [];
@@ -234,7 +234,7 @@ fn set_timeout_fires_passes_args_and_keeps_order() {
 #[test]
 fn clear_timeout_cancels() {
     let rt = runtime();
-    assert!(!rt.eval_async::<bool>(
+    assert!(!rt.eval_promise::<bool>(
         r#"
             new Promise(resolve => {
               let fired = false;
@@ -250,7 +250,7 @@ fn clear_timeout_cancels() {
 fn set_interval_fires_repeatedly_then_clears() {
     let rt = runtime();
     assert_eq!(
-        rt.eval_json_async(
+        rt.eval_json_promise(
             r#"
             new Promise(resolve => {
               let count = 0;
@@ -264,7 +264,7 @@ fn set_interval_fires_repeatedly_then_clears() {
         .as_deref(),
         Some("3"),
     );
-    assert!(rt.eval_async::<bool>(
+    assert!(rt.eval_promise::<bool>(
         r#"
             new Promise(resolve => {
               let count = 0;

@@ -11,7 +11,7 @@ fn response_accepts_the_global_stream() {
     // `stream/web` bundle alias re-exports; a Response built from the global ReadableStream must
     // round-trip its bytes (guards the shim-identity trap).
     let rt = common::runtime();
-    let bytes = rt.eval_async::<Vec<u8>>(
+    let bytes = rt.eval_promise::<Vec<u8>>(
         r#"
         (async () => {
           const stream = new ReadableStream({
@@ -40,7 +40,7 @@ fn hx_multipart_parses_chunked_straddled_boundaries() {
     // htmx.registerExtension(...) at top level and throws if `htmx` isn't defined yet. Both
     // tags in one document.write call: a second call made while the parser is still paused on
     // the first script's fetch never resumes it (a jsdom bug, not just an ordering nicety).
-    rt.run_async(
+    rt.run_promise(
         r#"
         const loaded = new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
         document.open();
@@ -52,7 +52,7 @@ fn hx_multipart_parses_chunked_straddled_boundaries() {
         loaded.then(() => true);
     "#,
     );
-    let parts = rt.eval_async::<Vec<String>>(
+    let parts = rt.eval_promise::<Vec<String>>(
         r#"
         (async () => {
           const CRLF = String.fromCharCode(13, 10);

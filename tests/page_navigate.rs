@@ -43,7 +43,7 @@ fn navigate_reinstalls_the_fetch_backend() {
 
     let body: String = page
         .runtime()
-        .eval_async("fetch('http://localhost/ok').then(r => r.text())");
+        .eval_promise("fetch('http://localhost/ok').then(r => r.text())");
     assert_eq!(body, "hello");
 }
 
