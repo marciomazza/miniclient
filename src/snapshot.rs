@@ -40,7 +40,7 @@ mod tests {
         assert_eq!(
             eval_in_snapshot(
                 crate::snapshot::DEFAULT_SNAPSHOT,
-                "String(Deno.core.ops.op_dom_create(1, 'div', ''))"
+                "String(Deno.core.ops.op_dom_create(1, 'div', 'html', ''))"
             ),
             "0"
         );

@@ -25,6 +25,15 @@ pub fn dom_extension() -> Extension {
             op_dom_next_sibling(),
             op_dom_prev_sibling(),
             op_dom_get_by_id(),
+            op_dom_parent_id(),
+            op_dom_first_child(),
+            op_dom_last_child(),
+            op_dom_child_count(),
+            op_dom_index(),
+            op_dom_following(),
+            op_dom_preceding(),
+            op_dom_child_ids(),
+            op_dom_tree_ids(),
         ]),
         op_state_fn: Some(Box::new(|state| state.put(DomState::new()))),
         ..Default::default()
@@ -45,6 +54,16 @@ fn wire_or_none(o: Option<u32>) -> i32 {
     o.map(|w| w as i32).unwrap_or(-1)
 }
 
+/// Batched reads fill a caller-owned `Uint32Array` instead of returning a JS array, so they
+/// stay fast ops. The return value is the full length: when it exceeds `out`, nothing usable
+/// was written and the caller retries with a bigger buffer.
+fn fill(out: &mut [u32], wires: Vec<u32>) -> u32 {
+    if let Some(dst) = out.get_mut(..wires.len()) {
+        dst.copy_from_slice(&wires);
+    }
+    wires.len() as u32
+}
+
 #[op2]
 #[serde]
 pub fn op_dom_children(state: &mut OpState, id: u32) -> Vec<NodeRecord> {
@@ -63,15 +82,17 @@ pub fn op_dom_attrs(state: &mut OpState, id: u32) -> Vec<AttrRecord> {
     state.borrow::<DomState>().attrs(id)
 }
 
-/// `name` carries the tag name for elements, the data for text/comment nodes.
+/// `name` carries the local name for elements, the data for text/comment nodes, the PI
+/// target or the doctype name.
 #[op2(fast)]
 pub fn op_dom_create(
     state: &mut OpState,
     node_type: u8,
     #[string] name: &str,
     #[string] ns: &str,
+    #[string] prefix: &str,
 ) -> u32 {
-    dom(state).create(node_type, opt(name), opt(ns))
+    dom(state).create(node_type, opt(name), opt(ns), opt(prefix))
 }
 
 #[op2(fast)]
@@ -133,4 +154,50 @@ pub fn op_dom_prev_sibling(state: &mut OpState, id: u32) -> i32 {
 #[op2(fast)]
 pub fn op_dom_get_by_id(state: &mut OpState, scope: u32, #[string] id: &str) -> i32 {
     wire_or_none(dom(state).get_by_id(scope, id))
+}
+
+#[op2(fast)]
+pub fn op_dom_parent_id(state: &mut OpState, id: u32) -> i32 {
+    wire_or_none(dom(state).parent_wire(id))
+}
+
+#[op2(fast)]
+pub fn op_dom_first_child(state: &mut OpState, id: u32) -> i32 {
+    wire_or_none(dom(state).first_child(id))
+}
+
+#[op2(fast)]
+pub fn op_dom_last_child(state: &mut OpState, id: u32) -> i32 {
+    wire_or_none(dom(state).last_child(id))
+}
+
+#[op2(fast)]
+pub fn op_dom_child_count(state: &mut OpState, id: u32) -> u32 {
+    state.borrow::<DomState>().child_count(id)
+}
+
+#[op2(fast)]
+pub fn op_dom_index(state: &mut OpState, id: u32) -> i32 {
+    wire_or_none(state.borrow::<DomState>().index(id))
+}
+
+/// `root` is `-1` for an unbounded walk.
+#[op2(fast)]
+pub fn op_dom_following(state: &mut OpState, id: u32, root: i32, skip_children: bool) -> i32 {
+    wire_or_none(dom(state).following(id, u32::try_from(root).ok(), skip_children))
+}
+
+#[op2(fast)]
+pub fn op_dom_preceding(state: &mut OpState, id: u32, root: i32) -> i32 {
+    wire_or_none(dom(state).preceding(id, u32::try_from(root).ok()))
+}
+
+#[op2(fast)]
+pub fn op_dom_child_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32]) -> u32 {
+    fill(out, dom(state).child_wires(id))
+}
+
+#[op2(fast)]
+pub fn op_dom_tree_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32]) -> u32 {
+    fill(out, dom(state).tree_wires(id))
 }

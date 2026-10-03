@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use ego_tree::{NodeId, Tree};
 use html5ever::{Attribute, LocalName, Namespace, Prefix, QualName};
-use scraper::node::{Comment, Element, Text};
+use scraper::node::{Comment, Doctype, Element, ProcessingInstruction, Text};
 use scraper::{ElementRef, Html, Node};
 use serde::Serialize;
 
@@ -197,21 +197,38 @@ impl DomState {
     }
 
     /// Creates a detached node (JS `createElement` / `createTextNode` / `createComment` /
-    /// `createDocumentFragment`) as an arena orphan and returns its wire id. `name` / `ns`
-    /// are only read for elements; `ns` accepts the short forms `ns_short` emits.
-    pub fn create(&mut self, node_type: u8, name: Option<&str>, ns: Option<&str>) -> u32 {
+    /// `createDocumentFragment`) as an arena orphan and returns its wire id. `name` is the
+    /// element's local name, kept as given, the text/comment data, the PI target or the
+    /// doctype name. `ns` / `prefix` are only read for elements; `ns` accepts the short forms
+    /// `ns_short` emits, and `None` is the null namespace (`createElementNS(null, ...)`).
+    pub fn create(
+        &mut self,
+        node_type: u8,
+        name: Option<&str>,
+        ns: Option<&str>,
+        prefix: Option<&str>,
+    ) -> u32 {
+        let name = name.unwrap_or_default();
         let node = match node_type {
-            3 => Node::Text(Text {
-                text: name.unwrap_or_default().into(),
+            // CDATA sections have no scraper node of their own; they are text to selectors.
+            3 | 4 => Node::Text(Text { text: name.into() }),
+            7 => Node::ProcessingInstruction(ProcessingInstruction {
+                target: name.into(),
+                data: "".into(),
             }),
             8 => Node::Comment(Comment {
-                comment: name.unwrap_or_default().into(),
+                comment: name.into(),
+            }),
+            10 => Node::Doctype(Doctype {
+                name: name.into(),
+                public_id: "".into(),
+                system_id: "".into(),
             }),
             11 => Node::Fragment,
             // element -- anything else is a caller bug, treat as element
             _ => {
-                let local = LocalName::from(name.unwrap_or_default().to_ascii_lowercase());
-                let qual = QualName::new(None, ns_full(ns), local);
+                let ns = ns.map(|n| ns_full(Some(n))).unwrap_or_default();
+                let qual = QualName::new(prefix.map(Prefix::from), ns, LocalName::from(name));
                 Node::Element(Element::new(qual, Vec::new()))
             }
         };
@@ -358,6 +375,93 @@ impl DomState {
     pub fn parent_wire(&mut self, wire: u32) -> Option<u32> {
         let hit = self.arena.get(self.resolve(wire)?)?.parent()?.id();
         Some(self.wire(hit))
+    }
+
+    pub fn first_child(&mut self, wire: u32) -> Option<u32> {
+        let hit = self.arena.get(self.resolve(wire)?)?.first_child()?.id();
+        Some(self.wire(hit))
+    }
+
+    pub fn last_child(&mut self, wire: u32) -> Option<u32> {
+        let hit = self.arena.get(self.resolve(wire)?)?.last_child()?.id();
+        Some(self.wire(hit))
+    }
+
+    pub fn child_count(&self, wire: u32) -> u32 {
+        self.resolve(wire)
+            .and_then(|id| self.arena.get(id))
+            .map_or(0, |n| n.children().count() as u32)
+    }
+
+    /// Position among its siblings; `None` for a node without a parent.
+    pub fn index(&self, wire: u32) -> Option<u32> {
+        let node = self.arena.get(self.resolve(wire)?)?;
+        node.parent()?;
+        Some(node.prev_siblings().count() as u32)
+    }
+
+    pub fn last_inclusive_descendant(&mut self, wire: u32) -> Option<u32> {
+        let mut node = self.arena.get(self.resolve(wire)?)?;
+        while let Some(last) = node.last_child() {
+            node = last;
+        }
+        let hit = node.id();
+        Some(self.wire(hit))
+    }
+
+    /// Next node in tree order, never leaving `root`'s subtree; `skip_children` jumps over
+    /// `wire`'s own descendants.
+    pub fn following(&mut self, wire: u32, root: Option<u32>, skip_children: bool) -> Option<u32> {
+        let root = root.and_then(|r| self.resolve(r));
+        let node = self.arena.get(self.resolve(wire)?)?;
+        let hit = match node.first_child().filter(|_| !skip_children) {
+            Some(child) => child.id(),
+            None => std::iter::once(node)
+                .chain(node.ancestors())
+                .take_while(|n| Some(n.id()) != root)
+                .find_map(|n| n.next_sibling())?
+                .id(),
+        };
+        Some(self.wire(hit))
+    }
+
+    /// Previous node in tree order, `None` once `root` is reached.
+    pub fn preceding(&mut self, wire: u32, root: Option<u32>) -> Option<u32> {
+        let id = self.resolve(wire)?;
+        if root.and_then(|r| self.resolve(r)) == Some(id) {
+            return None;
+        }
+        let node = self.arena.get(id)?;
+        match node.prev_sibling() {
+            Some(prev) => {
+                let prev = self.wire(prev.id());
+                self.last_inclusive_descendant(prev)
+            }
+            None => {
+                let parent = node.parent()?.id();
+                Some(self.wire(parent))
+            }
+        }
+    }
+
+    pub fn child_wires(&mut self, wire: u32) -> Vec<u32> {
+        self.walk_wires(wire, |n| n.children().map(|c| c.id()).collect())
+    }
+
+    /// `wire` and its descendants, in tree order.
+    pub fn tree_wires(&mut self, wire: u32) -> Vec<u32> {
+        self.walk_wires(wire, |n| n.descendants().map(|c| c.id()).collect())
+    }
+
+    fn walk_wires(
+        &mut self,
+        wire: u32,
+        walk: impl FnOnce(ego_tree::NodeRef<Node>) -> Vec<NodeId>,
+    ) -> Vec<u32> {
+        let Some(node) = self.resolve(wire).and_then(|id| self.arena.get(id)) else {
+            return Vec::new();
+        };
+        walk(node).into_iter().map(|id| self.wire(id)).collect()
     }
 
     #[cfg(test)]
@@ -615,24 +719,24 @@ mod tests {
     fn create_orphans_round_trip_through_classify() {
         let mut dom = DomState::new();
 
-        let div = dom.create(1, Some("div"), None);
+        let div = dom.create(1, Some("div"), Some("html"), None);
         assert!(dom.attrs(div).is_empty());
         let rec = dom.nodes(&[div]).pop().unwrap();
         assert_eq!(rec.node_type, 1);
         assert_eq!(rec.name.as_deref(), Some("DIV"));
         assert_eq!(rec.ns.as_deref(), Some("html"));
 
-        let svg = dom.create(1, Some("svg"), Some("svg"));
+        let svg = dom.create(1, Some("svg"), Some("svg"), None);
         assert_eq!(dom.nodes(&[svg]).pop().unwrap().ns.as_deref(), Some("svg"));
 
-        let text = dom.create(3, Some("hello"), None);
+        let text = dom.create(3, Some("hello"), None, None);
         assert_eq!(dom.data(text).as_deref(), Some("hello"));
         assert_eq!(dom.nodes(&[text]).pop().unwrap().node_type, 3);
 
-        let comment = dom.create(8, Some(" c "), None);
+        let comment = dom.create(8, Some(" c "), None, None);
         assert_eq!(dom.data(comment).as_deref(), Some(" c "));
 
-        let frag = dom.create(11, None, None);
+        let frag = dom.create(11, None, None, None);
         assert_eq!(dom.nodes(&[frag]).pop().unwrap().node_type, 11);
 
         // orphans: no parent, distinct wire ids
@@ -662,8 +766,8 @@ mod tests {
         let wrapper = dom.children(roots[0].id)[0].id;
         let a = child_named(&mut dom, wrapper, "DIV");
 
-        let span = dom.create(1, Some("span"), None);
-        let text = dom.create(3, Some("hi"), None);
+        let span = dom.create(1, Some("span"), Some("html"), None);
+        let text = dom.create(3, Some("hi"), None, None);
 
         dom.insert(a, span, None);
         assert_eq!(
@@ -683,7 +787,7 @@ mod tests {
         assert_eq!(dom.parent_wire(span).unwrap(), a);
 
         // moving span to a fresh parent detaches it from `a`
-        let b = dom.create(1, Some("b"), None);
+        let b = dom.create(1, Some("b"), Some("html"), None);
         dom.insert(b, span, None);
         assert_eq!(
             dom.children(a).iter().map(|r| r.id).collect::<Vec<_>>(),
@@ -692,8 +796,8 @@ mod tests {
         assert_eq!(dom.parent_wire(span).unwrap(), b);
 
         // an orphan `before` reference falls back to append rather than panicking
-        let orphan = dom.create(1, Some("i"), None);
-        let late = dom.create(1, Some("u"), None);
+        let orphan = dom.create(1, Some("i"), Some("html"), None);
+        let late = dom.create(1, Some("u"), Some("html"), None);
         dom.insert(a, late, Some(orphan));
         assert_eq!(
             dom.children(a).iter().map(|r| r.id).collect::<Vec<_>>(),
@@ -810,14 +914,14 @@ mod tests {
         );
 
         // a namespaced `id` is not the element's id
-        let html = dom.create(1, Some("div"), None);
+        let html = dom.create(1, Some("div"), Some("html"), None);
         dom.insert(svg, html, None);
         dom.set_attr(html, Some(XLINK), Some("xlink"), "id", "ns-id");
         assert_eq!(dom.get_by_id(svg, "ns-id"), None);
         assert_eq!(dom.get_by_id(svg, "p"), Some(a));
 
         // only elements carry an id
-        let text = dom.create(3, Some("t"), None);
+        let text = dom.create(3, Some("t"), None, None);
         dom.insert(svg, text, None);
         dom.set_attr(text, None, None, "id", "on-text");
         assert_eq!(dom.get_by_id(svg, "on-text"), None);
@@ -839,7 +943,79 @@ mod tests {
         assert_eq!(dom.is_html_document(parsed), Some(true));
         assert_eq!(dom.is_html_document(html), Some(true));
         assert_eq!(dom.is_html_document(xml), Some(false));
-        let div = dom.create(1, Some("div"), None);
+        let div = dom.create(1, Some("div"), Some("html"), None);
         assert_eq!(dom.is_html_document(div), None);
+    }
+
+    #[test]
+    fn create_keeps_name_namespace_and_prefix() {
+        let mut dom = DomState::new();
+        let fo = dom.create(1, Some("foreignObject"), Some("svg"), None);
+        let bare = dom.create(1, Some("Item"), None, Some("x"));
+        let el = |dom: &DomState, w: u32| match dom
+            .arena
+            .get(dom.resolve(w).unwrap())
+            .unwrap()
+            .value()
+        {
+            Node::Element(e) => e.name.clone(),
+            _ => panic!("not an element"),
+        };
+        assert_eq!(&*el(&dom, fo).local, "foreignObject");
+        let q = el(&dom, bare);
+        assert_eq!(
+            (&*q.local, q.ns.is_empty(), q.prefix.as_deref()),
+            ("Item", true, Some("x"))
+        );
+
+        let pi = dom.create(7, Some("xml-stylesheet"), None, None);
+        let doctype = dom.create(10, Some("html"), None, None);
+        let cdata = dom.create(4, None, None, None);
+        let types: Vec<u8> = dom
+            .nodes(&[pi, doctype, cdata])
+            .iter()
+            .map(|r| r.node_type)
+            .collect();
+        assert_eq!(types, vec![7, 10, 3]);
+    }
+
+    #[test]
+    fn tree_walks_follow_tree_order() {
+        let mut dom = DomState::new();
+        // root(a(b, c(d)), e)
+        let mk = |dom: &mut DomState| dom.create(1, Some("x"), Some("html"), None);
+        let (root, a, b, c, d, e) = (
+            mk(&mut dom),
+            mk(&mut dom),
+            mk(&mut dom),
+            mk(&mut dom),
+            mk(&mut dom),
+            mk(&mut dom),
+        );
+        dom.insert(root, a, None);
+        dom.insert(a, b, None);
+        dom.insert(a, c, None);
+        dom.insert(c, d, None);
+        dom.insert(root, e, None);
+
+        assert_eq!(dom.tree_wires(root), vec![root, a, b, c, d, e]);
+        assert_eq!(dom.child_wires(a), vec![b, c]);
+        assert_eq!(
+            (dom.first_child(a), dom.last_child(a), dom.parent_wire(d)),
+            (Some(b), Some(c), Some(c))
+        );
+        assert_eq!(
+            (dom.child_count(root), dom.index(c), dom.index(root)),
+            (2, Some(1), None)
+        );
+        assert_eq!(dom.last_inclusive_descendant(a), Some(d));
+
+        assert_eq!(dom.following(b, None, false), Some(c));
+        assert_eq!(dom.following(d, None, false), Some(e));
+        assert_eq!(dom.following(a, None, true), Some(e));
+        assert_eq!(dom.following(d, Some(a), false), None);
+        assert_eq!(dom.preceding(e, None), Some(d));
+        assert_eq!(dom.preceding(b, None), Some(a));
+        assert_eq!(dom.preceding(a, Some(a)), None);
     }
 }

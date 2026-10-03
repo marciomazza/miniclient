@@ -1,4 +1,4 @@
-# fork: knsnovpymlnm 05430e3d4e08
+# fork: zwzyluxlnptp 1648e875f966
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -332,6 +332,398 @@ index 270a6209f5..dfff87ed5a 100644
  
    return sheetImpl;
  };
+diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
+index 7eb8408fc8..e52201c70d 100644
+--- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
++++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
+@@ -6,31 +6,179 @@ function wire(node) {
+ 
+ const NODE_DOCUMENT_POSITION = require("../node-document-position");
+ 
+-// DOM links are allocated only when a node joins a tree or gains children. In
+-// particular, reading the tree must not allocate storage for Attr or new nodes.
+-// Insertion callers provide detached children. Mutations here only change links:
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++
++// The tree lives in miniclient's native arena, so the arena is the only structural store.
++// Nodes cross the boundary as wire ids: `impls[wire]` is the impl, `node._wire` its slot.
++// A slot is only allocated when a node joins a tree or gains children, so reading the tree
++// never allocates one for an Attr or a new node. Mutations here only change links:
+ // NodeImpl handles validation, adoption, ranges, observers, slots, and reactions.
+-class Links {
+-  parent = null;
+-  previousSibling = null;
+-  nextSibling = null;
+-  firstChild = null;
+-  lastChild = null;
+-  childCount = 0;
+-  // null: append-time indexes are valid; undefined: they need rebuilding;
+-  // array: a lazily indexed prefix of the children.
+-  cachedChildren = null;
+-  cachedIndex = -1;
+-}
+-
+-function ensureLinks(node) {
+-  const data = node._links;
+-  if (data) {
+-    return data;
+-  }
+-  node._links = new Links();
+-  return node._links;
+-}
++const {
++  op_dom_child_count,
++  op_dom_child_ids,
++  op_dom_create,
++  op_dom_create_document,
++  op_dom_first_child,
++  op_dom_following,
++  op_dom_index,
++  op_dom_insert,
++  op_dom_last_child,
++  op_dom_next_sibling,
++  op_dom_parent_id,
++  op_dom_preceding,
++  op_dom_prev_sibling,
++  op_dom_remove,
++  op_dom_tree_ids
++} = Deno.core.ops;
++
++let impls = [];
++
++// Created on the first insertion, not in the constructor: NodeImpl's subclasses only set
++// `nodeType` and the local name after NodeImpl's constructor ran.
++function wire(node) {
++  if (node._wire < 0) {
++    node._wire = createSlot(node);
++    impls[node._wire] = node;
++  }
++  return node._wire;
++}
++
++function createSlot(node) {
++  switch (node.nodeType) {
++    case 1:
++      return op_dom_create(1, node._localName, node._namespaceURI ?? "", node._prefix ?? "");
++    case 7:
++      return op_dom_create(7, node.target, "", "");
++    case 9:
++      return op_dom_create_document(node._parsingMode === "html");
++    case 10:
++      return op_dom_create(10, node.name, "", "");
++    // Character data stays on the impl; the slot only carries the node kind.
++    default:
++      return op_dom_create(node.nodeType, "", "", "");
++  }
++}
++
++function impl(w) {
++  return w < 0 ? null : impls[w];
++}
++
++// A node without a slot has no parent, siblings or children, so every read short-circuits.
++function read(op, node) {
++  return node._wire < 0 ? null : impl(op(node._wire));
++}
++
++let scratch = new Uint32Array(1024);
++
++// One op call per batched read; the result is copied out, so nested reads can reuse `scratch`.
++function batch(op, node) {
++  if (node._wire < 0) {
++    return [node];
++  }
++  let n = op(node._wire, scratch);
++  if (n > scratch.length) {
++    scratch = new Uint32Array(Math.max(n, scratch.length * 2));
++    n = op(node._wire, scratch);
++  }
++  const out = new Array(n);
++  for (let i = 0; i < n; i++) {
++    out[i] = impls[scratch[i]];
++  }
++  return out;
++}
++
++function parent(node) {
++  return read(op_dom_parent_id, node);
++}
++
++function firstChild(node) {
++  return read(op_dom_first_child, node);
++}
++
++function lastChild(node) {
++  return read(op_dom_last_child, node);
++}
++
++function nextSibling(node) {
++  return read(op_dom_next_sibling, node);
++}
++
++function previousSibling(node) {
++  return read(op_dom_prev_sibling, node);
++}
++
++function childCount(node) {
++  return node._wire < 0 ? 0 : op_dom_child_count(node._wire);
++}
++
++function rootWire(root) {
++  return root === null ? -1 : root._wire;
++}
++
++function nextAfterSubtree(node, root) {
++  return node._wire < 0 ? null : impl(op_dom_following(node._wire, rootWire(root), true));
++}
++
++function nextInTree(node, root) {
++  return node._wire < 0 ? null : impl(op_dom_following(node._wire, rootWire(root), false));
++}
++
++function previousInTree(node, root) {
++  if (node === root || node._wire < 0) {
++    return null;
++  }
++  return impl(op_dom_preceding(node._wire, rootWire(root)));
++}
++
++// Collection refreshes read each list in one op call.
++function childrenToArray(node, filter) {
++  if (node._wire < 0) {
++    return [];
++  }
++  const children = batch(op_dom_child_ids, node);
++  return filter === undefined ? children : children.filter(filter);
++}
++
++// `node` is either `root` itself or its first child, choosing an inclusive or exclusive walk.
++function descendantsToArray(root, node, filter) {
++  if (node === null) {
++    return [];
++  }
++  const nodes = batch(op_dom_tree_ids, root);
++  if (node !== root) {
++    nodes.shift();
++  }
++  return filter === undefined ? nodes : nodes.filter(filter);
++}
++
++function treeIndex(node) {
++  return node._wire < 0 ? -1 : op_dom_index(node._wire);
++}
++
++function appendChild(node, child) {
++  op_dom_insert(wire(node), wire(child), -1);
++  return child;
++}
++
++function insertBefore(reference, child) {
++  op_dom_insert(op_dom_parent_id(reference._wire), wire(child), reference._wire);
++  return child;
++}
++
++function remove(node) {
++  if (node._wire >= 0) {
++    op_dom_remove(node._wire);
++  }
++  return node;
++}
++
++// A snapshot binds wire ids in the build's arena; a restored runtime starts with a fresh,
++// empty arena that reuses those ids, so the bindings must not survive the snapshot.
++function clearBindings() {
++  impls = [];
++}
++
+ 
+ function lastInclusiveDescendant(node) {
+   let child;
+@@ -40,36 +188,6 @@ function lastInclusiveDescendant(node) {
+   return node;
+ }
+ 
+-function nextAfterSubtree(node, root) {
+-  while (node !== root && node !== null) {
+-    const data = node._links;
+-    if (data === null) {
+-      return null;
+-    }
+-    if (data.nextSibling) {
+-      return data.nextSibling;
+-    }
+-    node = data.parent;
+-  }
+-  return null;
+-}
+-
+-function nextInTree(node, root) {
+-  const data = node._links;
+-  return data === null ? null : data.firstChild || nextAfterSubtree(node, root);
+-}
+-
+-function previousInTree(node, root) {
+-  if (node === root) {
+-    return null;
+-  }
+-  const data = node._links;
+-  if (data === null) {
+-    return null;
+-  }
+-  return data.previousSibling ? lastInclusiveDescendant(data.previousSibling) : data.parent;
+-}
+-
+ // Iterators capture the next light-tree node before yielding the current one.
+ // This matters when a consumer removes or moves the current/next node.
+ class ChildrenIterator extends Iterator {
+@@ -136,28 +254,6 @@ next() {
+   }
+ }
+ 
+-// Collection refreshes avoid iterator-result objects and intermediate filter iterators.
+-function childrenToArray(node, filter) {
+-  const array = [];
+-  for (let child = node.firstChild; child !== null; child = child.nextSibling) {
+-    if (filter === undefined || filter(child)) {
+-      array.push(child);
+-    }
+-  }
+-  return array;
+-}
+-
+-function descendantsToArray(root, node, filter) {
+-  const array = [];
+-  while (node !== null) {
+-    if (filter === undefined || filter(node)) {
+-      array.push(node);
+-    }
+-    node = nextInTree(node, root);
+-  }
+-  return array;
+-}
+-
+ function compareTreePosition(left, right) {
+   if (left === right) {
+     return 0;
+@@ -253,114 +349,12 @@ function commonAncestorInfo(left, right) {
+   return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
+ }
+ 
+-function treeIndex(node) {
+-  const data = node._links;
+-  if (data === null || data.parent === null) {
+-    return -1;
+-  }
+-  const parentData = data.parent._links;
+-  if (data.previousSibling === null) {
+-    return 0;
+-  }
+-  if (data.nextSibling === null) {
+-    return parentData.childCount - 1;
+-  }
+-  if (parentData.cachedChildren === null) {
+-    return data.cachedIndex;
+-  }
+-  const cached = parentData.cachedChildren ||= [];
+-  // A shifted node can retain an old index inside the rebuilt prefix. Check
+-  // identity as well as the index before using it.
+-  if (cached[data.cachedIndex] === node) {
+-    return data.cachedIndex;
+-  }
+-  let child = cached.length === 0 ? parentData.firstChild : cached.at(-1).nextSibling;
+-  while (child !== node) {
+-    child._links.cachedIndex = cached.length;
+-    cached.push(child);
+-    child = child.nextSibling;
+-  }
+-  data.cachedIndex = cached.length;
+-  cached.push(node);
+-  return data.cachedIndex;
+-}
+-
+-function appendChild(node, child) {
+-  const data = ensureLinks(node);
+-  const childData = ensureLinks(child);
+-  childData.parent = node;
+-  childData.previousSibling = data.lastChild;
+-  if (data.lastChild) {
+-    data.lastChild._links.nextSibling = child;
+-  } else {
+-    data.firstChild = child;
+-  }
+-  data.lastChild = child;
+-  // Appending preserves every existing child's index.
+-  childData.cachedIndex = data.childCount++;
+-  return child;
+-}
+-
+-function insertBefore(reference, child) {
+-  const referenceData = reference._links;
+-  const data = referenceData.parent._links;
+-  const childData = ensureLinks(child);
+-  childData.parent = referenceData.parent;
+-  childData.previousSibling = referenceData.previousSibling;
+-  childData.nextSibling = reference;
+-  if (referenceData.previousSibling) {
+-    referenceData.previousSibling._links.nextSibling = child;
+-  } else {
+-    data.firstChild = child;
+-  }
+-  referenceData.previousSibling = child;
+-  ++data.childCount;
+-  const cached = data.cachedChildren;
+-  if (cached === null) {
+-    data.cachedChildren = undefined;
+-  } else if (cached && cached[referenceData.cachedIndex] === reference) {
+-    // Only the inserted child and following siblings need new indexes.
+-    cached.length = referenceData.cachedIndex;
+-  }
+-  return child;
+-}
+-
+-function remove(node) {
+-  const data = node._links;
+-  if (data === null || data.parent === null) {
+-    return node;
+-  }
+-  const parentData = data.parent._links;
+-  if (data.previousSibling) {
+-    data.previousSibling._links.nextSibling = data.nextSibling;
+-  } else {
+-    parentData.firstChild = data.nextSibling;
+-  }
+-  if (data.nextSibling) {
+-    data.nextSibling._links.previousSibling = data.previousSibling;
+-  } else {
+-    // Removing the last child preserves the remaining indexes.
+-    parentData.lastChild = data.previousSibling;
+-  }
+-  const cached = parentData.cachedChildren;
+-  if (data.nextSibling !== null && cached === null) {
+-    parentData.cachedChildren = undefined;
+-  } else if (cached && cached[data.cachedIndex] === node) {
+-    // Truncating also releases cached references to the removed subtree.
+-    cached.length = data.cachedIndex;
+-  }
+-  --parentData.childCount;
+-  data.parent = null;
+-  data.previousSibling = null;
+-  data.nextSibling = null;
+-  data.cachedIndex = -1;
+-  return node;
+-}
+-
+ module.exports = {
+   ChildrenIterator, DescendantsIterator, ShadowIncludingIterator,
+   childrenToArray, descendantsToArray,
++  parent, firstChild, lastChild, nextSibling, previousSibling, childCount,
+   nextInTree, nextAfterSubtree, previousInTree, lastInclusiveDescendant,
+   compareTreePosition, commonAncestorInfo,
+-  treeIndex, appendChild, insertBefore, remove
++  treeIndex, appendChild, insertBefore, remove,
++  clearBindings
+ };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
@@ -482,6 +874,69 @@ index 36633a1af9..8eef540e1c 100644
      try {
        vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
      } catch (e) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
+index 476421f2ef..71151c2c87 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
+@@ -178,7 +178,7 @@ constructor(globalObject, args, privateData) {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+ 
+-    this._links = null;
++    this._wire = -1;
+ 
+     this._ownerDocument = privateData.ownerDocument;
+ 
+@@ -289,7 +289,7 @@ _getTheParent() {
+   }
+ 
+   get parentNode() {
+-    return this._links?.parent ?? null;
++    return treeHelpers.parent(this);
+   }
+ 
+   _treeIndex() {
+@@ -303,7 +303,7 @@ get _length() {
+   }
+ 
+   get _childCount() {
+-    return this._links?.childCount ?? 0;
++    return treeHelpers.childCount(this);
+   }
+ 
+   _children() {
+@@ -421,7 +421,7 @@ get nodeName() {
+   }
+ 
+   get firstChild() {
+-    return this._links?.firstChild ?? null;
++    return treeHelpers.firstChild(this);
+   }
+ 
+   // https://dom.spec.whatwg.org/#connected
+@@ -436,7 +436,7 @@ get ownerDocument() {
+   }
+ 
+   get lastChild() {
+-    return this._links?.lastChild ?? null;
++    return treeHelpers.lastChild(this);
+   }
+ 
+   get childNodes() {
+@@ -453,11 +453,11 @@ query: () => this._childrenToArray()
+   }
+ 
+   get nextSibling() {
+-    return this._links?.nextSibling ?? null;
++    return treeHelpers.nextSibling(this);
+   }
+ 
+   get previousSibling() {
+-    return this._links?.previousSibling ?? null;
++    return treeHelpers.previousSibling(this);
+   }
+ 
+   // Selector-visible state can affect styles anywhere in the document, without changing structural collections.
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 index 0084dc004a..fba816ef06 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js

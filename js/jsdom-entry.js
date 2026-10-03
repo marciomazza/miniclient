@@ -6,6 +6,7 @@
 import "buffer";
 import { CookieJar, JSDOM } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
+import { clearBindings } from "jsdom/lib/jsdom/living/helpers/dom-tree.js";
 import { serializeURL } from "whatwg-url";
 import "./patch-jsdom-hxon-index.js";
 import { patchJsdom } from "./patch-jsdom.js";
@@ -28,6 +29,7 @@ import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileLis
 /** @type {any} */ (globalThis).JSDOM = JSDOM;
 globalThis.__JSDOMCookieJar = CookieJar;
 globalThis.__serializeURL = serializeURL;
+globalThis.__clearDomBindings = clearBindings;
 
 // bootstrap.js runs as a classic script, never a module, so it can't `import` jsdom's
 // webidl2js wrapper<->impl converters directly -- needed there to bridge the public Node

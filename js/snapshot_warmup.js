@@ -276,3 +276,6 @@
     }
     dom.window.close();
 })();
+
+globalThis.__clearDomBindings();
+delete (/** @type {any} */ (globalThis).__clearDomBindings);
