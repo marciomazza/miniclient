@@ -9,7 +9,7 @@ use scraper::node::{Comment, Doctype, Element, ProcessingInstruction, Text};
 use scraper::{ElementRef, Html, Node};
 use serde::Serialize;
 
-use crate::dom_query::{self, MatchSelector, QueryMode};
+use crate::dom_query::{self, MatchSelector, QueryMode, QueryState};
 
 /// Bounds the parsed-selector cache, which pages that build selectors from data would grow
 /// without limit.
@@ -79,24 +79,17 @@ impl DomState {
         &self.arena
     }
 
-    /// The wire ids `scope` selects in `mode` (see `dom_query::query`). `None` when the
-    /// selector does not parse natively, so the caller falls back to another matcher.
+    /// The wire ids `scope` selects in `mode` (see `dom_query::query`); `None` when the
+    /// selector does not parse natively.
     pub fn query(
         &mut self,
         scope: u32,
         selector: &str,
         mode: QueryMode,
-        html: bool,
-        quirks: bool,
+        state: &QueryState,
     ) -> Option<Vec<u32>> {
-        if !self.selectors.contains_key(selector) {
-            // ponytail: dropping the whole cache when full beats LRU bookkeeping on every hit.
-            if self.selectors.len() >= SELECTOR_CACHE_SIZE {
-                self.selectors.clear();
-            }
-            self.selectors
-                .insert(selector.to_owned(), MatchSelector::parse(selector));
-        }
+        self.parsed(selector)?;
+        let quirks = state.quirks;
         let parsed = self.selectors.get(selector)?.as_ref()?;
         let Some(node) = self.resolve(scope).and_then(|id| self.arena.get(id)) else {
             return Some(Vec::new());
@@ -109,16 +102,48 @@ impl DomState {
         };
         let hits = match bearers.as_deref() {
             // Several bearers need the walk to come out in document order; duplicate ids are rare.
-            None | Some([_, _, ..]) => dom_query::query(node, parsed, mode, html, quirks),
+            None | Some([_, _, ..]) => dom_query::query(node, parsed, mode, state),
             Some(bearers) => {
                 let inside = bearers
                     .iter()
                     .filter_map(|&b| self.arena.get(b))
                     .filter(|b| b.ancestors().any(|a| a.id() == node.id()));
-                dom_query::select(node, inside, parsed, mode, html, quirks)
+                dom_query::select(node, inside, parsed, mode, state)
             }
         };
         Some(hits.into_iter().map(|id| self.wire(id)).collect())
+    }
+
+    fn parsed(&mut self, selector: &str) -> Option<&MatchSelector> {
+        if !self.selectors.contains_key(selector) {
+            // ponytail: dropping the whole cache when full beats LRU bookkeeping on every hit.
+            if self.selectors.len() >= SELECTOR_CACHE_SIZE {
+                self.selectors.clear();
+            }
+            self.selectors
+                .insert(selector.to_owned(), MatchSelector::parse(selector));
+        }
+        self.selectors.get(selector)?.as_ref()
+    }
+
+    /// `focus` and `target` are wires, negative for none.
+    pub fn query_state(&self, html: bool, quirks: bool, focus: i32, target: i32) -> QueryState {
+        let node = |w: i32| u32::try_from(w).ok().and_then(|w| self.resolve(w));
+        let focus_path = node(focus)
+            .and_then(|id| self.arena.get(id))
+            .map(|n| {
+                std::iter::once(n)
+                    .chain(n.ancestors())
+                    .map(|a| a.id())
+                    .collect()
+            })
+            .unwrap_or_default();
+        QueryState {
+            html,
+            quirks,
+            focus_path,
+            target: node(target),
+        }
     }
 
     /// Elements whose `id` is `id`, connected or not; ASCII case-insensitively in quirks mode,

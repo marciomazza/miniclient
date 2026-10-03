@@ -1,4 +1,4 @@
-# fork: qqlyxtvrzlrt 123abaa12a98
+# fork: vwylzmqknzst 5605d97ad8ec
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -769,10 +769,10 @@ index 270a6209f5..dfff87ed5a 100644
    return sheetImpl;
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..d05dfa8c10 100644
+index 7eb8408fc8..512faae716 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,210 @@ function wire(node) {
+@@ -6,31 +6,231 @@ function wire(node) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -967,14 +967,35 @@ index 7eb8408fc8..d05dfa8c10 100644
 +const QUERY = { first: 0, all: 1, closest: 2, matches: 3 };
 +
 +// The impls the native matcher selects from `node` in `mode`, or null for a selector it cannot
-+// parse (namespace prefixes, `:lang`, state pseudo-classes, invalid ones) or a node without a slot.
++// parse (namespace prefixes, `:lang`, most state pseudo-classes, invalid ones) or a node without
++// a slot.
 +function query(node, selectors, mode) {
 +  if (node._wire < 0) {
 +    return null;
 +  }
 +  const doc = node._ownerDocument;
 +  const html = doc._parsingMode === "html";
-+  return batch(op_dom_query, node, selectors, mode, html, html && doc.compatMode === "BackCompat");
++  const quirks = html && doc.compatMode === "BackCompat";
++  const focus = doc._lastFocusedElement?._wire ?? -1;
++  return batch(op_dom_query, node, selectors, mode, html, quirks, focus, targetWire(doc));
++}
++
++// The element the URL's fragment indicates: the raw fragment first, then percent-decoded.
++// `a[name]` anchors are not indicated, as no browser test navigates to one.
++function targetWire(doc) {
++  const fragment = doc._URL.fragment;
++  if (!fragment) {
++    return -1;
++  }
++  let target = doc.getElementById(fragment);
++  if (target === null) {
++    try {
++      target = doc.getElementById(decodeURIComponent(fragment));
++    } catch {
++      // A malformed escape indicates nothing beyond the raw fragment.
++    }
++  }
++  return target?._wire ?? -1;
 +}
 +
 +function treeIndex(node) {
@@ -1007,7 +1028,7 @@ index 7eb8408fc8..d05dfa8c10 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +219,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +240,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1044,7 +1065,7 @@ index 7eb8408fc8..d05dfa8c10 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +285,6 @@ next() {
+@@ -136,28 +306,6 @@ next() {
    }
  }
  
@@ -1073,7 +1094,7 @@ index 7eb8408fc8..d05dfa8c10 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +380,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +401,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  

@@ -2,6 +2,8 @@
 //! pseudo-class enum is uninhabited and its `Selector` sealed), so this module owns a
 //! `selectors::SelectorImpl` and a `selectors::Element` over `ego_tree::NodeRef<scraper::Node>`.
 
+use std::cell::Cell;
+
 use cssparser::{CowRcStr, ParseError, Parser as CssParser, ParserInput, SourceLocation, ToCss};
 use ego_tree::{NodeId, NodeRef};
 use html5ever::Namespace;
@@ -59,6 +61,58 @@ const PSEUDO_ELEMENTS: [&str; 12] = [
     "target-text",
 ];
 
+/// The state pseudo-classes matched natively: focus and target come from `QueryState`, the rest
+/// derive from attributes and the tree. Any other state pseudo-class fails to parse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatePseudo {
+    AnyLink,
+    Disabled,
+    Enabled,
+    Focus,
+    FocusWithin,
+    Link,
+    Optional,
+    ReadOnly,
+    ReadWrite,
+    Required,
+    Target,
+}
+
+const STATE_PSEUDO_CLASSES: [(&str, StatePseudo); 11] = [
+    ("any-link", StatePseudo::AnyLink),
+    ("disabled", StatePseudo::Disabled),
+    ("enabled", StatePseudo::Enabled),
+    ("focus", StatePseudo::Focus),
+    ("focus-within", StatePseudo::FocusWithin),
+    ("link", StatePseudo::Link),
+    ("optional", StatePseudo::Optional),
+    ("read-only", StatePseudo::ReadOnly),
+    ("read-write", StatePseudo::ReadWrite),
+    ("required", StatePseudo::Required),
+    ("target", StatePseudo::Target),
+];
+
+impl StatePseudo {
+    fn name(self) -> &'static str {
+        STATE_PSEUDO_CLASSES
+            .iter()
+            .find(|(_, p)| *p == self)
+            .expect("every variant is in the table")
+            .0
+    }
+}
+
+/// What a query knows beyond the arena: the document type, focus and target.
+#[derive(Debug, Default)]
+pub struct QueryState {
+    /// Whether the node document is an HTML document, for the HTML case rules.
+    pub html: bool,
+    pub quirks: bool,
+    /// The focused element and its ancestors, nearest first.
+    pub focus_path: Vec<NodeId>,
+    pub target: Option<NodeId>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueryMode {
     First,
@@ -88,9 +142,9 @@ impl MatchSelector {
     pub fn parse(selector: &str) -> Option<Self> {
         let mut input = ParserInput::new(selector);
         let mut parser = CssParser::new(&mut input);
-        SelectorList::parse(&MiniParser, &mut parser, ParseRelative::No)
-            .ok()
-            .map(|list| Self { list })
+        let mini = MiniParser::default();
+        let list = SelectorList::parse(&mini, &mut parser, ParseRelative::No).ok()?;
+        (!mini.unsupported.get()).then_some(Self { list })
     }
 
     /// The id every match must bear: the list is one selector whose subject compound has an
@@ -114,21 +168,19 @@ impl MatchSelector {
 }
 
 /// The ids of the elements `scope` selects in `mode`, in document order (ancestor order for
-/// `Closest`). `html` tells whether the nodes' document is an HTML document; all nodes of one
-/// tree share it.
+/// `Closest`). All nodes of one tree share `state.html`.
 pub fn query(
     scope: NodeRef<Node>,
     selector: &MatchSelector,
     mode: QueryMode,
-    html: bool,
-    quirks: bool,
+    state: &QueryState,
 ) -> Vec<NodeId> {
     let candidates: Box<dyn Iterator<Item = NodeRef<Node>>> = match mode {
         QueryMode::First | QueryMode::All => Box::new(scope.descendants().skip(1)),
         QueryMode::Closest => Box::new(std::iter::once(scope).chain(scope.ancestors())),
         QueryMode::Matches => Box::new(std::iter::once(scope)),
     };
-    select(scope, candidates, selector, mode, html, quirks)
+    select(scope, candidates, selector, mode, state)
 }
 
 /// `query` over caller-chosen `candidates`, which must already be in result order.
@@ -137,16 +189,15 @@ pub fn select<'a>(
     candidates: impl Iterator<Item = NodeRef<'a, Node>>,
     selector: &MatchSelector,
     mode: QueryMode,
-    html: bool,
-    quirks: bool,
+    state: &QueryState,
 ) -> Vec<NodeId> {
-    let scope_el = MiniElement::wrap(scope, html);
+    let scope_el = MiniElement::wrap(scope, state);
     let mut caches = SelectorCaches::default();
     let mut context = MatchingContext::new(
         MatchingMode::Normal,
         None,
         &mut caches,
-        if quirks {
+        if state.quirks {
             QuirksMode::Quirks
         } else {
             QuirksMode::NoQuirks
@@ -156,7 +207,7 @@ pub fn select<'a>(
     );
     context.scope_element = scope_el.as_ref().map(Element::opaque);
     let mut hits = candidates
-        .filter_map(|n| MiniElement::wrap(n, html))
+        .filter_map(|n| MiniElement::wrap(n, state))
         .filter(|el| selector.matches(el, &mut context));
     match mode {
         QueryMode::All => hits.map(|el| el.node.id()).collect(),
@@ -186,6 +237,7 @@ impl parser::SelectorImpl for MiniImpl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MiniPseudo {
     NeverMatches(String),
+    State(StatePseudo),
 }
 
 impl parser::NonTSPseudoClass for MiniPseudo {
@@ -204,6 +256,7 @@ impl ToCss for MiniPseudo {
     fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
         match self {
             MiniPseudo::NeverMatches(name) => write!(dest, ":{name}"),
+            MiniPseudo::State(pc) => write!(dest, ":{}", pc.name()),
         }
     }
 }
@@ -221,7 +274,12 @@ impl ToCss for MiniPseudoElement {
     }
 }
 
-struct MiniParser;
+/// `:is()` and `:where()` drop what fails to parse, so `unsupported` keeps those selectors
+/// away from this matcher too.
+#[derive(Default)]
+struct MiniParser {
+    unsupported: Cell<bool>,
+}
 
 impl<'i> parser::Parser<'i> for MiniParser {
     type Impl = MiniImpl;
@@ -244,7 +302,16 @@ impl<'i> parser::Parser<'i> for MiniParser {
         location: SourceLocation,
         name: CowRcStr<'i>,
     ) -> Result<MiniPseudo, ParseError<'i, Self::Error>> {
-        known(&NEVER_MATCHING_PSEUDO_CLASSES, location, name).map(MiniPseudo::NeverMatches)
+        let state = STATE_PSEUDO_CLASSES
+            .iter()
+            .find(|(n, _)| name.eq_ignore_ascii_case(n));
+        if let Some(&(_, pc)) = state {
+            return Ok(MiniPseudo::State(pc));
+        }
+        let known = known(&NEVER_MATCHING_PSEUDO_CLASSES, location, name);
+        self.unsupported
+            .set(self.unsupported.get() || known.is_err());
+        known.map(MiniPseudo::NeverMatches)
     }
 
     fn parse_pseudo_element(
@@ -252,7 +319,10 @@ impl<'i> parser::Parser<'i> for MiniParser {
         location: SourceLocation,
         name: CowRcStr<'i>,
     ) -> Result<MiniPseudoElement, ParseError<'i, Self::Error>> {
-        known(&PSEUDO_ELEMENTS, location, name).map(MiniPseudoElement)
+        let known = known(&PSEUDO_ELEMENTS, location, name);
+        self.unsupported
+            .set(self.unsupported.get() || known.is_err());
+        known.map(MiniPseudoElement)
     }
 }
 
@@ -278,8 +348,7 @@ fn known<'i>(
 #[derive(Clone, Copy)]
 pub struct MiniElement<'a> {
     node: NodeRef<'a, Node>,
-    /// Whether the node document is an HTML document, for the HTML case rules.
-    html: bool,
+    state: &'a QueryState,
 }
 
 impl std::fmt::Debug for MiniElement<'_> {
@@ -289,8 +358,8 @@ impl std::fmt::Debug for MiniElement<'_> {
 }
 
 impl<'a> MiniElement<'a> {
-    fn wrap(node: NodeRef<'a, Node>, html: bool) -> Option<Self> {
-        node.value().is_element().then_some(Self { node, html })
+    fn wrap(node: NodeRef<'a, Node>, state: &'a QueryState) -> Option<Self> {
+        node.value().is_element().then_some(Self { node, state })
     }
 
     fn el(&self) -> &'a ScraperElement {
@@ -303,7 +372,195 @@ impl<'a> MiniElement<'a> {
     fn local(&self) -> &str {
         self.el().name.local.as_ref()
     }
+
+    /// The local name of an HTML element, `None` for other namespaces.
+    fn html_local(&self) -> Option<&str> {
+        (self.el().name.ns.as_ref() == HTML_NS).then(|| self.local())
+    }
+
+    fn has_attr(&self, name: &str) -> bool {
+        self.el().attr(name).is_some()
+    }
+
+    /// The `type` attribute's state; missing and unknown values are the Text state.
+    fn input_type(&self) -> String {
+        let ty = self
+            .el()
+            .attr("type")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if INPUT_TYPES.contains(&ty.as_str()) {
+            ty
+        } else {
+            "text".into()
+        }
+    }
+
+    fn in_state(&self, pc: StatePseudo) -> bool {
+        use StatePseudo as P;
+        let id = self.node.id();
+        match pc {
+            P::AnyLink | P::Link => self.is_link(),
+            P::Disabled => self.is_disabled(),
+            P::Enabled => {
+                matches!(
+                    self.html_local(),
+                    Some(
+                        "button"
+                            | "input"
+                            | "select"
+                            | "textarea"
+                            | "optgroup"
+                            | "option"
+                            | "fieldset"
+                    )
+                ) && !self.is_disabled()
+            }
+            P::Required => self.is_required(),
+            P::Optional => {
+                matches!(self.html_local(), Some("input" | "select" | "textarea"))
+                    && !self.is_required()
+            }
+            P::ReadWrite => self.is_read_write(),
+            P::ReadOnly => !self.is_read_write(),
+            P::Focus => self.state.focus_path.first() == Some(&id),
+            P::FocusWithin => self.state.focus_path.contains(&id),
+            P::Target => self.state.target == Some(id),
+        }
+    }
+
+    /// HTML's "actually disabled".
+    fn is_disabled(&self) -> bool {
+        match self.html_local() {
+            Some("button" | "input" | "select" | "textarea" | "fieldset") => {
+                self.has_attr("disabled") || self.in_disabled_fieldset()
+            }
+            Some("optgroup") => self.has_attr("disabled"),
+            Some("option") => {
+                self.has_attr("disabled")
+                    || self.parent_element().is_some_and(|p| {
+                        p.html_local() == Some("optgroup") && p.has_attr("disabled")
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    /// A descendant of a disabled `fieldset`, outside that fieldset's first `legend`.
+    fn in_disabled_fieldset(&self) -> bool {
+        let mut child = self.node;
+        for ancestor in self.node.ancestors() {
+            let disabled_fieldset = Self::wrap(ancestor, self.state)
+                .is_some_and(|f| f.html_local() == Some("fieldset") && f.has_attr("disabled"));
+            if disabled_fieldset {
+                let legend = ancestor.children().find(|c| {
+                    Self::wrap(*c, self.state).is_some_and(|e| e.html_local() == Some("legend"))
+                });
+                if legend.map(|l| l.id()) != Some(child.id()) {
+                    return true;
+                }
+            }
+            child = ancestor;
+        }
+        false
+    }
+
+    fn is_required(&self) -> bool {
+        let applies = match self.html_local() {
+            Some("select" | "textarea") => true,
+            Some("input") => REQUIRED_INPUT_TYPES.contains(&self.input_type().as_str()),
+            _ => false,
+        };
+        applies && self.has_attr("required")
+    }
+
+    /// Mutable text controls, editing hosts and editable elements.
+    fn is_read_write(&self) -> bool {
+        let mutable = || !self.has_attr("readonly") && !self.is_disabled();
+        match self.html_local() {
+            Some("input") => {
+                READONLY_INPUT_TYPES.contains(&self.input_type().as_str()) && mutable()
+            }
+            Some("textarea") => mutable(),
+            _ => self.is_editable(),
+        }
+    }
+
+    /// `contenteditable`, inherited from the nearest ancestor that sets a known state.
+    fn is_editable(&self) -> bool {
+        std::iter::once(self.node)
+            .chain(self.node.ancestors())
+            .filter_map(|n| MiniElement::wrap(n, self.state))
+            .filter(|e| e.html_local().is_some())
+            .filter_map(|e| e.el().attr("contenteditable"))
+            .find_map(|v| match v.to_ascii_lowercase().as_str() {
+                "" | "true" | "plaintext-only" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false)
+    }
 }
+
+const INPUT_TYPES: [&str; 22] = [
+    "button",
+    "checkbox",
+    "color",
+    "date",
+    "datetime-local",
+    "email",
+    "file",
+    "hidden",
+    "image",
+    "month",
+    "number",
+    "password",
+    "radio",
+    "range",
+    "reset",
+    "search",
+    "submit",
+    "tel",
+    "text",
+    "time",
+    "url",
+    "week",
+];
+
+/// Input types the `readonly` attribute applies to.
+const READONLY_INPUT_TYPES: [&str; 12] = [
+    "date",
+    "datetime-local",
+    "email",
+    "month",
+    "number",
+    "password",
+    "search",
+    "tel",
+    "text",
+    "time",
+    "url",
+    "week",
+];
+
+/// Input types the `required` attribute applies to.
+const REQUIRED_INPUT_TYPES: [&str; 15] = [
+    "checkbox",
+    "date",
+    "datetime-local",
+    "email",
+    "file",
+    "month",
+    "number",
+    "password",
+    "radio",
+    "search",
+    "tel",
+    "text",
+    "time",
+    "url",
+    "week",
+];
 
 impl Element for MiniElement<'_> {
     type Impl = MiniImpl;
@@ -313,7 +570,7 @@ impl Element for MiniElement<'_> {
     }
 
     fn parent_element(&self) -> Option<Self> {
-        self.node.parent().and_then(|n| Self::wrap(n, self.html))
+        self.node.parent().and_then(|n| Self::wrap(n, self.state))
     }
 
     fn parent_node_is_shadow_root(&self) -> bool {
@@ -331,21 +588,21 @@ impl Element for MiniElement<'_> {
     fn prev_sibling_element(&self) -> Option<Self> {
         self.node
             .prev_siblings()
-            .find_map(|n| Self::wrap(n, self.html))
+            .find_map(|n| Self::wrap(n, self.state))
     }
 
     fn next_sibling_element(&self) -> Option<Self> {
         self.node
             .next_siblings()
-            .find_map(|n| Self::wrap(n, self.html))
+            .find_map(|n| Self::wrap(n, self.state))
     }
 
     fn first_element_child(&self) -> Option<Self> {
-        self.node.children().find_map(|n| Self::wrap(n, self.html))
+        self.node.children().find_map(|n| Self::wrap(n, self.state))
     }
 
     fn is_html_element_in_html_document(&self) -> bool {
-        self.html && self.el().name.ns.as_ref() == HTML_NS
+        self.state.html && self.el().name.ns.as_ref() == HTML_NS
     }
 
     fn has_local_name(&self, name: &CssLocalName) -> bool {
@@ -380,6 +637,7 @@ impl Element for MiniElement<'_> {
     ) -> bool {
         match pc {
             MiniPseudo::NeverMatches(_) => false,
+            MiniPseudo::State(pc) => self.in_state(*pc),
         }
     }
 
@@ -442,8 +700,15 @@ impl Element for MiniElement<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MatchSelector, QueryMode};
+    use super::{MatchSelector, QueryMode, QueryState};
     use crate::dom::DomState;
+
+    fn html() -> QueryState {
+        QueryState {
+            html: true,
+            ..Default::default()
+        }
+    }
 
     /// Tag names (upper-cased, as `NodeRecord` reports them) of `scope.querySelectorAll`, or of
     /// the first hit when `!all`.
@@ -454,7 +719,7 @@ mod tests {
             QueryMode::First
         };
         let ids = dom
-            .query(scope, selector, mode, true, false)
+            .query(scope, selector, mode, &html())
             .expect("parses natively");
         dom.nodes(&ids)
             .into_iter()
@@ -500,27 +765,22 @@ mod tests {
     #[test]
     fn closest_includes_the_element_and_matches_tests_only_it() {
         let (mut dom, root) = doc("<html><body><div><p><b></b></p></div></body></html>");
-        let b = dom.query(root, "b", QueryMode::First, true, false).unwrap()[0];
-        let closest = |dom: &mut DomState, s| dom.query(b, s, QueryMode::Closest, true, false);
+        let b = dom.query(root, "b", QueryMode::First, &html()).unwrap()[0];
+        let closest = |dom: &mut DomState, s| dom.query(b, s, QueryMode::Closest, &html());
         assert_eq!(closest(&mut dom, "b"), Some(vec![b]));
         let hit = closest(&mut dom, "div, p").unwrap();
         assert_eq!(dom.nodes(&hit)[0].name.as_deref(), Some("P"));
         assert_eq!(
-            dom.query(b, "p b", QueryMode::Matches, true, false),
+            dom.query(b, "p b", QueryMode::Matches, &html()),
             Some(vec![b])
         );
-        assert_eq!(
-            dom.query(b, "p", QueryMode::Matches, true, false),
-            Some(vec![])
-        );
+        assert_eq!(dom.query(b, "p", QueryMode::Matches, &html()), Some(vec![]));
     }
 
     #[test]
     fn scope_is_excluded_and_first_only_stops_early() {
         let (mut dom, root) = doc("<html><body><div><p>1</p><p>2</p></div></body></html>");
-        let div = dom
-            .query(root, "div", QueryMode::First, true, false)
-            .unwrap()[0];
+        let div = dom.query(root, "div", QueryMode::First, &html()).unwrap()[0];
         assert!(q(&mut dom, div, "div", true).is_empty(), "self excluded");
         assert_eq!(q(&mut dom, div, "p", false), ["P"]);
         assert_eq!(q(&mut dom, div, "p", true), ["P", "P"]);
@@ -532,16 +792,16 @@ mod tests {
             ":::",
             "div::??",
             ":totallyfake",
-            ":checked",
+            ":hover",
             ":lang(en)",
             "svg|rect",
         ] {
             assert!(MatchSelector::parse(selector).is_none(), "{selector}");
         }
         let (mut dom, root) = doc("<html><body><div></div></body></html>");
-        assert_eq!(dom.query(root, ":::", QueryMode::All, true, false), None);
+        assert_eq!(dom.query(root, ":::", QueryMode::All, &html()), None);
         assert_eq!(
-            dom.query(9999, "div", QueryMode::All, true, false),
+            dom.query(9999, "div", QueryMode::All, &html()),
             Some(vec![])
         );
     }

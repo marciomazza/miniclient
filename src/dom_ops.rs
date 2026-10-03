@@ -243,8 +243,9 @@ pub fn op_dom_tree_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32]) 
     fill(out, dom(state).tree_wires(id))
 }
 
-/// `mode` is a `QueryMode` index (first, all, closest, matches). Returns `-1` when the
-/// selector does not parse natively, so JS falls back to `dom-selector`.
+/// `mode` is a `QueryMode` index (first, all, closest, matches); `focus` and `target` are the
+/// focused and target elements' wires, `-1` for none. Returns `-1` when the selector does not
+/// parse natively, so JS falls back to `dom-selector`.
 #[op2(fast)]
 pub fn op_dom_query(
     state: &mut OpState,
@@ -253,12 +254,16 @@ pub fn op_dom_query(
     mode: u8,
     html: bool,
     quirks: bool,
+    focus: i32,
+    target: i32,
     #[buffer] out: &mut [u32],
 ) -> i32 {
     let Some(mode) = QueryMode::from_u8(mode) else {
         return -1;
     };
-    match dom(state).query(scope, selector, mode, html, quirks) {
+    let dom = dom(state);
+    let query_state = dom.query_state(html, quirks, focus, target);
+    match dom.query(scope, selector, mode, &query_state) {
         Some(wires) => fill(out, wires) as i32,
         None => -1,
     }
