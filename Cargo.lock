@@ -1013,6 +1013,7 @@ dependencies = [
  "deno_web",
  "deno_webidl",
  "getrandom 0.4.3",
+ "glob",
  "proptest",
  "pyo3",
  "pyo3-async-runtimes",

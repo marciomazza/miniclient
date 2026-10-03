@@ -1,6 +1,6 @@
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use common::htmx_fetch_mock::HtmxFetchMock;
 use common::{EvalExt, Runtime};
@@ -117,12 +117,14 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
     // document.write's script is parser-inserted, so it fetches and executes automatically.
     rt.run_promise(
         r#"
-        const loaded = new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
+        const loaded = new Promise(resolve =>
+          window.addEventListener('load', resolve, {once: true}),
+        );
         document.open();
         document.write('<script src="http://localhost/vendor/htmx.js"></script>');
         document.close();
         loaded.then(() => {
-            document.body.innerHTML = '<div id="test-playground"></div>';
+          document.body.innerHTML = '<div id="test-playground"></div>';
         });
     "#,
     );
@@ -167,24 +169,22 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
         .collect()
 }
 
-fn run_dir(subdir: &str) {
-    let dir = Path::new(HTMX_TEST_ROOT).join("tests").join(subdir);
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("{dir:?}: {e}"))
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("js"))
-        .filter(|p| {
-            let name = p.file_name().expect("readdir entries have a name");
-            !SKIP_FILES.contains(
-                &name
-                    .to_str()
-                    .expect("vendor htmx filenames are valid UTF-8"),
-            )
+fn run_dir(pattern: &str, skip_files: &[&str]) {
+    let path_pattern = format!("{HTMX_TEST_ROOT}/tests/{pattern}");
+    let mut files: Vec<_> = glob::glob(&path_pattern)
+        .unwrap_or_else(|e| panic!("{path_pattern}: {e}"))
+        .map(|entry| entry.unwrap_or_else(|e| panic!("{path_pattern}: {e}")))
+        .filter(|path| {
+            let name = path
+                .file_name()
+                .expect("glob entries have a filename")
+                .to_str()
+                .expect("vendor htmx filenames are valid UTF-8");
+            !SKIP_FILES.contains(&name) && !skip_files.contains(&name)
         })
         .collect();
     files.sort();
-    assert!(!files.is_empty(), "no test files found under {dir:?}");
+    assert!(!files.is_empty(), "no test files found for {pattern}");
 
     let mut failures = Vec::new();
     for file in &files {
@@ -197,7 +197,7 @@ fn run_dir(subdir: &str) {
             .map(|f| format!("  [{}] {} :: {}: {}", f.file, f.suite, f.name, f.error))
             .collect();
         panic!(
-            "{} htmx {subdir} JS test(s) failed:\n{}",
+            "{} htmx {pattern} JS test(s) failed:\n{}",
             failures.len(),
             lines.join("\n")
         );
@@ -209,20 +209,35 @@ fn run_dir(subdir: &str) {
 // missing innerText.
 #[test]
 fn htmx_vendor_unit_suite() {
-    run_dir("unit");
+    run_dir("unit/*.js", &["__issueRequest.js"]);
+}
+
+#[test]
+fn htmx_vendor_unit_issue_request_suite() {
+    run_dir("unit/__issueRequest.js", &[]);
 }
 
 #[test]
 fn htmx_vendor_attributes_suite() {
-    run_dir("attributes");
+    run_dir("attributes/*.js", &[]);
 }
 
 #[test]
 fn htmx_vendor_end2end_suite() {
-    run_dir("end2end");
+    run_dir("end2end/*.js", &[]);
 }
 
 #[test]
 fn htmx_vendor_ext_suite() {
-    run_dir("ext");
+    run_dir("ext/*.js", &["hx-sse.js", "hx-ws.js"]);
+}
+
+#[test]
+fn htmx_vendor_ext_sse_suite() {
+    run_dir("ext/hx-sse.js", &[]);
+}
+
+#[test]
+fn htmx_vendor_ext_ws_suite() {
+    run_dir("ext/hx-ws.js", &[]);
 }

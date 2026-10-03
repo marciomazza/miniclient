@@ -31,6 +31,7 @@ tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+glob = "0.3"
 # Property-based port of tests/hypothesis/*.py (ticket 13). No proptest-state-machine: the
 # ported suites aren't state machines.
 proptest = "1.11"
