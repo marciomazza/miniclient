@@ -15,6 +15,9 @@ mod dom_ops;
 #[allow(dead_code)]
 #[path = "src/dom_query.rs"]
 mod dom_query;
+#[allow(dead_code)]
+#[path = "src/node.rs"]
+mod node;
 
 // maturin's `include` cannot remap paths, so the copy into the package happens here and
 // maturin picks the package dir up as-is. Only licences: the wheel embeds the bundle and the

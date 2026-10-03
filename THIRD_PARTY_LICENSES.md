@@ -4,9 +4,9 @@ Code adapted or copied inline from other projects, beyond normal Cargo/pip depen
 
 ## scraper (ISC)
 
-`src/dom_query.rs`'s selector-matching method bodies (the `selectors::Element` impl over
-`ego_tree::NodeRef<scraper::Node>`) are adapted from `scraper`'s `element_ref/element.rs`,
-because `scraper`'s own selector layer can't express `:checked` / `:disabled` / `:focus`.
+`src/dom_query.rs`'s selector-matching method bodies (the `selectors::Element` impl) and its
+`CssString` / `CssLocalName` newtypes are adapted from `scraper`'s `element_ref/element.rs` and
+`selector.rs`. `scraper` itself is no longer a dependency.
 
 ```
 Copyright © 2016, June McEnroe <june@causal.agency>

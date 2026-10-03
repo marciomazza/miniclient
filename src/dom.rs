@@ -6,7 +6,7 @@ use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use ego_tree::{NodeId, NodeRef, Tree};
-use html5ever::tendril::StrTendril;
+use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::tokenizer::{BufferQueue, Tokenizer, TokenizerOpts};
 use html5ever::tree_builder::{
     ElementFlags, NodeOrText, QuirksMode, TreeBuilder, TreeBuilderOpts, TreeSink,
@@ -14,11 +14,10 @@ use html5ever::tree_builder::{
 use html5ever::{
     Attribute, LocalName, Namespace, Prefix, QualName, TokenizerResult, local_name, ns,
 };
-use scraper::node::{Comment, Doctype, Element, ProcessingInstruction, Text};
-use scraper::{Html, Node};
 use serde::Serialize;
 
 use crate::dom_query::{self, HTML_NS, MatchSelector, QueryMode, QueryState};
+use crate::node::{Element, NO_WIRE, Node};
 
 /// Bounds the parsed-selector cache, which pages that build selectors from data would grow
 /// without limit.
@@ -103,39 +102,24 @@ pub struct DomState {
     // ponytail: side table maps a small wire integer to a NodeId, because ego-tree keeps its
     // own index accessor private. Drop it if ego-tree ever exposes `from_index`.
     ids: Vec<NodeId>,
-    lookup: HashMap<NodeId, u32>,
     /// Bumps on every structural change (parse / create / insert / remove).
     pub mutations: u32,
     /// `id` attribute value -> every element bearing it, connected or not. `getElementById`
     /// filters this by document (each candidate's topmost ancestor) at read time instead of
     /// tracking connect/disconnect -- that's exactly what "topmost ancestor" already answers.
     id_index: HashMap<String, Vec<NodeId>>,
-    /// `Document` nodes that are XML documents; every other document is HTML. Selector
-    /// matching needs this for its case rules.
-    xml_documents: HashSet<NodeId>,
     /// Parsed selectors by source text; `None` caches a selector that does not parse natively.
     selectors: HashMap<String, Option<MatchSelector>>,
-    /// CDATA sections, stored as text for selectors but dropped from HTML serialization.
-    cdata: HashSet<NodeId>,
-    /// `<template>` -> its content fragment, a separate root as in jsdom.
-    template_contents: HashMap<NodeId, NodeId>,
-    /// An element's `is` value, which serialization writes even without an `is` attribute.
-    is_values: HashMap<NodeId, String>,
 }
 
 impl DomState {
     pub fn new() -> Self {
         Self {
-            arena: Tree::new(Node::Document),
+            arena: Tree::new(Node::document(false)),
             ids: Vec::new(),
-            lookup: HashMap::new(),
             mutations: 0,
             id_index: HashMap::new(),
-            xml_documents: HashSet::new(),
             selectors: HashMap::new(),
-            cdata: HashSet::new(),
-            template_contents: HashMap::new(),
-            is_values: HashMap::new(),
         }
     }
 
@@ -231,7 +215,7 @@ impl DomState {
     #[cfg(test)]
     pub fn parse(&mut self, html: &str, context: Option<&str>) -> Vec<NodeRecord> {
         let root = match context {
-            None => self.adopt_parsed(Html::parse_document(html)),
+            None => self.parse_document(html),
             Some(ctx) => {
                 let ctx = if ctx.is_empty() { "body" } else { ctx };
                 let wire = self.parse_fragment(html, ctx, HTML_NS, false, true);
@@ -253,9 +237,28 @@ impl DomState {
         in_form: bool,
         scripting: bool,
     ) -> u32 {
-        let parsed = parse_fragment(html, ctx_local, ctx_ns, in_form, scripting);
-        let root = self.adopt_parsed(parsed);
-        // scraper wraps the content in an `<html>` element under the fragment root.
+        let root = self.arena.orphan(Node::fragment()).id();
+        let sink = ArenaSink::new(root);
+        std::mem::swap(self, &mut sink.dom.borrow_mut());
+        // The real context element, so `<td>` / `<tr>` fragments land under the right insertion
+        // mode and SVG contexts parse as foreign content.
+        let element = |local: &str, ns: &str| {
+            let name = QualName::new(None, Namespace::from(ns), LocalName::from(local));
+            sink.create_element(name, Vec::new(), ElementFlags::default())
+        };
+        let context = element(ctx_local, ctx_ns);
+        let form = in_form.then(|| element("form", HTML_NS));
+        let opts = html5ever::driver::ParseOpts {
+            tree_builder: TreeBuilderOpts {
+                scripting_enabled: scripting,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        *self = html5ever::driver::parse_fragment_for_element(sink, opts, context, scripting, form)
+            .one(html);
+        self.mutations += 1;
+        // The tree builder puts the content in an `<html>` element under the fragment root.
         let wrapper = self
             .arena
             .get(root)
@@ -269,31 +272,14 @@ impl DomState {
         self.wire(root)
     }
 
-    /// Folds a parsed tree into the arena. scraper keeps a template's content as a fragment
-    /// under the template element; it moves out to its own root, the template's content.
-    fn adopt_parsed(&mut self, parsed: Html) -> NodeId {
-        let root = self.arena.extend_tree(parsed.tree).id();
+    /// Parses a whole document into a fresh, detached `Document` node.
+    #[cfg(test)]
+    fn parse_document(&mut self, html: &str) -> NodeId {
+        let root = self.arena.orphan(Node::document(false)).id();
+        let wire = self.wire(root);
+        let parser = DocumentParser::new(self, wire, html, true, false).expect("fresh document");
+        parser.feed(self);
         self.mutations += 1;
-        self.index_ids_in_subtree(root);
-        let templates: Vec<NodeId> = self
-            .arena
-            .get(root)
-            .into_iter()
-            .flat_map(|r| r.descendants())
-            .filter(|n| n.value().as_element().and_then(html_name) == Some("template"))
-            .map(|n| n.id())
-            .collect();
-        for template in templates {
-            let contents = self.arena.get(template).and_then(|t| t.first_child());
-            if let Some(contents) = contents.filter(|c| matches!(c.value(), Node::Fragment)) {
-                let contents = contents.id();
-                self.arena
-                    .get_mut(contents)
-                    .expect("template content")
-                    .detach();
-                self.template_contents.insert(template, contents);
-            }
-        }
         root
     }
 
@@ -421,59 +407,40 @@ impl DomState {
     ) -> u32 {
         let name = name.unwrap_or_default();
         let node = match node_type {
-            // CDATA sections have no scraper node of their own; they are text to selectors.
-            3 | 4 => Node::Text(Text { text: name.into() }),
-            7 => Node::ProcessingInstruction(ProcessingInstruction {
-                target: name.into(),
-                data: "".into(),
-            }),
-            8 => Node::Comment(Comment {
-                comment: name.into(),
-            }),
-            10 => Node::Doctype(Doctype {
-                name: name.into(),
-                public_id: "".into(),
-                system_id: "".into(),
-            }),
-            11 => Node::Fragment,
+            3 | 4 => Node::text(name, node_type == 4),
+            7 => Node::processing_instruction(name, ""),
+            8 => Node::comment(name),
+            10 => Node::doctype(name, "", ""),
+            11 => Node::fragment(),
             // element -- anything else is a caller bug, treat as element
             _ => {
                 let ns = ns.map(|n| ns_full(Some(n))).unwrap_or_default();
                 let qual = QualName::new(prefix.map(Prefix::from), ns, LocalName::from(name));
-                Node::Element(Element::new(qual, Vec::new()))
+                Node::element(qual, Vec::new())
             }
         };
         let id = self.arena.orphan(node).id();
-        if node_type == 4 {
-            self.cdata.insert(id);
-        }
         self.mutations += 1;
         self.wire(id)
     }
 
     pub fn set_template_contents(&mut self, template: u32, contents: u32) {
-        if let (Some(t), Some(c)) = (self.resolve(template), self.resolve(contents)) {
-            self.template_contents.insert(t, c);
+        if let Some(c) = self.resolve(contents) {
+            self.edit_element(template, |e| e.template_contents = Some(c));
         }
     }
 
     /// An empty `value` clears it, as jsdom skips a falsy `_isValue`.
     pub fn set_is_value(&mut self, wire: u32, value: &str) {
-        let Some(id) = self.resolve(wire) else { return };
-        if value.is_empty() {
-            self.is_values.remove(&id);
-        } else {
-            self.is_values.insert(id, value.into());
-        }
+        self.edit_element(wire, |e| {
+            e.is_value = (!value.is_empty()).then(|| value.into())
+        });
     }
 
     /// Creates a detached `Document` (JS `createDocument` / `createHTMLDocument` /
     /// `DOMParser`), flagged HTML or XML.
     pub fn create_document(&mut self, html: bool) -> u32 {
-        let id = self.arena.orphan(Node::Document).id();
-        if !html {
-            self.xml_documents.insert(id);
-        }
+        let id = self.arena.orphan(Node::document(!html)).id();
         self.mutations += 1;
         self.wire(id)
     }
@@ -482,7 +449,7 @@ impl DomState {
     pub fn is_html_document(&self, wire: u32) -> Option<bool> {
         let id = self.resolve(wire)?;
         match self.arena.get(id)?.value() {
-            Node::Document => Some(!self.xml_documents.contains(&id)),
+            Node::Document(d) => Some(!d.xml),
             _ => None,
         }
     }
@@ -536,29 +503,21 @@ impl DomState {
         self.reindex_id(id, old.as_deref(), new);
     }
 
-    /// Rebuilds the element node from its (mutated) attribute list. `scraper::Element` caches
-    /// `id` / `classes` in private `OnceCell`s with no external reset, so a fresh
-    /// `Element::new` is the only way to invalidate them after an attribute change.
+    fn template_contents(&self, id: NodeId) -> Option<NodeId> {
+        self.arena.get(id)?.value().as_element()?.template_contents
+    }
+
+    /// Edits an element in place; `None` when `wire` is not an element.
+    fn edit_element<R>(&mut self, wire: u32, edit: impl FnOnce(&mut Element) -> R) -> Option<R> {
+        let id = self.resolve(wire)?;
+        let mut node = self.arena.get_mut(id)?;
+        node.value().as_element_mut().map(edit)
+    }
+
     fn mutate_attrs(&mut self, wire: u32, edit: impl FnOnce(&mut Vec<Attribute>)) {
-        let Some(id) = self.resolve(wire) else { return };
-        let Some(mut node) = self.arena.get_mut(id) else {
-            return;
-        };
-        let Node::Element(el) = node.value() else {
-            return;
-        };
-        let mut attrs: Vec<Attribute> = el
-            .attrs
-            .iter()
-            .map(|(k, v)| Attribute {
-                name: k.clone(),
-                value: v.clone(),
-            })
-            .collect();
-        edit(&mut attrs);
-        let name = el.name.clone();
-        *node.value() = Node::Element(Element::new(name, attrs));
-        self.mutations += 1;
+        if self.edit_element(wire, |e| edit(&mut e.attrs)).is_some() {
+            self.mutations += 1;
+        }
     }
 
     /// Text / comment / processing-instruction `data` write. No-op for anything else.
@@ -747,7 +706,7 @@ impl DomState {
             }
         }
         for &id in &order {
-            if let Some(&contents) = self.template_contents.get(&id) {
+            if let Some(contents) = self.template_contents(id) {
                 self.forget_subtree(created, contents);
             }
         }
@@ -793,7 +752,7 @@ impl DomState {
                 continue;
             };
             stack.extend(node.children().map(|c| c.id()));
-            stack.extend(self.template_contents.get(&id));
+            stack.extend(self.template_contents(id));
         }
     }
 
@@ -803,7 +762,7 @@ impl DomState {
             Node::Doctype(d) => (10, d.name.to_string(), String::new()),
             other => (classify(other).0, String::new(), String::new()),
         };
-        let contents = self.template_contents.get(&id).copied();
+        let contents = self.template_contents(id);
         TreeRecord {
             id: self.wire(id),
             node_type,
@@ -825,7 +784,11 @@ impl DomState {
             return Vec::new();
         };
         match self.arena.get(id).map(|n| n.value()) {
-            Some(Node::Element(e)) => e.attrs.iter().map(|(k, v)| attr_record(k, v)).collect(),
+            Some(Node::Element(e)) => e
+                .attrs
+                .iter()
+                .map(|a| attr_record(&a.name, &a.value))
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -836,8 +799,8 @@ impl DomState {
             Node::Element(e) => e
                 .attrs
                 .iter()
-                .find(|(k, _)| same_attr(k, &ns, local))
-                .map(|(_, v)| v.to_string()),
+                .find(|a| same_attr(&a.name, &ns, local))
+                .map(|a| a.value.to_string()),
             _ => None,
         }
     }
@@ -861,8 +824,8 @@ impl DomState {
             Node::Element(e) => e
                 .attrs
                 .iter()
-                .find(|(k, _)| matches(k))
-                .map(|(k, v)| attr_record(k, v)),
+                .find(|a| matches(&a.name))
+                .map(|a| attr_record(&a.name, &a.value)),
             _ => None,
         }
     }
@@ -889,10 +852,9 @@ impl DomState {
             return;
         }
         let container = match html_name(e) {
-            Some("template") => self
+            Some("template") => e
                 .template_contents
-                .get(&node.id())
-                .and_then(|&c| self.arena.get(c))
+                .and_then(|c| self.arena.get(c))
                 .unwrap_or(node),
             _ => node,
         };
@@ -911,13 +873,13 @@ impl DomState {
                 let name = qualified(&e.name);
                 out.push('<');
                 out.push_str(&name);
-                if let Some(is) = self.is_values.get(&node.id())
-                    && !e.attrs.iter().any(|(k, _)| qualified(k) == "is")
+                if let Some(is) = &e.is_value
+                    && !e.attrs.iter().any(|a| qualified(&a.name) == "is")
                 {
                     write_attr(out, "is", is);
                 }
-                for (k, v) in e.attrs.iter() {
-                    write_attr(out, &qualified(k), v);
+                for a in &e.attrs {
+                    write_attr(out, &qualified(&a.name), &a.value);
                 }
                 out.push('>');
                 if !is_void(e) {
@@ -927,7 +889,7 @@ impl DomState {
                     out.push('>');
                 }
             }
-            Node::Text(t) if !self.cdata.contains(&node.id()) => {
+            Node::Text(t) if !t.cdata => {
                 let raw = node
                     .parent()
                     .and_then(|p| p.value().as_element().and_then(html_name))
@@ -977,12 +939,14 @@ impl DomState {
     }
 
     fn wire(&mut self, id: NodeId) -> u32 {
-        if let Some(&w) = self.lookup.get(&id) {
-            return w;
+        let mut node = self.arena.get_mut(id).expect("node in arena");
+        let slot = node.value().wire_mut();
+        if *slot != NO_WIRE {
+            return *slot;
         }
         let w = self.ids.len() as u32;
+        *slot = w;
         self.ids.push(id);
-        self.lookup.insert(id, w);
         w
     }
 
@@ -1013,6 +977,19 @@ struct ArenaSink {
 }
 
 impl ArenaSink {
+    /// A sink for `document`, holding a placeholder arena until the caller swaps the real one in.
+    fn new(document: NodeId) -> Self {
+        Self {
+            dom: RefCell::new(DomState::new()),
+            document,
+            created: RefCell::default(),
+            popped: RefCell::default(),
+            quirks: Cell::new(None),
+            attrs: RefCell::default(),
+            text: RefCell::default(),
+        }
+    }
+
     fn orphan(&self, node: Node) -> NodeId {
         let id = self.dom.borrow_mut().arena.orphan(node).id();
         self.created.borrow_mut().insert(id);
@@ -1032,14 +1009,14 @@ impl ArenaSink {
             && let Node::Text(t) = dom.arena.get_mut(n).expect("sibling").value()
         {
             if self.created.borrow().contains(&n) {
-                t.text.push_slice(text);
+                t.text.push_str(text);
             } else {
                 let wire = dom.wire(n);
                 self.text.borrow_mut().push((wire, text.into()));
             }
             return;
         }
-        let node = Node::Text(Text { text: text.into() });
+        let node = Node::text(text, false);
         let id = match sibling {
             Some(s) => dom
                 .arena
@@ -1055,10 +1032,12 @@ impl ArenaSink {
 
 impl TreeSink for ArenaSink {
     type Handle = NodeId;
-    type Output = ();
+    type Output = DomState;
     type ElemName<'a> = Ref<'a, QualName>;
 
-    fn finish(self) {}
+    fn finish(self) -> DomState {
+        self.dom.into_inner()
+    }
 
     fn parse_error(&self, _msg: Cow<'static, str>) {}
 
@@ -1078,26 +1057,26 @@ impl TreeSink for ArenaSink {
 
     fn create_element(&self, name: QualName, attrs: Vec<Attribute>, _: ElementFlags) -> NodeId {
         let template = name.ns == ns!(html) && name.local == local_name!("template");
-        let id = self.orphan(Node::Element(Element::new(name, attrs)));
+        let id = self.orphan(Node::element(name, attrs));
         self.dom.borrow_mut().index_ids_in_subtree(id);
         if template {
-            let contents = self.orphan(Node::Fragment);
-            self.dom.borrow_mut().template_contents.insert(id, contents);
+            let contents = self.orphan(Node::fragment());
+            let mut dom = self.dom.borrow_mut();
+            if let Some(mut node) = dom.arena.get_mut(id)
+                && let Some(e) = node.value().as_element_mut()
+            {
+                e.template_contents = Some(contents);
+            }
         }
         id
     }
 
     fn create_comment(&self, text: StrTendril) -> NodeId {
-        self.orphan(Node::Comment(Comment {
-            comment: (*text).into(),
-        }))
+        self.orphan(Node::comment(&text))
     }
 
     fn create_pi(&self, target: StrTendril, data: StrTendril) -> NodeId {
-        self.orphan(Node::ProcessingInstruction(ProcessingInstruction {
-            target: (*target).into(),
-            data: (*data).into(),
-        }))
+        self.orphan(Node::processing_instruction(&target, &data))
     }
 
     fn append(&self, parent: &NodeId, child: NodeOrText<NodeId>) {
@@ -1130,11 +1109,7 @@ impl TreeSink for ArenaSink {
     }
 
     fn append_doctype_to_document(&self, name: StrTendril, public: StrTendril, system: StrTendril) {
-        let id = self.orphan(Node::Doctype(Doctype {
-            name: (*name).into(),
-            public_id: (*public).into(),
-            system_id: (*system).into(),
-        }));
+        let id = self.orphan(Node::doctype(&name, &public, &system));
         self.append(&self.document, NodeOrText::AppendNode(id));
     }
 
@@ -1143,7 +1118,10 @@ impl TreeSink for ArenaSink {
     }
 
     fn get_template_contents(&self, target: &NodeId) -> NodeId {
-        self.dom.borrow().template_contents[target]
+        self.dom
+            .borrow()
+            .template_contents(*target)
+            .expect("template")
     }
 
     fn same_node(&self, x: &NodeId, y: &NodeId) -> bool {
@@ -1233,15 +1211,7 @@ impl DocumentParser {
         scripting: bool,
         pause: bool,
     ) -> Option<Self> {
-        let sink = ArenaSink {
-            dom: RefCell::new(DomState::new()),
-            document: dom.resolve(document)?,
-            created: RefCell::default(),
-            popped: RefCell::default(),
-            quirks: Cell::new(None),
-            attrs: RefCell::default(),
-            text: RefCell::default(),
-        };
+        let sink = ArenaSink::new(dom.resolve(document)?);
         let opts = TreeBuilderOpts {
             scripting_enabled: scripting,
             ..Default::default()
@@ -1257,20 +1227,7 @@ impl DocumentParser {
 
     pub fn step(&self, dom: &mut DomState) -> ParseStep {
         let sink = &self.tokenizer.sink.sink;
-        std::mem::swap(dom, &mut sink.dom.borrow_mut());
-        let done = loop {
-            match self.tokenizer.feed(&self.input) {
-                TokenizerResult::Done => {
-                    self.tokenizer.end();
-                    break true;
-                }
-                TokenizerResult::Script(node) if self.pause && self.in_document(node) => {
-                    break false;
-                }
-                _ => {}
-            }
-        };
-        std::mem::swap(dom, &mut sink.dom.borrow_mut());
+        let done = self.feed(dom);
         let records = dom.take_parsed(
             &mut sink.created.borrow_mut(),
             &mut sink.popped.borrow_mut(),
@@ -1287,6 +1244,27 @@ impl DocumentParser {
             done,
             quirks,
         }
+    }
+
+    /// Runs the parser with `dom` swapped in, up to the next pause or the end of the input;
+    /// whether it reached the end.
+    fn feed(&self, dom: &mut DomState) -> bool {
+        let sink = &self.tokenizer.sink.sink;
+        std::mem::swap(dom, &mut sink.dom.borrow_mut());
+        let done = loop {
+            match self.tokenizer.feed(&self.input) {
+                TokenizerResult::Done => {
+                    self.tokenizer.end();
+                    break true;
+                }
+                TokenizerResult::Script(node) if self.pause && self.in_document(node) => {
+                    break false;
+                }
+                _ => {}
+            }
+        };
+        std::mem::swap(dom, &mut sink.dom.borrow_mut());
+        done
     }
 
     fn in_document(&self, node: NodeId) -> bool {
@@ -1367,41 +1345,14 @@ fn id_of(e: &Element) -> Option<String> {
     let no_ns = Namespace::from("");
     e.attrs
         .iter()
-        .find(|(k, _)| same_attr(k, &no_ns, "id"))
-        .map(|(_, v)| v.to_string())
-}
-
-/// `scraper::Html::parse_fragment` hardcodes a `<body>` context; this threads the real context
-/// element through, so `<td>` / `<tr>` fragments land under the right insertion mode and SVG
-/// contexts parse as foreign content.
-fn parse_fragment(html: &str, local: &str, ns: &str, in_form: bool, scripting: bool) -> Html {
-    use html5ever::interface::{ElementFlags, TreeSink};
-    use html5ever::tendril::TendrilSink;
-    use html5ever::tree_builder::TreeBuilderOpts;
-
-    let sink = scraper::HtmlTreeSink::new(Html::new_fragment());
-    // ponytail: scraper's sink never reports a MathML `annotation-xml` integration point, so
-    // HTML content in one parses as MathML; wrap the sink if a page ever needs it.
-    let element = |local: &str, ns: &str| {
-        let name = QualName::new(None, Namespace::from(ns), LocalName::from(local));
-        sink.create_element(name, Vec::new(), ElementFlags::default())
-    };
-    let context = element(local, ns);
-    let form = in_form.then(|| element("form", HTML_NS));
-    let opts = html5ever::driver::ParseOpts {
-        tree_builder: TreeBuilderOpts {
-            scripting_enabled: scripting,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    html5ever::driver::parse_fragment_for_element(sink, opts, context, scripting, form).one(html)
+        .find(|a| same_attr(&a.name, &no_ns, "id"))
+        .map(|a| a.value.to_string())
 }
 
 fn classify(node: &Node) -> (u8, Option<String>, Option<String>) {
     match node {
-        Node::Document => (9, None, None),
-        Node::Fragment => (11, None, None),
+        Node::Document(_) => (9, None, None),
+        Node::Fragment(_) => (11, None, None),
         Node::Doctype(d) => (10, Some(d.name.to_string()), None),
         Node::Comment(_) => (8, None, None),
         Node::Text(_) => (3, None, None),
@@ -1439,6 +1390,33 @@ mod tests {
     use super::*;
 
     const XLINK: &str = "http://www.w3.org/1999/xlink";
+
+    /// `cargo test --release bench_mutate_then_query -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_mutate_then_query() {
+        let items: String = (0..1240)
+            .map(|i| format!("<li id=i{i} class='membro x' title=t>{i}</li>"))
+            .collect();
+        let mut dom = DomState::new();
+        let doc = dom.parse(&format!("<ul>{items}</ul>"), None)[0].id;
+        let state = dom.query_state(true, false, -1, -1);
+        let first = dom.query(doc, "li", QueryMode::First, &state).unwrap()[0];
+        for run in 0..5 {
+            let start = std::time::Instant::now();
+            for _ in 0..100 {
+                for n in 0..40 {
+                    dom.set_attr(first, None, None, "data-n", &n.to_string());
+                    let hits = dom.query(doc, ".membro", QueryMode::All, &state);
+                    assert_eq!(hits.unwrap().len(), 1240);
+                }
+            }
+            println!(
+                "run {run}: {:.3} ms per 40x",
+                start.elapsed().as_secs_f64() * 10.0
+            );
+        }
+    }
 
     fn child_named(dom: &mut DomState, wire: u32, name: &str) -> u32 {
         dom.children(wire)
@@ -1624,7 +1602,7 @@ mod tests {
             dom.serialize(frag, false, true).as_deref(),
             Some(r#"<template id="t"><b>x</b><template><i></i></template></template>"#)
         );
-        let contents = dom.template_contents[&dom.resolve(outer).unwrap()];
+        let contents = dom.template_contents(dom.resolve(outer).unwrap()).unwrap();
         let contents = dom.wire(contents);
         assert!(dom.parent_wire(contents).is_none());
         let inner = child_named(&mut dom, contents, "TEMPLATE");

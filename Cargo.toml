@@ -32,15 +32,15 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
-# Rust-backed DOM tree. `deterministic` gives ordered IndexMap attributes.
-# `ego-tree`/`html5ever` are used directly at call sites, so they are declared here too,
-# pinned to what scraper 0.27 resolves.
-scraper = { version = "0.27.0", features = ["deterministic"] }
+# Rust-backed DOM tree: an `ego-tree` arena filled by `html5ever` and matched with `selectors`.
+# selectors pulls a second cssparser (0.37) alongside deno_web's 0.36 -- a harmless duplicate
+# compile.
 ego-tree = "0.11"
 html5ever = "0.39"
-# Drive `SelectorList::parse` directly for the native query engine. selectors pulls a second
-# cssparser (0.37) alongside deno_web's 0.36 -- a harmless duplicate compile.
 selectors = "0.38"
+precomputed-hash = "0.1"
+# Needed to drive `SelectorList::parse` directly for the native query engine; resolves to the
+# same 0.37 `selectors` already pulls in.
 cssparser = "0.37"
 
 [dev-dependencies]
@@ -72,7 +72,7 @@ cssparser = "0.37"
 ego-tree = "0.11"
 html5ever = "0.39"
 selectors = "0.38"
-scraper = { version = "0.27.0", features = ["deterministic"] }
+precomputed-hash = "0.1"
 serde = { version = "1.0.229", features = ["derive"] }
 
 [lints.clippy]

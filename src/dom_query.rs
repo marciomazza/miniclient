@@ -1,14 +1,13 @@
-//! CSS selector matching over the arena. `scraper`'s own selector layer cannot be extended (its
-//! pseudo-class enum is uninhabited and its `Selector` sealed), so this module owns a
-//! `selectors::SelectorImpl` and a `selectors::Element` over `ego_tree::NodeRef<scraper::Node>`.
+//! CSS selector matching over the arena: a `selectors::SelectorImpl` and a `selectors::Element`
+//! over `ego_tree::NodeRef<Node>`.
 
 use std::cell::Cell;
 
+use crate::node::{Element as ElementData, Node};
 use cssparser::{CowRcStr, ParseError, Parser as CssParser, ParserInput, SourceLocation, ToCss};
 use ego_tree::{NodeId, NodeRef};
-use html5ever::Namespace;
-use scraper::node::{Element as ScraperElement, Node};
-use scraper::selector::{CssLocalName, CssString};
+use html5ever::{LocalName, Namespace};
+use precomputed_hash::PrecomputedHash;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::bloom::BloomFilter;
 use selectors::matching::{
@@ -217,6 +216,50 @@ pub fn select<'a>(
 
 // --- selectors::SelectorImpl wiring -------------------------------------------------------
 
+/// An attribute value in a parsed selector.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CssString(pub String);
+
+impl From<&str> for CssString {
+    fn from(val: &str) -> Self {
+        Self(val.to_owned())
+    }
+}
+
+impl AsRef<str> for CssString {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl ToCss for CssString {
+    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
+        cssparser::serialize_string(&self.0, dest)
+    }
+}
+
+/// A name in a parsed selector: identifier, local name or namespace prefix.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CssLocalName(pub LocalName);
+
+impl From<&str> for CssLocalName {
+    fn from(val: &str) -> Self {
+        Self(val.into())
+    }
+}
+
+impl ToCss for CssLocalName {
+    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
+        dest.write_str(&self.0)
+    }
+}
+
+impl PrecomputedHash for CssLocalName {
+    fn precomputed_hash(&self) -> u32 {
+        self.0.precomputed_hash()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MiniImpl;
 
@@ -362,7 +405,7 @@ impl<'a> MiniElement<'a> {
         node.value().is_element().then_some(Self { node, state })
     }
 
-    fn el(&self) -> &'a ScraperElement {
+    fn el(&self) -> &'a ElementData {
         self.node
             .value()
             .as_element()
@@ -623,10 +666,10 @@ impl Element for MiniElement<'_> {
         local_name: &CssLocalName,
         operation: &AttrSelectorOperation<&CssString>,
     ) -> bool {
-        self.el().attrs.iter().any(|(key, value)| {
-            !matches!(*ns, NamespaceConstraint::Specific(url) if *url != key.ns)
-                && local_name.0 == key.local
-                && operation.eval_str(value)
+        self.el().attrs.iter().any(|a| {
+            !matches!(*ns, NamespaceConstraint::Specific(url) if *url != a.name.ns)
+                && local_name.0 == a.name.local
+                && operation.eval_str(&a.value)
         })
     }
 
