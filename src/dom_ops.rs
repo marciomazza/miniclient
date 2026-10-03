@@ -1,9 +1,11 @@
 //! `op_dom_*`: the JS boundary of `src/dom.rs`. Kept out of `ops.rs` because `build.rs`
 //! compiles this file too, to register the same ops in the snapshot, and `ops.rs` needs pyo3.
 
+use std::collections::HashMap;
+
 use deno_core::{Extension, OpState, op2};
 
-use crate::dom::{AttrRecord, DomState, NodeRecord, TreeRecord};
+use crate::dom::{AttrRecord, DocumentParser, DomState, NodeRecord, ParseStep, TreeRecord};
 use crate::dom_query::QueryMode;
 
 /// Registered right after `deno_web` by both the runtime and the snapshot build, so the
@@ -13,6 +15,8 @@ pub fn dom_extension() -> Extension {
         name: "miniclient_dom",
         ops: std::borrow::Cow::Owned(vec![
             op_dom_parse_fragment(),
+            op_dom_parse_document(),
+            op_dom_parse_step(),
             op_dom_tree_records(),
             op_dom_children(),
             op_dom_data(),
@@ -44,7 +48,10 @@ pub fn dom_extension() -> Extension {
             op_dom_tree_ids(),
             op_dom_query(),
         ]),
-        op_state_fn: Some(Box::new(|state| state.put(DomState::new()))),
+        op_state_fn: Some(Box::new(|state| {
+            state.put(DomState::new());
+            state.put(DocumentParsers::default());
+        })),
         ..Default::default()
     }
 }
@@ -85,6 +92,41 @@ pub fn op_dom_parse_fragment(
     scripting: bool,
 ) -> u32 {
     dom(state).parse_fragment(html, ctx_local, ctx_ns, in_form, scripting)
+}
+
+/// Documents being parsed, by wire id: a script paused in one can parse another (for example
+/// through `DOMParser`) before it resumes.
+#[derive(Default)]
+struct DocumentParsers(HashMap<u32, DocumentParser>);
+
+/// Starts parsing `html` into the empty document `doc`; `op_dom_parse_step` drives it. See
+/// `DocumentParser::new`.
+#[op2(fast)]
+pub fn op_dom_parse_document(
+    state: &mut OpState,
+    doc: u32,
+    #[string] html: &str,
+    scripting: bool,
+    pause: bool,
+) {
+    let parser = DocumentParser::new(state.borrow::<DomState>(), doc, html, scripting, pause);
+    let parsers = &mut state.borrow_mut::<DocumentParsers>().0;
+    match parser {
+        Some(parser) => parsers.insert(doc, parser),
+        None => parsers.remove(&doc),
+    };
+}
+
+/// Runs `doc`'s parse up to its next pause; `None` when it is not being parsed.
+#[op2]
+#[serde]
+pub fn op_dom_parse_step(state: &mut OpState, doc: u32) -> Option<ParseStep> {
+    let parser = state.borrow_mut::<DocumentParsers>().0.remove(&doc)?;
+    let step = parser.step(dom(state));
+    if !step.done {
+        state.borrow_mut::<DocumentParsers>().0.insert(doc, parser);
+    }
+    Some(step)
 }
 
 #[op2]

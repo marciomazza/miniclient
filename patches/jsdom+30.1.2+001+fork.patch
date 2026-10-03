@@ -1,41 +1,202 @@
-# fork: yukwuxvqmyzz 2de051574590
+# fork: xzytxotkryow cd4e2d9a79f5
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-index 905b1c9d02..e725168734 100644
+index 905b1c9d02..cb6104bbac 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-@@ -4,6 +4,8 @@
+@@ -1,205 +1,196 @@ function inForm(contextElement) {
+ "use strict";
  
+-const parse5 = require("parse5");
+-
  const { createElement } = require("../../living/helpers/create-element");
  const { HTML_NS } = require("../../living/helpers/namespaces");
-+const { materialize, setTemplateContents } = require("../../living/helpers/dom-tree");
++const { impl, materialize, wire } = require("../../living/helpers/dom-tree");
 +const { updateRadioButtonGroupsForTreeChange } = require("../../living/helpers/form-controls");
++const {
++  customElementReactionsStack, invokeCEReactions, lookupCEDefinition
++} = require("../../living/helpers/custom-elements");
  
  const DocumentType = require("../../../generated/idl/DocumentType");
  const DocumentFragment = require("../../../generated/idl/DocumentFragment");
-@@ -13,6 +15,10 @@
- const attributes = require("../../living/attributes");
+ const Text = require("../../../generated/idl/Text");
+ const Comment = require("../../../generated/idl/Comment");
+ 
+-const attributes = require("../../living/attributes");
++const { handleAttributeChanges, setAttributeValue } = require("../../living/attributes");
  const nodeTypes = require("../../living/node-type");
  
+-const serializationAdapter = require("../../living/domparsing/parse5-adapter-serialization");
 +/* global Deno */
 +/* eslint-disable camelcase -- the native op names */
-+const { op_dom_attr_value, op_dom_attrs, op_dom_parse_fragment, op_dom_tree_records } = Deno.core.ops;
-+
- const serializationAdapter = require("../../living/domparsing/parse5-adapter-serialization");
  const {
-   customElementReactionsStack, invokeCEReactions, lookupCEDefinition
-@@ -117,7 +123,7 @@ setTemplateContent(templateElement, contentFragment) {
-     contentFragment._ownerDocument = _ownerDocument;
-     contentFragment._host = _host;
- 
+-  customElementReactionsStack, invokeCEReactions, lookupCEDefinition
+-} = require("../../living/helpers/custom-elements");
+-
+-
+-class JSDOMParse5Adapter {
+-  constructor(documentImpl, options = {}) {
+-    this._documentImpl = documentImpl;
+-    this._globalObject = documentImpl._globalObject;
+-    this._fragment = options.fragment || false;
+-
+-    // Since the createElement hook doesn't provide the parent element, we keep track of this using _currentElement:
+-    // https://github.com/inikulin/parse5/issues/285.
+-    this._currentElement = undefined;
+-  }
+-
+-  _ownerDocument() {
+-    const { _currentElement } = this;
+-
+-    // The _currentElement is undefined when parsing elements at the root of the document.
+-    if (_currentElement) {
+-      return _currentElement.localName === "template" && _currentElement.namespaceURI === HTML_NS ?
+-        _currentElement.content._ownerDocument :
+-        _currentElement._ownerDocument;
+-    }
+-
+-    return this._documentImpl;
+-  }
+-
+-  createDocument() {
+-    // parse5's model assumes that parse(html) will call into here to create the new Document, then return it. However,
+-    // jsdom's model assumes we can create a Window (and through that create an empty Document), do some other setup
+-    // stuff, and then parse, stuffing nodes into that Document as we go. So to adapt between these two models, we just
+-    // return the already-created Document when asked by parse5 to "create" a Document.
+-    return this._documentImpl;
+-  }
+-
+-  createDocumentFragment() {
+-    const ownerDocument = this._ownerDocument();
+-    return DocumentFragment.createImpl(this._globalObject, [], { ownerDocument });
+-  }
+-
+-  // https://html.spec.whatwg.org/#create-an-element-for-the-token
+-  createElement(localName, namespace, attrs) {
+-    const ownerDocument = this._ownerDocument();
+-
+-    const isAttribute = attrs.find(attr => attr.name === "is");
+-    const isValue = isAttribute ? isAttribute.value : null;
+-
+-    const definition = lookupCEDefinition(ownerDocument, namespace, localName);
+-
+-    let willExecuteScript = false;
+-    if (definition !== null && !this._fragment) {
+-      willExecuteScript = true;
+-    }
+-
+-    if (willExecuteScript) {
+-      ownerDocument._throwOnDynamicMarkupInsertionCounter++;
+-      customElementReactionsStack.push([]);
+-    }
+-
+-    const element = createElement(ownerDocument, localName, namespace, null, isValue, willExecuteScript);
+-    this.adoptAttributes(element, attrs);
+-
+-    if (willExecuteScript) {
+-      const queue = customElementReactionsStack.pop();
+-      invokeCEReactions(queue);
+-      ownerDocument._throwOnDynamicMarkupInsertionCounter--;
+-    }
+-
+-    if ("_parserInserted" in element) {
+-      element._parserInserted = true;
+-    }
+-
+-    return element;
+-  }
+-
+-  createCommentNode(data) {
+-    const ownerDocument = this._ownerDocument();
+-    return Comment.createImpl(this._globalObject, [], { data, ownerDocument });
+-  }
+-
+-  appendChild(parentNode, newNode) {
+-    parentNode._append(newNode);
+-  }
+-
+-  insertBefore(parentNode, newNode, referenceNode) {
+-    parentNode._insert(newNode, referenceNode);
+-  }
+-
+-  setTemplateContent(templateElement, contentFragment) {
+-    // This code makes the glue between jsdom and parse5 HTMLTemplateElement parsing:
+-    //
+-    // * jsdom during the construction of the HTMLTemplateElement (for example when create via
+-    //   `document.createElement("template")`), creates a DocumentFragment and set it into _templateContents.
+-    // * parse5 when parsing a <template> tag creates an HTMLTemplateElement (`createElement` adapter hook) and also
+-    //   create a DocumentFragment (`createDocumentFragment` adapter hook).
+-    //
+-    // At this point we now have to replace the one created in jsdom with one created by parse5.
+-    const { _ownerDocument, _host } = templateElement._templateContents;
+-    contentFragment._ownerDocument = _ownerDocument;
+-    contentFragment._host = _host;
+-
 -    templateElement._templateContents = contentFragment;
-+    setTemplateContents(templateElement, contentFragment);
-   }
- 
-   setDocumentType(document, name, publicId, systemId) {
-@@ -179,18 +185,87 @@ onItemPop(before, newTop) {
- // Assign shared adapters with serializer.
- Object.assign(JSDOMParse5Adapter.prototype, serializationAdapter);
- 
+-  }
+-
+-  setDocumentType(document, name, publicId, systemId) {
+-    const ownerDocument = this._ownerDocument();
+-    const documentType = DocumentType.createImpl(this._globalObject, [], { name, publicId, systemId, ownerDocument });
+-
+-    document._append(documentType);
+-  }
+-
+-  setDocumentMode(document, mode) {
+-    // TODO: the rest of jsdom ignores this
+-    document._mode = mode;
+-  }
+-
+-  detachNode(node) {
+-    node.remove();
+-  }
+-
+-  insertText(parentNode, text) {
+-    const { lastChild } = parentNode;
+-    if (lastChild && lastChild.nodeType === nodeTypes.TEXT_NODE) {
+-      lastChild.data += text;
+-    } else {
+-      const ownerDocument = this._ownerDocument();
+-      const textNode = Text.createImpl(this._globalObject, [], { data: text, ownerDocument });
+-      parentNode._append(textNode);
+-    }
+-  }
+-
+-  insertTextBefore(parentNode, text, referenceNode) {
+-    const { previousSibling } = referenceNode;
+-    if (previousSibling && previousSibling.nodeType === nodeTypes.TEXT_NODE) {
+-      previousSibling.data += text;
+-    } else {
+-      const ownerDocument = this._ownerDocument();
+-      const textNode = Text.createImpl(this._globalObject, [], { data: text, ownerDocument });
+-      parentNode._insert(textNode, referenceNode);
+-    }
+-  }
+-
+-  adoptAttributes(element, attrs) {
+-    for (const attr of attrs) {
+-      const prefix = attr.prefix === "" ? null : attr.prefix;
+-      attributes.setAttributeValue(element, attr.name, attr.value, prefix, attr.namespace);
+-    }
+-  }
+-
+-  onItemPush(after) {
+-    this._currentElement = after;
+-    after._pushedOnStackOfOpenElements?.();
+-  }
+-
+-  onItemPop(before, newTop) {
+-    this._currentElement = newTop;
+-    before._poppedOffStackOfOpenElements?.();
+-  }
+-}
+-
+-// Assign shared adapters with serializer.
+-Object.assign(JSDOMParse5Adapter.prototype, serializationAdapter);
+-
++  op_dom_attr_value, op_dom_attrs, op_dom_parse_document, op_dom_parse_fragment, op_dom_parse_step,
++  op_dom_tree_records
++} = Deno.core.ops;
++
 +// A `<form>` among the context's inclusive ancestors keeps a nested `<form>` tag from opening
 +// one, as parse5 checks it: by qualified name, in any namespace.
 +function inForm(contextElement) {
@@ -47,12 +208,14 @@ index 905b1c9d02..e725168734 100644
 +  return false;
 +}
 +
-+function createNode(record, ownerDocument) {
++// `synchronous` runs a defined custom element's constructor right away, as the document parser
++// does.
++function createNode(record, ownerDocument, synchronous = false) {
 +  const { _globalObject } = ownerDocument;
 +  switch (record.type) {
 +    case nodeTypes.ELEMENT_NODE: {
 +      const isValue = op_dom_attr_value(record.id, "", "is") ?? null;
-+      const element = createElement(ownerDocument, record.name, record.ns, null, isValue, false);
++      const element = createElement(ownerDocument, record.name, record.ns, null, isValue, synchronous);
 +      if ("_parserInserted" in element) {
 +        element._parserInserted = true;
 +      }
@@ -83,14 +246,19 @@ index 905b1c9d02..e725168734 100644
 +  return fragment;
 +}
 +
++// What appending each attribute the parser already wrote to the arena would have run.
++function runAttributeSteps(element) {
++  for (const { ns, local, value } of op_dom_attrs(element._wire)) {
++    handleAttributeChanges(element, local, ns, null, value);
++  }
++}
++
 +// What the parse5 adapter's attribute writes and appends change on brand-new nodes of a
 +// detached fragment; nothing is connected or observed yet.
 +function runParserSteps(nodes) {
 +  for (const node of nodes) {
 +    if (node.nodeType === nodeTypes.ELEMENT_NODE) {
-+      for (const { ns, local, value } of op_dom_attrs(node._wire)) {
-+        node._attributeChangeSteps(local, null, value, ns);
-+      }
++      runAttributeSteps(node);
 +    }
 +    const parent = node.parentNode;
 +    parent._invalidateCaches();
@@ -113,6 +281,15 @@ index 905b1c9d02..e725168734 100644
 -  };
 -
 -  return parse5.parseFragment(contextElement, markup, config);
+-}
+-
+-function parseIntoDocument(markup, ownerDocument) {
+-  const config = {
+-    ...ownerDocument._parseOptions,
+-    treeAdapter: new JSDOMParse5Adapter(ownerDocument)
+-  };
+-
+-  return parse5.parse(markup, config);
 +  const scripting = ownerDocument._parseOptions.scriptingEnabled !== false;
 +  const w = op_dom_parse_fragment(
 +    markup,
@@ -125,9 +302,89 @@ index 905b1c9d02..e725168734 100644
 +  const fragment = materializeFragment(w, ownerDocument, null, created);
 +  runParserSteps(created);
 +  return fragment;
++}
++
++// Creates a node's impl the way the document parser does: a defined custom element is
++// constructed synchronously, in its own reactions scope, with no markup insertion meanwhile.
++function createParsedNode(record, doctype, document) {
++  if (doctype) {
++    const { name } = record;
++    const { public_id: publicId, system_id: systemId } = doctype;
++    const ownerDocument = document;
++    const node = DocumentType.createImpl(document._globalObject, [], { name, publicId, systemId, ownerDocument });
++    return materialize(node, record.id);
++  }
++  if (record.type !== nodeTypes.ELEMENT_NODE) {
++    return materialize(createNode(record, document), record.id);
++  }
++  const synchronous = lookupCEDefinition(document, record.ns, record.name) !== null;
++  if (synchronous) {
++    document._throwOnDynamicMarkupInsertionCounter++;
++    customElementReactionsStack.push([]);
++  }
++  const element = materialize(createNode(record, document, synchronous), record.id);
++  runAttributeSteps(element);
++  if (synchronous) {
++    invokeCEReactions(customElementReactionsStack.pop());
++    document._throwOnDynamicMarkupInsertionCounter--;
++  }
++  return element;
++}
++
++// Inserts what one parser step added through `_insert`, node by node in tree order and each still
++// childless, as a tree builder inserts. An element's end-of-element steps (a script running, a
++// style sheet being built) follow its last descendant.
++function insertParsed(records, document) {
++  const open = [];
++  function close(until) {
++    while (open.length && open.at(-1).node._wire !== until) {
++      const { node, popped } = open.pop();
++      if (popped) {
++        node._poppedOffStackOfOpenElements?.();
++      }
++    }
++  }
++  for (const { node: record, parent, before, popped, doctype } of records) {
++    close(parent);
++    const node = createParsedNode(record, doctype, document);
++    if (record.contents !== null) {
++      const created = [];
++      const contentsDocument = node._templateContents._ownerDocument;
++      node._templateContents = materializeFragment(record.contents, contentsDocument, node, created);
++      runParserSteps(created);
++    }
++    impl(parent)._insert(node, impl(before ?? -1));
++    node._pushedOnStackOfOpenElements?.();
++    open.push({ node, popped });
++  }
++  close(-1);
++}
++
++// html5ever parses into the arena and pauses after each script, which runs once what came before
++// it is inserted. Without a browsing context no script runs, so there is nothing to pause for.
++function parseIntoDocument(markup, document) {
++  const scripting = document._parseOptions.scriptingEnabled !== false;
++  const w = wire(document);
++  op_dom_parse_document(w, markup, scripting, Boolean(document._defaultView));
++  for (let step; (step = op_dom_parse_step(w));) {
++    if (step.quirks) {
++      document._mode = step.quirks;
++    }
++    for (const [element, { ns, prefix, local, value }] of step.attrs) {
++      setAttributeValue(impl(element), local, value, prefix, ns);
++    }
++    for (const [text, data] of step.text) {
++      impl(text).appendData(data);
++    }
++    insertParsed(step.records, document);
++    if (step.done) {
++      break;
++    }
++  }
++  return document;
  }
  
- function parseIntoDocument(markup, ownerDocument) {
+ module.exports = {
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -297,10 +554,10 @@ index e5d4daa20d..15e1d62588 100644
      return this._element;
    }
 diff --git a/node_modules/jsdom/lib/jsdom/living/attributes.js b/node_modules/jsdom/lib/jsdom/living/attributes.js
-index 65486849e6..169d080e37 100644
+index 65486849e6..4e23a14e62 100644
 --- a/node_modules/jsdom/lib/jsdom/living/attributes.js
 +++ b/node_modules/jsdom/lib/jsdom/living/attributes.js
-@@ -6,188 +6,181 @@ function attrKey(namespace, localName) {
+@@ -6,188 +6,182 @@ function attrKey(namespace, localName) {
  const { queueAttributeMutationRecord } = require("./helpers/mutation-observers");
  const { enqueueCECallbackReaction } = require("./helpers/custom-elements");
  
@@ -411,6 +668,7 @@ index 65486849e6..169d080e37 100644
 -  element._attributeChangeSteps(_localName, oldValue, value, _namespace);
 +  element._attributeChangeSteps(localName, oldValue, value, namespace);
 +}
++exports.handleAttributeChanges = handleAttributeChanges;
 +
 +// Sets an attribute's value without creating its `Attr`. `existing` is its arena record, or null
 +// to append a new attribute; a changed attribute keeps its prefix.
@@ -616,7 +874,7 @@ index 65486849e6..169d080e37 100644
  };
  
  exports.setAttribute = function (element, attr) {
-@@ -211,30 +204,20 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
+@@ -211,30 +205,20 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
    return oldAttr;
  };
  
@@ -661,7 +919,7 @@ index 65486849e6..169d080e37 100644
  };
  
  // https://dom.spec.whatwg.org/#set-an-existing-attribute-value
-@@ -273,12 +256,15 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
+@@ -273,12 +257,15 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
  
  exports.attributeNames = function (element) {
    // Needed by https://dom.spec.whatwg.org/#dom-element-getattributenames
@@ -931,7 +1189,7 @@ index 6d3cf61cd4..1bf2157546 100644
  
    const childNodes = outer ? [node] : node._childrenToArray();
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..6a998f331c 100644
+index 7eb8408fc8..9dbbdf041a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 @@ -6,31 +6,274 @@ function bind(node, w) {
@@ -1415,7 +1673,7 @@ index 7eb8408fc8..6a998f331c 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove,
-+  QUERY, query, wire, materialize, materializedCount, setTemplateContents, clearBindings
++  QUERY, query, impl, wire, materialize, materializedCount, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644

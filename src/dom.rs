@@ -1,10 +1,19 @@
 //! Rust-backed DOM tree: the node arena held in `OpState`, answering the `op_dom_*` ops
 //! (`src/dom_ops.rs`). Structure, attributes and character data live here.
 
+use std::borrow::Cow;
+use std::cell::{Cell, Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use ego_tree::{NodeId, NodeRef, Tree};
-use html5ever::{Attribute, LocalName, Namespace, Prefix, QualName};
+use html5ever::tendril::StrTendril;
+use html5ever::tokenizer::{BufferQueue, Tokenizer, TokenizerOpts};
+use html5ever::tree_builder::{
+    ElementFlags, NodeOrText, QuirksMode, TreeBuilder, TreeBuilderOpts, TreeSink,
+};
+use html5ever::{
+    Attribute, LocalName, Namespace, Prefix, QualName, TokenizerResult, local_name, ns,
+};
 use scraper::node::{Comment, Doctype, Element, ProcessingInstruction, Text};
 use scraper::{Html, Node};
 use serde::Serialize;
@@ -40,7 +49,7 @@ pub struct AttrRecord {
 }
 
 /// One node of a subtree JS creates impls for: what jsdom's constructors need. `name` is an
-/// element's local name.
+/// element's local name or a doctype's name.
 #[derive(Serialize)]
 pub struct TreeRecord {
     pub id: u32,
@@ -50,6 +59,40 @@ pub struct TreeRecord {
     pub ns: String,
     /// A `<template>`'s content fragment.
     pub contents: Option<u32>,
+}
+
+/// A node the document parser added since its last pause, detached again so that JS inserts it
+/// itself, childless, before `before` under `parent`.
+#[derive(Serialize)]
+pub struct ParsedRecord {
+    pub node: TreeRecord,
+    pub parent: u32,
+    /// The first sibling that was already there, or `None` to append.
+    pub before: Option<u32>,
+    /// Popped off the stack of open elements, so JS runs its end-of-element steps. html5ever
+    /// does not report every pop, but it does for `<script>` and `<style>`, the only elements
+    /// with such steps.
+    pub popped: bool,
+    pub doctype: Option<DoctypeIds>,
+}
+
+#[derive(Serialize)]
+pub struct DoctypeIds {
+    pub public_id: String,
+    pub system_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ParseStep {
+    pub records: Vec<ParsedRecord>,
+    /// Attributes the parser added to elements JS already has (a later `<html>` or `<body>`
+    /// tag), left for JS to set.
+    pub attrs: Vec<(u32, AttrRecord)>,
+    /// Text the parser appended to text nodes JS already has, left for JS to append.
+    pub text: Vec<(u32, String)>,
+    pub done: bool,
+    /// The document's mode, reported once, in jsdom's terms.
+    pub quirks: Option<&'static str>,
 }
 
 /// One `ego-tree` arena per isolate, held in `OpState`. Every parsed document and detached
@@ -663,23 +706,111 @@ impl DomState {
             return Vec::new();
         };
         let nodes: Vec<NodeId> = root.descendants().skip(1).map(|n| n.id()).collect();
-        nodes
-            .into_iter()
-            .map(|id| {
-                let (node_type, name, ns) = match self.arena.get(id).expect("listed").value() {
-                    Node::Element(e) => (1, e.name.local.to_string(), e.name.ns.to_string()),
-                    other => (classify(other).0, String::new(), String::new()),
+        nodes.into_iter().map(|id| self.tree_record(id)).collect()
+    }
+
+    /// The nodes of `created` the parser linked under a node that was already there, each with
+    /// its new descendants, in tree order. They are detached and leave `created`; a template's
+    /// content leaves with its template. Nodes still detached stay for a later step.
+    fn take_parsed(
+        &mut self,
+        created: &mut HashSet<NodeId>,
+        popped: &mut HashSet<NodeId>,
+    ) -> Vec<ParsedRecord> {
+        let parent_of = |id: NodeId| self.arena.get(id)?.parent().map(|p| p.id());
+        // Keyed by tree, then by position in it.
+        let mut roots: Vec<(NodeId, Vec<usize>, NodeId)> = created
+            .iter()
+            .filter(|&&id| parent_of(id).is_some_and(|p| !created.contains(&p)))
+            .map(|&id| {
+                let node = self.arena.get(id).expect("created");
+                let mut path: Vec<usize> = std::iter::once(node)
+                    .chain(node.ancestors())
+                    .map(|n| n.prev_siblings().count())
+                    .collect();
+                path.reverse();
+                let tree = node.ancestors().last().expect("linked").id();
+                (tree, path, id)
+            })
+            .collect();
+        roots.sort();
+        let mut order = Vec::new();
+        for (_, _, root) in roots {
+            let mut stack = vec![root];
+            while let Some(id) = stack.pop() {
+                if !created.remove(&id) {
+                    continue;
+                }
+                order.push(id);
+                let node = self.arena.get(id).expect("created");
+                stack.extend(node.children().rev().map(|c| c.id()));
+            }
+        }
+        for &id in &order {
+            if let Some(&contents) = self.template_contents.get(&id) {
+                self.forget_subtree(created, contents);
+            }
+        }
+        let emitted: HashSet<NodeId> = order.iter().copied().collect();
+        let records = order
+            .iter()
+            .map(|&id| {
+                let node = self.arena.get(id).expect("created");
+                let parent = node.parent().expect("linked").id();
+                let before = node
+                    .next_siblings()
+                    .find(|s| !emitted.contains(&s.id()))
+                    .map(|s| s.id());
+                let doctype = match node.value() {
+                    Node::Doctype(d) => Some(DoctypeIds {
+                        public_id: d.public_id.to_string(),
+                        system_id: d.system_id.to_string(),
+                    }),
+                    _ => None,
                 };
-                let contents = self.template_contents.get(&id).copied();
-                TreeRecord {
-                    id: self.wire(id),
-                    node_type,
-                    name,
-                    ns,
-                    contents: contents.map(|c| self.wire(c)),
+                ParsedRecord {
+                    node: self.tree_record(id),
+                    parent: self.wire(parent),
+                    before: before.map(|b| self.wire(b)),
+                    popped: popped.remove(&id),
+                    doctype,
                 }
             })
-            .collect()
+            .collect();
+        for id in order {
+            self.arena.get_mut(id).expect("created").detach();
+        }
+        self.mutations += 1;
+        records
+    }
+
+    /// Drops `root`'s subtree, template content included, from `created`.
+    fn forget_subtree(&self, created: &mut HashSet<NodeId>, root: NodeId) {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            created.remove(&id);
+            let Some(node) = self.arena.get(id) else {
+                continue;
+            };
+            stack.extend(node.children().map(|c| c.id()));
+            stack.extend(self.template_contents.get(&id));
+        }
+    }
+
+    fn tree_record(&mut self, id: NodeId) -> TreeRecord {
+        let (node_type, name, ns) = match self.arena.get(id).expect("listed").value() {
+            Node::Element(e) => (1, e.name.local.to_string(), e.name.ns.to_string()),
+            Node::Doctype(d) => (10, d.name.to_string(), String::new()),
+            other => (classify(other).0, String::new(), String::new()),
+        };
+        let contents = self.template_contents.get(&id).copied();
+        TreeRecord {
+            id: self.wire(id),
+            node_type,
+            name,
+            ns,
+            contents: contents.map(|c| self.wire(c)),
+        }
     }
 
     #[cfg(test)]
@@ -863,6 +994,304 @@ impl DomState {
 impl Default for DomState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// html5ever's tree sink over the arena itself, so the parser builds the document in place and
+/// sees whatever a script changed while it was paused. It notes the nodes it creates and pops,
+/// which JS then materializes. Nodes JS already has are left unchanged: their edits go to JS,
+/// which runs jsdom's own steps for them.
+struct ArenaSink {
+    /// The arena, moved in for the length of a parse step only.
+    dom: RefCell<DomState>,
+    document: NodeId,
+    created: RefCell<HashSet<NodeId>>,
+    popped: RefCell<HashSet<NodeId>>,
+    quirks: Cell<Option<QuirksMode>>,
+    attrs: RefCell<Vec<(u32, AttrRecord)>>,
+    text: RefCell<Vec<(u32, String)>>,
+}
+
+impl ArenaSink {
+    fn orphan(&self, node: Node) -> NodeId {
+        let id = self.dom.borrow_mut().arena.orphan(node).id();
+        self.created.borrow_mut().insert(id);
+        id
+    }
+
+    /// Appends text to `parent`, or before `sibling` when given, merging with the text node
+    /// already there.
+    fn insert_text(&self, parent: NodeId, sibling: Option<NodeId>, text: &str) {
+        let mut dom = self.dom.borrow_mut();
+        let neighbour = match sibling {
+            Some(s) => dom.arena.get(s).and_then(|s| s.prev_sibling()),
+            None => dom.arena.get(parent).and_then(|p| p.last_child()),
+        }
+        .map(|n| n.id());
+        if let Some(n) = neighbour
+            && let Node::Text(t) = dom.arena.get_mut(n).expect("sibling").value()
+        {
+            if self.created.borrow().contains(&n) {
+                t.text.push_slice(text);
+            } else {
+                let wire = dom.wire(n);
+                self.text.borrow_mut().push((wire, text.into()));
+            }
+            return;
+        }
+        let node = Node::Text(Text { text: text.into() });
+        let id = match sibling {
+            Some(s) => dom
+                .arena
+                .get_mut(s)
+                .expect("sibling")
+                .insert_before(node)
+                .id(),
+            None => dom.arena.get_mut(parent).expect("parent").append(node).id(),
+        };
+        self.created.borrow_mut().insert(id);
+    }
+}
+
+impl TreeSink for ArenaSink {
+    type Handle = NodeId;
+    type Output = ();
+    type ElemName<'a> = Ref<'a, QualName>;
+
+    fn finish(self) {}
+
+    fn parse_error(&self, _msg: Cow<'static, str>) {}
+
+    fn get_document(&self) -> NodeId {
+        self.document
+    }
+
+    fn elem_name<'a>(&'a self, target: &'a NodeId) -> Ref<'a, QualName> {
+        Ref::map(self.dom.borrow(), |dom| {
+            &dom.arena
+                .get(*target)
+                .and_then(|n| n.value().as_element())
+                .expect("element")
+                .name
+        })
+    }
+
+    fn create_element(&self, name: QualName, attrs: Vec<Attribute>, _: ElementFlags) -> NodeId {
+        let template = name.ns == ns!(html) && name.local == local_name!("template");
+        let id = self.orphan(Node::Element(Element::new(name, attrs)));
+        self.dom.borrow_mut().index_ids_in_subtree(id);
+        if template {
+            let contents = self.orphan(Node::Fragment);
+            self.dom.borrow_mut().template_contents.insert(id, contents);
+        }
+        id
+    }
+
+    fn create_comment(&self, text: StrTendril) -> NodeId {
+        self.orphan(Node::Comment(Comment {
+            comment: (*text).into(),
+        }))
+    }
+
+    fn create_pi(&self, target: StrTendril, data: StrTendril) -> NodeId {
+        self.orphan(Node::ProcessingInstruction(ProcessingInstruction {
+            target: (*target).into(),
+            data: (*data).into(),
+        }))
+    }
+
+    fn append(&self, parent: &NodeId, child: NodeOrText<NodeId>) {
+        match child {
+            NodeOrText::AppendNode(id) => {
+                let mut dom = self.dom.borrow_mut();
+                dom.arena.get_mut(*parent).expect("parent").append_id(id);
+            }
+            NodeOrText::AppendText(text) => self.insert_text(*parent, None, &text),
+        }
+    }
+
+    fn append_based_on_parent_node(
+        &self,
+        element: &NodeId,
+        prev_element: &NodeId,
+        child: NodeOrText<NodeId>,
+    ) {
+        let has_parent = self
+            .dom
+            .borrow()
+            .arena
+            .get(*element)
+            .is_some_and(|n| n.parent().is_some());
+        if has_parent {
+            self.append_before_sibling(element, child);
+        } else {
+            self.append(prev_element, child);
+        }
+    }
+
+    fn append_doctype_to_document(&self, name: StrTendril, public: StrTendril, system: StrTendril) {
+        let id = self.orphan(Node::Doctype(Doctype {
+            name: (*name).into(),
+            public_id: (*public).into(),
+            system_id: (*system).into(),
+        }));
+        self.append(&self.document, NodeOrText::AppendNode(id));
+    }
+
+    fn pop(&self, node: &NodeId) {
+        self.popped.borrow_mut().insert(*node);
+    }
+
+    fn get_template_contents(&self, target: &NodeId) -> NodeId {
+        self.dom.borrow().template_contents[target]
+    }
+
+    fn same_node(&self, x: &NodeId, y: &NodeId) -> bool {
+        x == y
+    }
+
+    fn set_quirks_mode(&self, mode: QuirksMode) {
+        self.quirks.set(Some(mode));
+    }
+
+    fn append_before_sibling(&self, sibling: &NodeId, new_node: NodeOrText<NodeId>) {
+        match new_node {
+            NodeOrText::AppendNode(id) => {
+                let mut dom = self.dom.borrow_mut();
+                dom.arena.get_mut(id).expect("node").detach();
+                let mut sibling = dom.arena.get_mut(*sibling).expect("sibling");
+                if sibling.parent().is_some() {
+                    sibling.insert_id_before(id);
+                }
+            }
+            NodeOrText::AppendText(text) => {
+                let parent = self
+                    .dom
+                    .borrow()
+                    .arena
+                    .get(*sibling)
+                    .and_then(|s| s.parent())
+                    .map(|p| p.id());
+                if let Some(parent) = parent {
+                    self.insert_text(parent, Some(*sibling), &text);
+                }
+            }
+        }
+    }
+
+    fn add_attrs_if_missing(&self, target: &NodeId, attrs: Vec<Attribute>) {
+        let mut dom = self.dom.borrow_mut();
+        let wire = dom.wire(*target);
+        let created = self.created.borrow().contains(target);
+        for attr in attrs {
+            let QualName { prefix, ns, local } = attr.name;
+            let ns = (!ns.is_empty()).then_some(&*ns);
+            if dom.attr_value(wire, ns, &local).is_some() {
+                continue;
+            }
+            if created {
+                dom.set_attr(wire, ns, prefix.as_deref(), &local, &attr.value);
+            } else {
+                let record = AttrRecord {
+                    ns: ns.map(Into::into),
+                    prefix: prefix.map(|p| p.to_string()),
+                    local: local.to_string(),
+                    value: attr.value.to_string(),
+                };
+                self.attrs.borrow_mut().push((wire, record));
+            }
+        }
+    }
+
+    fn remove_from_parent(&self, target: &NodeId) {
+        let mut dom = self.dom.borrow_mut();
+        dom.arena.get_mut(*target).expect("node").detach();
+    }
+
+    fn reparent_children(&self, node: &NodeId, new_parent: &NodeId) {
+        let mut dom = self.dom.borrow_mut();
+        let mut new_parent = dom.arena.get_mut(*new_parent).expect("parent");
+        new_parent.reparent_from_id_append(*node);
+    }
+}
+
+/// An HTML document being parsed into the arena. A step runs the parser up to the next
+/// `<script>` in the document, so the script runs before anything after it is parsed.
+pub struct DocumentParser {
+    tokenizer: Tokenizer<TreeBuilder<NodeId, ArenaSink>>,
+    input: BufferQueue,
+    pause: bool,
+}
+
+impl DocumentParser {
+    /// `document` is the wire id of the (empty) document node; `scripting` is its scripting
+    /// flag, and `pause` makes each step stop after a `<script>` in the document.
+    pub fn new(
+        dom: &DomState,
+        document: u32,
+        html: &str,
+        scripting: bool,
+        pause: bool,
+    ) -> Option<Self> {
+        let sink = ArenaSink {
+            dom: RefCell::new(DomState::new()),
+            document: dom.resolve(document)?,
+            created: RefCell::default(),
+            popped: RefCell::default(),
+            quirks: Cell::new(None),
+            attrs: RefCell::default(),
+            text: RefCell::default(),
+        };
+        let opts = TreeBuilderOpts {
+            scripting_enabled: scripting,
+            ..Default::default()
+        };
+        let input = BufferQueue::default();
+        input.push_back(StrTendril::from_slice(html));
+        Some(Self {
+            tokenizer: Tokenizer::new(TreeBuilder::new(sink, opts), TokenizerOpts::default()),
+            input,
+            pause,
+        })
+    }
+
+    pub fn step(&self, dom: &mut DomState) -> ParseStep {
+        let sink = &self.tokenizer.sink.sink;
+        std::mem::swap(dom, &mut sink.dom.borrow_mut());
+        let done = loop {
+            match self.tokenizer.feed(&self.input) {
+                TokenizerResult::Done => {
+                    self.tokenizer.end();
+                    break true;
+                }
+                TokenizerResult::Script(node) if self.pause && self.in_document(node) => {
+                    break false;
+                }
+                _ => {}
+            }
+        };
+        std::mem::swap(dom, &mut sink.dom.borrow_mut());
+        let records = dom.take_parsed(
+            &mut sink.created.borrow_mut(),
+            &mut sink.popped.borrow_mut(),
+        );
+        let quirks = sink.quirks.take().map(|mode| match mode {
+            QuirksMode::Quirks => "quirks",
+            QuirksMode::LimitedQuirks => "limited-quirks",
+            QuirksMode::NoQuirks => "no-quirks",
+        });
+        ParseStep {
+            records,
+            attrs: sink.attrs.take(),
+            text: sink.text.take(),
+            done,
+            quirks,
+        }
+    }
+
+    fn in_document(&self, node: NodeId) -> bool {
+        let sink = &self.tokenizer.sink.sink;
+        sink.dom.borrow().topmost(node) == Some(sink.document)
     }
 }
 
@@ -1136,6 +1565,34 @@ mod tests {
         // orphans: no parent, distinct wire ids
         assert!(dom.parent_wire(div).is_none());
         assert_ne!(div, text);
+    }
+
+    #[test]
+    fn document_parse_pauses_after_each_script_in_the_document() {
+        let mut dom = DomState::new();
+        let doc = dom.create_document(true);
+        let html =
+            "<style>p{}</style><p>a<script>1</script><template><script>2</script></template>b";
+        let parser = DocumentParser::new(&dom, doc, html, true, true).unwrap();
+        let names = |step: &ParseStep| -> Vec<String> {
+            step.records.iter().map(|r| r.node.name.clone()).collect()
+        };
+        let popped = |step: &ParseStep, name: &str| {
+            step.records.iter().any(|r| r.node.name == name && r.popped)
+        };
+        let first = parser.step(&mut dom);
+        assert!(!first.done);
+        assert_eq!(
+            names(&first),
+            ["html", "head", "style", "", "body", "p", "", "script", ""]
+        );
+        assert!(popped(&first, "style") && popped(&first, "script"));
+        // Detached for JS to insert, with their parents and anchors recorded.
+        assert_eq!(dom.child_count(doc), 0);
+        let second = parser.step(&mut dom);
+        assert!(second.done);
+        assert_eq!(names(&second), ["template", ""]);
+        assert!(second.records[0].node.contents.is_some());
     }
 
     #[test]
