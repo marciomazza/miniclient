@@ -75,9 +75,9 @@ struct Page(browser::Page);
 #[pymethods]
 impl Page {
     #[new]
-    #[pyo3(signature = (url="http://localhost/", resource_mounts_json="{}"))]
-    fn new(url: &str, resource_mounts_json: &str) -> Self {
-        Self(browser::Page::new(url, resource_mounts_json))
+    #[pyo3(signature = (resource_mounts_json="{}"))]
+    fn new(resource_mounts_json: &str) -> Self {
+        Self(browser::Page::new(resource_mounts_json))
     }
 
     /// Evaluate `source` as a top-level script, `this` bound to `globalThis` by the isolate's

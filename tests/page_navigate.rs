@@ -13,7 +13,7 @@ use common::fetch_mock::MockFetchBackend;
 
 #[test]
 fn navigate_carries_cookies_forward() {
-    let mut page = Page::new("http://localhost/", "{}");
+    let mut page = Page::new("{}");
     page.runtime().run("document.cookie = 'a=1'; void 0");
 
     page.navigate("http://localhost/");
@@ -23,7 +23,7 @@ fn navigate_carries_cookies_forward() {
 
 #[test]
 fn navigate_carries_session_history_forward() {
-    let mut page = Page::new("http://localhost/", "{}");
+    let mut page = Page::new("{}");
     page.runtime().run("history.pushState({n: 1}, '', '/next')");
 
     page.navigate("http://localhost/");
@@ -34,7 +34,7 @@ fn navigate_carries_session_history_forward() {
 
 #[test]
 fn navigate_reinstalls_the_fetch_backend() {
-    let mut page = Page::new("http://localhost/", "{}");
+    let mut page = Page::new("{}");
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/ok", "hello");
     page.install_fetch_backend(Arc::new(mock));
@@ -49,7 +49,7 @@ fn navigate_reinstalls_the_fetch_backend() {
 
 #[test]
 fn navigate_replays_rust_function_bindings() {
-    let mut page = Page::new("http://localhost/", "{}");
+    let mut page = Page::new("{}");
     let calls = Arc::new(Mutex::new(Vec::new()));
     let recorded = calls.clone();
     page.register_rust_function(

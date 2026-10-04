@@ -23,12 +23,12 @@ class AsyncPage(NativePage):
         mounts: dict[str, Path] | None = None,
     ) -> Self:
         # `type.__call__` hands both __new__ and __init__ the same call args -- the
-        # native `Page.__new__` behind this one only knows `url`/`resource_mounts_json`,
+        # native `Page.__new__` behind this one only knows `resource_mounts_json`,
         # so it needs its own override rather than inheriting the one meant for __init__.
         resource_mounts = {
             mount_url: str(directory) for mount_url, directory in (mounts or {}).items()
         }
-        return cast(Self, super().__new__(cls, "http://localhost/", json.dumps(resource_mounts)))
+        return cast(Self, super().__new__(cls, json.dumps(resource_mounts)))
 
     def __init__(
         self,

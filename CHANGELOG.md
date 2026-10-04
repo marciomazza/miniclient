@@ -4,6 +4,14 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- A page's first `goto()` reuses its blank realm instead of booting a second isolate, and leaves
+  `history.length` at 1.
+- The native `Page` no longer takes a `url`: every page boots blank at `http://localhost/`.
+
 ## [0.2.5]
 
 ### Removed

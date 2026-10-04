@@ -14,7 +14,7 @@ use common::fetch_mock::MockFetchBackend;
 
 #[test]
 fn navigation_self_fetches_the_new_document_on_success() {
-    let mut page = Page::new("http://localhost/", "{}");
+    let mut page = Page::new("{}");
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/next", "<body>hello from next</body>");
     page.install_fetch_backend(Arc::new(mock));
@@ -34,7 +34,7 @@ fn navigation_self_fetches_the_new_document_on_success() {
 
 #[test]
 fn navigation_commits_an_error_document_on_a_failed_fetch() {
-    let mut page = Page::new("http://localhost/", "{}");
+    let mut page = Page::new("{}");
     let mock = MockFetchBackend::new();
     mock.status("http://localhost/next", 500);
     page.install_fetch_backend(Arc::new(mock));

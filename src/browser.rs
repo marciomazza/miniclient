@@ -3,6 +3,7 @@
 //! `runtime::Page`, driven directly by `cargo test`/`tokio::test`, no pyo3/GIL involved.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use deno_core::serde_json;
 
@@ -154,12 +155,18 @@ fn resolve_matches(
 
 pub struct Page {
     inner: runtime::Page,
+    // Still the blank realm `Runtime::new` booted: its first `goto` can navigate in place
+    // instead of booting a second isolate. Only `goto` and `load` end it -- `eval` before the
+    // first `goto` keeps it so a seeded cookie doesn't cost that saving; globals it defines
+    // survive into the first document.
+    pristine: AtomicBool,
 }
 
 impl Page {
-    pub fn new(url: &str, resource_mounts_json: &str) -> Self {
+    pub fn new(resource_mounts_json: &str) -> Self {
         Self {
-            inner: runtime::Page::new(url, resource_mounts_json),
+            inner: runtime::Page::new(resource_mounts_json),
+            pristine: AtomicBool::new(true),
         }
     }
 
@@ -198,21 +205,24 @@ impl Page {
             .expect("install channel dropped");
     }
 
-    /// Navigate to `url` in a fresh isolate, fetching and loading the document -- same
-    /// mechanism as an in-page link click or `location.href =`.
+    /// Fetch and load the document at `url`. The first navigation of an untouched page reuses
+    /// its blank realm; every later one boots a fresh isolate -- same mechanism as an in-page
+    /// link click or `location.href =`.
     pub async fn goto(&self, url: &str) -> Result<(), EvalError> {
         let handle = self.runtime().handle();
-        full_eval(
-            &handle,
-            format!("__mini.navigateFetch(null, {})", json_str(url)),
-        )
-        .await?;
+        let source = if self.pristine.swap(false, Ordering::Relaxed) {
+            format!("__mini.navigateBlank({})", json_str(url))
+        } else {
+            format!("__mini.navigateFetch(null, {})", json_str(url))
+        };
+        full_eval(&handle, source).await?;
         Ok(())
     }
 
     /// Load `html` into the document and initialize htmx, same-document (no navigation, no
     /// history change).
     pub async fn load(&self, html: &str) -> Result<(), EvalError> {
+        self.pristine.store(false, Ordering::Relaxed);
         let handle = self.runtime().handle();
         full_eval(&handle, format!("__mini.documentWrite({})", json_str(html))).await?;
         Ok(())
@@ -346,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_locates_an_element_and_reads_it_back() {
-        let page = Page::new("http://localhost/", "{}");
+        let page = Page::new("{}");
         page.runtime()
             .send_eval(
                 r#"document.body.innerHTML = '<p id="a">hello <b>world</b></p>';"#.into(),
@@ -367,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_with_text_filters_matches() {
-        let page = Page::new("http://localhost/", "{}");
+        let page = Page::new("{}");
         page.runtime()
             .send_eval(
                 "document.body.innerHTML = '<p>no</p><p>yes match</p>';".into(),
@@ -388,7 +398,7 @@ mod tests {
 
     #[tokio::test]
     async fn parent_and_nested_find_walk_the_tree() {
-        let page = Page::new("http://localhost/", "{}");
+        let page = Page::new("{}");
         page.runtime()
             .send_eval(
                 r#"document.body.innerHTML = '<div id="outer"><span>child</span></div>';"#.into(),
@@ -415,7 +425,7 @@ mod tests {
 
     #[tokio::test]
     async fn element_outlives_a_closed_page_without_panicking() {
-        let page = Page::new("http://localhost/", "{}");
+        let page = Page::new("{}");
         page.runtime()
             .send_eval("document.body.innerHTML = '<p>hi</p>';".into(), Wait::None)
             .await
@@ -432,7 +442,7 @@ mod tests {
     /// must tear the element's later access down silently too.
     #[tokio::test]
     async fn element_outlives_a_dropped_page_without_panicking() {
-        let page = Page::new("http://localhost/", "{}");
+        let page = Page::new("{}");
         page.runtime()
             .send_eval("document.body.innerHTML = '<p>hi</p>';".into(), Wait::None)
             .await
@@ -449,7 +459,7 @@ mod tests {
     /// A pending timer distinguishes them: only the settle-waiting path observes its effect.
     #[tokio::test]
     async fn fast_eval_does_not_drain_while_full_eval_does() {
-        let page = Page::new("http://localhost/", "{}");
+        let page = Page::new("{}");
         let handle = page.runtime().handle();
         page.runtime()
             .send_eval(

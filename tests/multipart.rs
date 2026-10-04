@@ -34,7 +34,7 @@ fn hx_multipart_parses_chunked_straddled_boundaries() {
     // markers straddle chunk edges and chunks arrive after the parser's first read(). Every part
     // must come through whole and in order.
     let mounts = format!(r#"{{"http://localhost/vendor/": {VENDOR_HTMX_SRC:?}}}"#);
-    let rt = Runtime::new("http://localhost/", &mounts);
+    let rt = Runtime::new(&mounts);
     // document.write's scripts are parser-inserted, so they fetch automatically and execute in
     // source order -- htmx.js must run before hx-multipart.js, which calls
     // htmx.registerExtension(...) at top level and throws if `htmx` isn't defined yet. Both

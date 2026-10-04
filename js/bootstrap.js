@@ -397,20 +397,31 @@ globalThis.fetch = async (input, init = {}) => {
 // Fire-and-forget, not top-level await (bootstrap.js is a plain script, not a module): the
 // isolate's real event loop (runtime.rs) drains to idle after this script returns, same as
 // every other fire-and-forget fetch in this file.
+async function fetchAndWrite(url, request) {
+    let html;
+    try {
+        const res = await fetch(url, request);
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        html = await res.text();
+    } catch (err) {
+        // Never revert to the old document -- it's already gone. Commit an error-state
+        // document instead, marked so a caller can detect the failure.
+        html = `<pre data-mini-navigation-error>${String(err)}</pre>`;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+}
+
+// Page.goto() on a page nothing has navigated yet: its blank realm is what a navigation boot
+// would build anyway, so retarget its URL and write the document in place instead of rebooting.
+// Replaces the blank history entry, like a browser's first navigation does.
+globalThis.__mini.navigateBlank = function (url) {
+    url = new URL(url, location.href).href;
+    dom.reconfigure({ url });
+    return fetchAndWrite(url, { method: "GET" });
+};
+
 if (globalThis.__NAVIGATION_BOOT__) {
-    (async () => {
-        let html;
-        try {
-            const res = await fetch(__BASE_URL__, __NAVIGATION_REQUEST__);
-            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-            html = await res.text();
-        } catch (err) {
-            // Never revert to the old document -- it's already gone. Commit an error-state
-            // document instead, marked so a caller can detect the failure.
-            html = `<pre data-mini-navigation-error>${String(err)}</pre>`;
-        }
-        win.document.open();
-        win.document.write(html);
-        win.document.close();
-    })();
+    fetchAndWrite(__BASE_URL__, __NAVIGATION_REQUEST__);
 }

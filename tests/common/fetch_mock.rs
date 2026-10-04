@@ -228,7 +228,7 @@ impl FetchBackend for MockFetchBackend {
 
 /// A runtime with the mock installed as its fetch backend.
 pub fn runtime_with_mock(mock: &MockFetchBackend) -> Runtime {
-    let rt = Runtime::new("http://localhost/", "{}");
+    let rt = Runtime::new("{}");
     rt.send_install_fetch_backend(Arc::new(mock.clone()))
         .blocking_recv()
         .expect("fetch backend installed");

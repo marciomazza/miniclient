@@ -13,7 +13,7 @@ use _miniclient::runtime::{EvalError, EvalOutcome, Wait};
 /// No `install_host_ops()`: fetch and fs are unavailable, but the default snapshot's jsdom
 /// `document`, `Buffer`, timers and deno_web globals are all live from construction.
 pub fn runtime() -> Runtime {
-    Runtime::new("http://localhost/", "{}")
+    Runtime::new("{}")
 }
 
 /// Lets tests write `rt.eval::<T>(src)` / `rt.eval_promise::<T>(src)`. Each snippet is wrapped in a

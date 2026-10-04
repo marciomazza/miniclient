@@ -706,6 +706,10 @@ impl Handle {
     }
 }
 
+/// The location every `Runtime` boots at, before anything navigates it. Not `about:blank`:
+/// resource mounts and relative URLs in `Page::load` content resolve against it.
+pub const BLANK_URL: &str = "http://localhost/";
+
 /// A V8 isolate plus the OS thread that exclusively owns it for its whole life.
 pub struct Runtime {
     commands: mpsc::UnboundedSender<Command>,
@@ -715,16 +719,13 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    /// `url` becomes the page's initial location, read off `globalThis.__BASE_URL__` before
-    /// `newPage()`. `resource_mounts_json` is a JSON object (already-encoded, matching
-    /// `__RESOURCE_MOUNTS__`'s shape: `{url_prefix: directory}`) read by `bootstrap.js` at the
-    /// same point -- both globals must land before it runs, not after, since it reads them once
-    /// at top level and never again.
-    pub fn new(url: &str, resource_mounts_json: &str) -> Self {
+    /// Boots a blank realm at [`BLANK_URL`]. `resource_mounts_json` is an already-encoded
+    /// `{url_prefix: directory}` object; `bootstrap.js` reads it once at top level, so it must
+    /// land before that script runs.
+    pub fn new(resource_mounts_json: &str) -> Self {
         init_platform();
         let (commands, mut rx) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
-        let url = url.to_string();
         let resource_mounts_json = resource_mounts_json.to_string();
         let thread = std::thread::spawn(move || {
             let tokio = tokio::runtime::Builder::new_current_thread()
@@ -735,7 +736,7 @@ impl Runtime {
                 let mut stop = false;
                 let mut replay = ReplayState::default();
                 let (mut js, mut marshal, outcome) = boot_and_settle(
-                    &url,
+                    BLANK_URL,
                     &resource_mounts_json,
                     None,
                     None,
@@ -938,13 +939,13 @@ pub struct Page {
 }
 
 impl Page {
-    /// `url`/`resource_mounts_json` boot the first realm exactly as [`Runtime::new`] would --
-    /// no host state to carry forward yet, nothing has been captured. `resource_mounts_json` is
-    /// fixed for this `Page`'s whole life: `Runtime` itself keeps it and reuses it on every
-    /// later navigation, so it's not accepted again by `navigate()`.
-    pub fn new(url: &str, resource_mounts_json: &str) -> Self {
+    /// `resource_mounts_json` boots the first realm exactly as [`Runtime::new`] would -- no host
+    /// state to carry forward yet, nothing has been captured. It's fixed for this `Page`'s whole
+    /// life: `Runtime` itself keeps it and reuses it on every later navigation, so it's not
+    /// accepted again by `navigate()`.
+    pub fn new(resource_mounts_json: &str) -> Self {
         Self {
-            runtime: Runtime::new(url, resource_mounts_json),
+            runtime: Runtime::new(resource_mounts_json),
             cookies: None,
             history: None,
         }
@@ -1019,10 +1020,10 @@ mod tests {
             .map(|_| {
                 std::thread::spawn(|| {
                     for _ in 0..3 {
-                        Runtime::new("http://localhost/", "{}").close();
+                        Runtime::new("{}").close();
                     }
                     // The last one closes via Drop instead.
-                    Runtime::new("http://localhost/", "{}");
+                    Runtime::new("{}");
                 })
             })
             .collect();
@@ -1044,7 +1045,7 @@ mod settle_regression {
     // out. Regression test for that fix: clearTimeout() must unref immediately.
     #[test]
     fn clearing_a_long_timeout_does_not_pin_native_settle_wait() {
-        let rt = Runtime::new("http://localhost/", "{}");
+        let rt = Runtime::new("{}");
         rt.send_eval(
             "const id = setTimeout(() => {}, 60000); clearTimeout(id); void 0;".into(),
             Wait::None,
@@ -1066,7 +1067,7 @@ mod settle_regression {
 
     #[test]
     fn promise_wait_ignores_an_unowned_long_timer() {
-        let rt = Runtime::new("http://localhost/", "{}");
+        let rt = Runtime::new("{}");
         rt.send_eval("setTimeout(() => {}, 60000); void 0;".into(), Wait::None)
             .blocking_recv()
             .expect("channel must not drop")

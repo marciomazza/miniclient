@@ -19,7 +19,7 @@ fn htmx_mounts() -> String {
 /// A fresh `Page` that can reach the vendored `htmx.js` via a resource mount, with the given
 /// mock fetch backend installed.
 async fn htmx_page(mock: &MockFetchBackend) -> Page {
-    let page = Page::new("http://localhost/", &htmx_mounts());
+    let page = Page::new(&htmx_mounts());
     page.install_fetch_backend(Arc::new(mock.clone())).await;
     page
 }

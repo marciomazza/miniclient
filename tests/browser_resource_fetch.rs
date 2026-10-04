@@ -16,7 +16,7 @@ use common::aeval_async;
 use common::fetch_mock::MockFetchBackend;
 
 async fn page_with_mock(mock: &MockFetchBackend) -> Page {
-    let page = Page::new("http://localhost/", "{}");
+    let page = Page::new("{}");
     page.install_fetch_backend(Arc::new(mock.clone())).await;
     page
 }

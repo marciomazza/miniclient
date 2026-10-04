@@ -114,6 +114,11 @@ page.load("<p id='msg'>hello</p>")
 
 Each call to `load()` replaces the previous body entirely.
 
+A new page starts blank at `http://localhost/`. Its first `goto()` reuses that page's JavaScript
+realm instead of booting another, so anything `eval()` defined on `window` before it (globals,
+listeners) is still there afterwards; every later `goto()` starts a fresh realm. Cookies carry
+over either way.
+
 ## Finding elements
 
 Locate elements by CSS selector, returning `Element` wrappers:

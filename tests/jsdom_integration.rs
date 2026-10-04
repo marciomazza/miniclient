@@ -62,7 +62,7 @@ fn script_with_external_file_src_executed() {
         r#"{{"http://localhost/ext/": {:?}}}"#,
         dir.to_str().unwrap()
     );
-    let rt = Runtime::new("http://localhost/", &mounts);
+    let rt = Runtime::new(&mounts);
     let ran = rt.eval_promise::<bool>(
         r#"
         const loaded = new Promise(resolve =>
@@ -91,7 +91,7 @@ fn runtime_with_mounted_file(name: &str, contents: &str) -> Runtime {
         r#"{{"http://localhost/ext/": {:?}}}"#,
         dir.to_str().unwrap()
     );
-    Runtime::new("http://localhost/", &mounts)
+    Runtime::new(&mounts)
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn module_script_relative_import_does_not_execute() {
         r#"{{"http://localhost/ext/": {:?}}}"#,
         dir.to_str().unwrap()
     );
-    let rt = Runtime::new("http://localhost/", &mounts);
+    let rt = Runtime::new(&mounts);
     let ran = rt.eval_promise::<bool>(
         r#"
         new Promise((resolve) => {

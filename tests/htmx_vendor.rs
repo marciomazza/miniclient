@@ -115,7 +115,7 @@ fn run_file(js_file: &Path) -> Vec<TestFailure> {
         r#"{{"http://localhost/vendor/": {VENDOR_HTMX_SRC:?},
             "http://localhost/test/": {HTMX_TEST_ROOT:?}}}"#
     );
-    let rt = Runtime::new("http://localhost/", &mounts);
+    let rt = Runtime::new(&mounts);
     let mock = HtmxFetchMock::new();
     rt.send_install_fetch_backend(std::sync::Arc::new(mock.clone()))
         .blocking_recv()
