@@ -148,7 +148,7 @@ fn runtime_serving(paths: &[&str]) -> Runtime {
     runtime_with_mock(&mock)
 }
 
-/// Same mechanism `Page.goto()` (page.py) and a real link click use -- drives
+/// Same mechanism `Page.goto()` (browser.py) and a real link click use -- drives
 /// `op_request_navigation` directly, same as `tests/navigation_fetch.rs`, so this file's
 /// history tests exercise the real isolate-navigation path, not a stand-in for it.
 fn goto(rt: &Runtime, url: &str) {

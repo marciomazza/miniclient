@@ -15,7 +15,7 @@ uv add miniclient
 The API simulates a browser's user interaction with the `Page` class:
 
 ```python
-from miniclient.page import Page
+from miniclient.browser import Page
 
 with Page() as page:
     page.goto("http://localhost:8000/")
@@ -26,7 +26,7 @@ with Page() as page:
 Filling in a form and submitting it works the same way, through `fill()` and `requestSubmit()`:
 
 ```python
-from miniclient.page import Page
+from miniclient.browser import Page
 
 with Page() as page:
     page.goto("http://localhost:8000/signup")
@@ -40,7 +40,7 @@ For anything not covered by `Page` / `Element`, you can run arbitrary JavaScript
 through `eval()`:
 
 ```python
-from miniclient.page import Page
+from miniclient.browser import Page
 
 with Page() as page:
     page.load("<h1 id='greeting'>Hello</h1>")
@@ -57,7 +57,7 @@ instead.
 An `AsyncPage` equivalent is available for async codebases:
 
 ```python
-from miniclient.page import AsyncPage
+from miniclient.browser import AsyncPage
 
 async with AsyncPage() as page:
     await page.goto("http://localhost:8000/")

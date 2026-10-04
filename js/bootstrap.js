@@ -270,7 +270,7 @@ function sessionEntries() {
 }
 
 // Same-document rewrite, same as a real document.write() -- no new Window, no history change.
-// Used directly by Page.load() (page.py).
+// Used directly by Page.load() (browser.py).
 globalThis.__mini.documentWrite = async function (html) {
     win.document.open();
     win.document.write(html);
@@ -278,7 +278,7 @@ globalThis.__mini.documentWrite = async function (html) {
 };
 
 // Patched into jsdom's navigateFetch (patches/jsdom+30.0.1.patch) -- the catch-all for
-// location.href=/link clicks that jsdom itself can't finish. Also backs Page.goto() (page.py).
+// location.href=/link clicks that jsdom itself can't finish. Also backs Page.goto() (browser.py).
 // Just records the request; runtime.rs drives the actual isolate navigation once this eval settles.
 globalThis.__mini.navigateFetch = function (_window, url, replacement) {
     Deno.core.ops.op_request_navigation(

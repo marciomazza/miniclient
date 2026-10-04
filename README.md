@@ -24,7 +24,7 @@ the results back. All against a real in-memory DOM running JavaScript (htmx, for
 No browser involved.
 
 ```python
-from miniclient.page import Page
+from miniclient.browser import Page
 
 with Page() as page:
     page.goto("http://localhost:8000/")

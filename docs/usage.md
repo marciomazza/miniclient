@@ -15,7 +15,7 @@ If the page includes htmx, it runs normally and htmx requests are awaited automa
 Create a page:
 
 ```python
-from miniclient.page import Page
+from miniclient.browser import Page
 
 page = Page()
 ...
@@ -57,7 +57,7 @@ def page(browser):
 An `AsyncPage` with the same constructor is available for async codebases:
 
 ```python
-from miniclient.page import AsyncPage
+from miniclient.browser import AsyncPage
 
 async with AsyncPage() as page:
     ...
@@ -74,7 +74,7 @@ _(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/
 ```python
 from pathlib import Path
 
-from miniclient.page import Page
+from miniclient.browser import Page
 from miniclient.wsgi import WSGITransport
 from nanodjango import Django
 

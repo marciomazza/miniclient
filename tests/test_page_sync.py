@@ -6,7 +6,7 @@ import pytest
 from conftest import HTMX_RESOURCE_MOUNT, HTMX_SCRIPT_TAG
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.page import Element, Page
+from miniclient.browser import Element, Page
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -7,7 +7,7 @@ from playwright.async_api import Page
 
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
-from miniclient.page import AsyncPage
+from miniclient.browser import AsyncPage
 
 pytestmark = pytest.mark.cross
 

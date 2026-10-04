@@ -5,7 +5,7 @@ globalThis.__mini ??= {};
     const __mini = globalThis.__mini;
 
     // Runs `doAction(el)` against the element. Settle wait now happens natively in runtime.rs
-    // after every eval_async. Shared by Element.trigger()/click() (page.py) and __mini.submit
+    // after every eval_async. Shared by Element.trigger()/click() (browser.py) and __mini.submit
     // below.
     __mini.awaitSettle = async function (handle, doAction) {
         const el = __mini.deref(handle);
@@ -17,7 +17,7 @@ globalThis.__mini ??= {};
     // jsdom already validates the form (novalidate/reportValidity()) and dispatches the
     // `submit` event, respecting preventDefault() -- it just has no navigation of its own
     // past that point. This runs for both __mini.submit below (explicit
-    // FormElement.requestSubmit(), page.py) and a real click on a submit button/input
+    // FormElement.requestSubmit(), browser.py) and a real click on a submit button/input
     // (jsdom's own activation behaviour calls requestSubmit(submitter) internally too), so a
     // plain, unintercepted form now navigates the same way regardless of which one
     // triggered it.

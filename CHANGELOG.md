@@ -9,10 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `Browser`: shares a transport and mounts across Pages and keeps one blank runtime booted in the
-  background, so `new_page()` skips the startup cost. `Browser.page_class` picks the `Page` subclass it hands out.
+  background, so `new_page()` skips the startup cost. `Browser.page_class` picks the `Page`
+  subclass it hands out.
 
 ### Changed
 
+- `miniclient.page` is now `miniclient.browser`; update imports (`from miniclient.browser import
+  Page`). No alias is left behind.
 - A page's first `goto()` reuses its blank realm instead of booting a second isolate, and leaves
   `history.length` at 1.
 - The native `Page` no longer takes a `url`: every page boots blank at `http://localhost/`.

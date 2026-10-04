@@ -1,6 +1,6 @@
 from wsgiref.types import StartResponse, WSGIEnvironment
 
-from miniclient.page import AsyncPage
+from miniclient.browser import AsyncPage
 from miniclient.wsgi import WSGITransport
 
 # Exercises the WSGITransport adapter itself (WSGI app -> httpx), not generic fetch-backend-to-
