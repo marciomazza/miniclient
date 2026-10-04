@@ -164,8 +164,13 @@ pub struct Page {
 
 impl Page {
     pub fn new(resource_mounts_json: &str) -> Self {
+        Self::from_runtime(runtime::Runtime::new(resource_mounts_json))
+    }
+
+    /// Wraps a freshly booted, still-blank `runtime` -- the precondition `pristine` relies on.
+    pub fn from_runtime(runtime: runtime::Runtime) -> Self {
         Self {
-            inner: runtime::Page::new(resource_mounts_json),
+            inner: runtime::Page::from_runtime(runtime),
             pristine: AtomicBool::new(true),
         }
     }

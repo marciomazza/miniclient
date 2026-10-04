@@ -1,4 +1,6 @@
 use std::future::Future;
+use std::sync::Mutex;
+use std::sync::mpsc::{Receiver, channel};
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -65,6 +67,58 @@ fn block_on<T: Send>(
         .map_err(|e| to_pyerr(py, e))
 }
 
+/// Boots the next blank `Runtime` on a native thread -- no GIL, no event loop -- so it is
+/// ready by the time a test asks for it. If the receiver is dropped first, the thread drops
+/// the runtime it just built.
+fn boot_in_background(resource_mounts_json: String) -> Receiver<runtime::Runtime> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(runtime::Runtime::new(&resource_mounts_json));
+    });
+    rx
+}
+
+/// Owner of the Pages created from it: keeps one pre-booted `Runtime` buffered, and each
+/// `Page` taking it starts booting the replacement. `subclass` lets the Python `Browser` add
+/// `new_page()`, which needs the Python-side loop and httpx client.
+#[pyclass(module = "miniclient._miniclient", subclass)]
+struct Browser {
+    resource_mounts_json: String,
+    next: Mutex<Option<Receiver<runtime::Runtime>>>,
+}
+
+#[pymethods]
+impl Browser {
+    #[new]
+    #[pyo3(signature = (resource_mounts_json="{}"))]
+    fn new(resource_mounts_json: &str) -> Self {
+        Self {
+            resource_mounts_json: resource_mounts_json.to_string(),
+            next: Mutex::new(Some(boot_in_background(resource_mounts_json.to_string()))),
+        }
+    }
+
+    /// Stops booting replacements and drops the buffered runtime; Pages already created keep
+    /// working. Idempotent.
+    fn close(&self) {
+        *self.next.lock().expect("buffer mutex poisoned") = None;
+    }
+}
+
+impl Browser {
+    fn take(&self, py: Python<'_>) -> PyResult<runtime::Runtime> {
+        let ready = {
+            let mut next = self.next.lock().expect("buffer mutex poisoned");
+            let ready = next
+                .take()
+                .ok_or_else(|| PyRuntimeError::new_err("the browser is closed"))?;
+            *next = Some(boot_in_background(self.resource_mounts_json.clone()));
+            ready
+        };
+        py.detach(move || ready.recv()).map_err(closed)
+    }
+}
+
 /// Thin pyo3 wrapper around [`browser::Page`], delegating every ergonomic method straight to
 /// it. JS values cross as JSON in both directions: `undefined` and `null` both arrive as
 /// `None`, and anything JSON cannot carry raises. `subclass` lets the Python facade's
@@ -75,9 +129,16 @@ struct Page(browser::Page);
 #[pymethods]
 impl Page {
     #[new]
-    #[pyo3(signature = (resource_mounts_json="{}"))]
-    fn new(resource_mounts_json: &str) -> Self {
-        Self(browser::Page::new(resource_mounts_json))
+    #[pyo3(signature = (resource_mounts_json="{}", browser=None))]
+    fn new(
+        py: Python<'_>,
+        resource_mounts_json: &str,
+        browser: Option<&Browser>,
+    ) -> PyResult<Self> {
+        Ok(Self(match browser {
+            Some(browser) => browser::Page::from_runtime(browser.take(py)?),
+            None => browser::Page::new(resource_mounts_json),
+        }))
     }
 
     /// Evaluate `source` as a top-level script, `this` bound to `globalThis` by the isolate's
@@ -287,5 +348,6 @@ impl Element {
 fn _miniclient(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("JavaScriptError", m.py().get_type::<JavaScriptError>())?;
     m.add_class::<Page>()?;
+    m.add_class::<Browser>()?;
     m.add_class::<Element>()
 }

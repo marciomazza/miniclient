@@ -7,8 +7,18 @@ from typing import Any, Self, cast
 
 import httpx2 as httpx
 
-from miniclient._miniclient import Element as NativeElement, Page as NativePage
+from miniclient._miniclient import (
+    Browser as NativeBrowser,
+    Element as NativeElement,
+    Page as NativePage,
+)
 from miniclient.fetch import _make_fetch_op, _make_fetch_sync_op
+
+
+def _mounts_json(mounts: dict[str, Path] | None) -> str:
+    return json.dumps({
+        mount_url: str(directory) for mount_url, directory in (mounts or {}).items()
+    })
 
 
 class AsyncPage(NativePage):
@@ -21,19 +31,19 @@ class AsyncPage(NativePage):
         cls,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
+        _browser: NativeBrowser | None = None,
     ) -> Self:
         # `type.__call__` hands both __new__ and __init__ the same call args -- the
-        # native `Page.__new__` behind this one only knows `resource_mounts_json`,
-        # so it needs its own override rather than inheriting the one meant for __init__.
-        resource_mounts = {
-            mount_url: str(directory) for mount_url, directory in (mounts or {}).items()
-        }
-        return cast(Self, super().__new__(cls, json.dumps(resource_mounts)))
+        # native `Page.__new__` behind this one only knows `resource_mounts_json` and
+        # `browser`, so it needs its own override rather than inheriting the one meant for
+        # __init__. `_browser` is how `Browser` hands over a pre-booted runtime.
+        return cast(Self, super().__new__(cls, _mounts_json(mounts), _browser))
 
     def __init__(
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
+        _browser: NativeBrowser | None = None,
     ) -> None:
         # No `async with`: `install_host_ops` only needs the client to exist and a
         # loop running (true here, same as whenever this is itself awaited into
@@ -190,6 +200,7 @@ class Page:
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
+        _browser: NativeBrowser | None = None,
     ) -> None:
         try:
             asyncio.get_running_loop()
@@ -207,9 +218,15 @@ class Page:
         async def _make_async_page() -> AsyncPage:
             # AsyncPage.__init__ needs a loop running (to call install_host_ops) --
             # running this one-line coroutine on self._loop supplies that.
-            return AsyncPage(httpx_transport=httpx_transport, mounts=mounts)
+            return AsyncPage(httpx_transport=httpx_transport, mounts=mounts, _browser=_browser)
 
-        self._async = self._loop.run_until_complete(_make_async_page())
+        try:
+            self._async = self._loop.run_until_complete(_make_async_page())
+        except BaseException:
+            # e.g. a closed Browser: nothing to close later, so don't leak the loop.
+            self._closed = True
+            self._loop.close()
+            raise
 
     def eval(self, code: str) -> object:
         """Evaluate arbitrary JavaScript and return the result.
@@ -263,3 +280,43 @@ class Page:
             self.close()
         except Exception:  # pragma: no cover
             pass
+
+
+class Browser(NativeBrowser):
+    """Owner of several `Page`s that share one transport and one set of mounts, keeping one
+    blank runtime booted in the background so `new_page()` doesn't pay the startup cost.
+
+    Each Page still gets its own event loop and httpx client (the fetch backend reseeds the
+    client's cookie jar on every request, so sharing one across Pages would race). `close()`
+    only stops the background boots: Pages already handed out keep working.
+
+    `page_class` is what `new_page()` instantiates: set it to a `Page` subclass to add helpers.
+    """
+
+    page_class: type[Page] = Page
+
+    def __new__(
+        cls,
+        httpx_transport: httpx.AsyncBaseTransport | None = None,
+        mounts: dict[str, Path] | None = None,
+    ) -> Self:
+        return cast(Self, super().__new__(cls, _mounts_json(mounts)))
+
+    def __init__(
+        self,
+        httpx_transport: httpx.AsyncBaseTransport | None = None,
+        mounts: dict[str, Path] | None = None,
+    ) -> None:
+        self._transport = httpx_transport
+        self._mounts = mounts
+
+    def new_page(self) -> Page:
+        """A blank Page; call `goto()` or `load()` on it. Blocks only if the background boot
+        hasn't finished yet. Raises `RuntimeError` once the Browser is closed."""
+        return self.page_class(self._transport, self._mounts, _browser=self)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

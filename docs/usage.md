@@ -31,6 +31,26 @@ page.close()
 - `mounts` — a `dict[str, Path]` mapping a URL prefix to a local directory, so `<script>` tags can
   load local files (e.g. htmx itself or a bundle) without going through an HTTP request.
 
+### Many pages: `Browser`
+
+A `Browser` takes the same `httpx_transport` and `mounts`, and hands out blank pages with
+`new_page()`. It boots the next page's runtime in the background, so creating a page per test is
+nearly free. Pages are independent (own DOM, cookies, event loop and httpx client), and closing
+the `Browser` doesn't affect pages already handed out. Subclass `Browser` and set `page_class` to
+hand out your own `Page` subclass. With pytest:
+
+```python
+@pytest.fixture(scope="session")
+def browser():
+    with Browser(httpx_transport=WSGITransport(app=app)) as browser:
+        yield browser
+
+@pytest.fixture
+def page(browser):
+    with browser.new_page() as page:
+        yield page
+```
+
 ### Async
 
 An `AsyncPage` with the same constructor is available for async codebases:

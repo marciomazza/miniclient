@@ -944,8 +944,13 @@ impl Page {
     /// life: `Runtime` itself keeps it and reuses it on every later navigation, so it's not
     /// accepted again by `navigate()`.
     pub fn new(resource_mounts_json: &str) -> Self {
+        Self::from_runtime(Runtime::new(resource_mounts_json))
+    }
+
+    /// Adopts an already-booted blank `runtime`, e.g. one prepared ahead of time in the background.
+    pub fn from_runtime(runtime: Runtime) -> Self {
         Self {
-            runtime: Runtime::new(resource_mounts_json),
+            runtime,
             cookies: None,
             history: None,
         }
