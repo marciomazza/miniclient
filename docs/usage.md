@@ -36,7 +36,8 @@ page.close()
 A `Browser` takes the same `httpx_transport` and `mounts`, and hands out blank pages with
 `new_page()`. It boots the next page's runtime in the background, so creating a page per test is
 nearly free. Pages are independent (own DOM, cookies, event loop and httpx client), and closing
-the `Browser` doesn't affect pages already handed out. Subclass `Browser` and set `page_class` to
+the `Browser` doesn't affect pages already handed out. To customize pages, subclass `Page` and
+set `Browser.page_class` on a `Browser` subclass. Subclass `Browser` and set `page_class` to
 hand out your own `Page` subclass. With pytest:
 
 ```python

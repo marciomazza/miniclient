@@ -1,7 +1,7 @@
 import pytest
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.page import Browser, Page
+from miniclient.page import Browser, Page, Page
 
 
 def test_new_page_goto_reads_the_document(httpx_mock: HTTPXMock) -> None:
