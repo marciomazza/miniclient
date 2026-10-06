@@ -1,8 +1,9 @@
 // Second pass of deno_core's two-pass snapshot: this runs against the cold snapshot, and the
 // context it exercises is what ships, so whatever it compiles is already compiled at Page
 // load. It warms what every Page pays for first -- window construction, jsdom's HTML parser,
-// DOM manipulation and traversal, and FormData. It ships in production, so it must never touch
-// anything from tests/.
+// DOM manipulation and traversal, FormData, and the CSS stack (stylesheet parse, selectors,
+// computed style). It ships in production, so it must never
+// touch anything from tests/.
 //
 // `Event` (and friends) come off `win`, not `globalThis`: bootstrap.js's global registration
 // -- the step that normally copies window properties onto globalThis -- never runs during a
@@ -55,6 +56,30 @@
     form.append("a", "1");
     [...form.entries()];
 
+    dom.window.close();
+})();
+
+// CSS: the first stylesheet read in a fresh isolate otherwise compiles css-tree, dom-selector
+// and css-color cold (~75 ms).
+(() => {
+    const dom = new JSDOM(
+        "<style>" +
+            ".a, #b > .c:not(.d) { color: rgb(1 2 3 / .5); background: #abc; margin: 1px 2em }" +
+            "@media (min-width: 1px) { div[data-x^='y'] { border: 1px solid hsl(10 20% 30%) } }" +
+            "a:hover::before { content: 'x'; color: color-mix(in srgb, red 40%, blue) }" +
+            "</style><div id=b><p class='c a' data-x=y1>t</p></div>",
+        { url: "about:blank" },
+    );
+    const win = dom.window;
+    const doc = win.document;
+    const rules = doc.styleSheets[0].cssRules; // css-tree parse
+    for (const r of rules) r.cssText;
+    const p = doc.querySelector("#b > .c"); // dom-selector
+    p.matches(".a, .zz");
+    doc.querySelectorAll("div[data-x^='y'], p:not(.d)");
+    win.getComputedStyle(p).getPropertyValue("color"); // css-color + cascade
+    p.style.color = "rgb(10 20 30)";
+    p.style.cssText;
     dom.window.close();
 })();
 
