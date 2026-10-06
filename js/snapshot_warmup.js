@@ -240,24 +240,8 @@
         "@media (prefers-color-scheme:dark){.dark\\:bg-black{background-color:#000}}",
         "@media (prefers-reduced-motion:reduce){.motion-reduce\\:transition-none{transition-property:none}}",
     ];
-    const variants = [
-        (s) => `.${s}`,
-        (s) => `.hover\\:${s}:hover`,
-        (s) => `.focus\\:${s}:focus-visible`,
-        (s) => `.group-hover\\:${s}:is(:where(.group):hover *)`,
-        (s) => `.disabled\\:${s}:disabled`,
-        (s) => `.first\\:${s}:first-child`,
-        (s) => `.odd\\:${s}:nth-child(odd)`,
-        (s) => `.peer-checked\\:${s}:is(:where(.peer):checked~*)`,
-        (s) => `.has-checked\\:${s}:has(:checked)`,
-        (s) => `.aria-expanded\\:${s}[aria-expanded=true]`,
-        (s) => `.data-open\\:${s}[data-state=open]`,
-        (s) => `.after\\:${s}::after`,
-        (s) => `.placeholder\\:${s}::placeholder`,
-        (s) => `.rtl\\:${s}:where(:dir(rtl),[dir=rtl],[dir=rtl] *)`,
-    ];
     decls.forEach((d, i) => {
-        rules.push(`${variants[i % variants.length](`u${i}`)}{${d}}`);
+        rules.push(`.u${i}{${d}}`);
         if (i % 9 === 0) rules.push(`@media (min-width:${40 + i}rem){.md\\:u${i}{${d}}}`);
         if (i % 11 === 0) rules.push(`@supports (${d.split(";")[0]}){.s\\:u${i}{${d}}}`);
     });
