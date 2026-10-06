@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- V8 now starts with `--no-opt --no-regexp-tier-up --min-semi-space-size=16
+  --initial-old-space-size=128`, which cuts CPU ~15% and wall ~6% on a real e2e suite.
+  `MINICLIENT_V8_FLAGS` replaces them; set it to an empty string for stock V8.
 - `miniclient.page` is now `miniclient.browser`; update imports (`from miniclient.browser import
   Page`). No alias is left behind.
 - A page's first `goto()` reuses its blank realm instead of booting a second isolate, and leaves

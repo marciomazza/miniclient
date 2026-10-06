@@ -14,6 +14,19 @@ use crate::ops;
 /// this file as a build input, so a checkout still rebuilds on edits.
 const BOOTSTRAP_JS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/js/bootstrap.js"));
 
+/// Tuned for isolates that live a fraction of a second: TurboFan and native regexp tier-up are
+/// pure compile cost there, and the snapshot's ~37 MB live heap sits right at V8's initial
+/// old-space limit, so without headroom nearly every page runs a major GC. A larger young
+/// generation cuts scavenges. A page running a long hot loop or heavy regexps over big inputs
+/// can opt out via `MINICLIENT_V8_FLAGS`.
+const DEFAULT_V8_FLAGS: &str =
+    "--no-opt --no-regexp-tier-up --min-semi-space-size=16 --initial-old-space-size=128";
+
+/// `MINICLIENT_V8_FLAGS`, when set (even to ""), replaces the defaults instead of adding to them.
+fn v8_flags(env: Option<String>) -> String {
+    env.unwrap_or_else(|| DEFAULT_V8_FLAGS.to_string())
+}
+
 /// Initializes V8 once per process, before any isolate exists. Snapshot builders must call
 /// this too -- their isolates are bound by the same rule.
 // No test guards a regression here -- reverting to new_default_platform reproduces
@@ -23,11 +36,8 @@ const BOOTSTRAP_JS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/js
 pub fn init_platform() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
-        // Opt-in V8 tuning/profiling, e.g. MINICLIENT_V8_FLAGS="--prof". Must land before
-        // v8::Initialize(), which the platform init below triggers.
-        if let Ok(flags) = std::env::var("MINICLIENT_V8_FLAGS") {
-            v8::V8::set_flags_from_string(&flags);
-        }
+        // Must land before v8::Initialize(), which the platform init below triggers.
+        v8::V8::set_flags_from_string(&v8_flags(std::env::var("MINICLIENT_V8_FLAGS").ok()));
         // Memory Protection Keys (pkeys) are a CPU feature V8's default platform uses to
         // write-protect its own heap; it demands every V8-touching thread descend from the
         // one that called v8::Initialize(). Each Runtime owns a thread spawned from whichever
@@ -1084,5 +1094,17 @@ mod settle_regression {
             .expect("channel must not drop")
             .expect("eval must not error");
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+}
+
+#[cfg(test)]
+mod v8_flags_tests {
+    use super::{DEFAULT_V8_FLAGS, v8_flags};
+
+    #[test]
+    fn env_var_replaces_defaults_and_empty_opts_out() {
+        assert_eq!(v8_flags(None), DEFAULT_V8_FLAGS);
+        assert_eq!(v8_flags(Some(String::new())), "");
+        assert_eq!(v8_flags(Some("--prof".into())), "--prof");
     }
 }
