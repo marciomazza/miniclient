@@ -3,23 +3,25 @@
 // preflight checks); `baseDispatcher` below is the wire, one hop per `op_fetch_hop`. This file
 // adds what sits above them: mode and credentials rules, Origin/Referer, response filtering.
 (() => {
-    const D = globalThis.__denoFetch;
+    const denoFetch = globalThis.__denoFetch;
     const mini = (globalThis.__mini ??= {});
 
     // Page-visible classes are the ones fetch() returns, so `instanceof Response` holds.
-    globalThis.Headers = D.Headers;
+    globalThis.Headers = denoFetch.Headers;
 
     // deno's body extraction brand-checks its own Blob/FormData and reads anything else as a
     // string ("[object Blob]"), so the page's jsdom ones are converted to deno's. This must stay
     // synchronous (constructors are), hence the bytes are read from jsdom's Blob impl directly.
-        const bytesOf = (blob) =>
+    const bytesOf = (blob) =>
         blob[Object.getOwnPropertySymbols(blob).find((s) => s.description === "impl")]._bytes;
     function denoBody(body) {
         if (body instanceof globalThis.FormData) {
-            const form = new D.FormData();
+            const form = new denoFetch.FormData();
             for (const [name, value] of body) {
                 if (value instanceof globalThis.File) {
-                    const file = new D.File([bytesOf(value)], value.name, { type: value.type });
+                    const file = new denoFetch.File([bytesOf(value)], value.name, {
+                        type: value.type,
+                    });
                     form.append(name, file, value.name);
                 } else {
                     form.append(name, value);
@@ -28,7 +30,7 @@
             return form;
         }
         if (body instanceof globalThis.Blob)
-            return new D.Blob([bytesOf(body)], { type: body.type });
+            return new denoFetch.Blob([bytesOf(body)], { type: body.type });
         return body;
     }
     // `init` may itself be a Request (a dictionary-like), so it is only copied when converted.
@@ -38,21 +40,21 @@
     };
 
     // deno resolves a relative URL against a base fixed at boot; the page's moves with pushState.
-    globalThis.Request = class Request extends D.Request {
+    globalThis.Request = class Request extends denoFetch.Request {
         constructor(input, init) {
             super(
-                input instanceof D.Request ? input : new URL(input, location.href).href,
+                input instanceof denoFetch.Request ? input : new URL(input, location.href).href,
                 withDenoBody(init),
             );
         }
     };
-    globalThis.Response = class Response extends D.Response {
+    globalThis.Response = class Response extends denoFetch.Response {
         constructor(body, init) {
             super(denoBody(body), init);
         }
-        // fetch() builds D.Response instances, which must still count as the page's Response.
+        // fetch() builds denoFetch.Response instances, which must still count as the page's Response.
         static [Symbol.hasInstance](value) {
-            return value instanceof D.Response;
+            return value instanceof denoFetch.Response;
         }
     };
 
@@ -320,7 +322,7 @@
     const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
     function buildResponse(req, result, hops, clientOrigin) {
-        const inner = D.newInnerResponse(result.status, result.statusText);
+        const inner = denoFetch.newInnerResponse(result.status, result.statusText);
         let pairs = Object.entries(result.headers)
             .filter(([name]) => name !== "set-cookie" && name !== "set-cookie2")
             // The list bypasses Headers' own value normalization.
@@ -345,10 +347,10 @@
             inner.statusMessage = "";
             pairs = [];
         } else if (!NULL_BODY_STATUS.has(result.status)) {
-            inner.body = new D.InnerBody({ body: result.body, consumed: false });
+            inner.body = new denoFetch.InnerBody({ body: result.body, consumed: false });
         }
         inner.headerList = pairs;
-        return D.fromInnerResponse(inner, "immutable");
+        return denoFetch.fromInnerResponse(inner, "immutable");
     }
 
     function collect(dispatcher, opts) {
@@ -385,31 +387,33 @@
             const url = new URL(req.url);
             const clientOrigin = win.location.origin;
             const crossOrigin = url.origin !== clientOrigin;
+            const isData = url.protocol === "data:";
+            const corsSafelistedMethod = /^(GET|HEAD|POST)$/.test(req.method);
             const failed = (message, cause) =>
                 new TypeError(`Failed to fetch: ${message}`, { cause });
-            if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "data:") {
+            if (url.protocol !== "http:" && url.protocol !== "https:" && !isData) {
                 throw failed(`unsupported scheme ${url.protocol}`);
             }
-            if (url.protocol !== "data:" && req.mode === "same-origin" && crossOrigin) {
+            if (!isData && req.mode === "same-origin" && crossOrigin) {
                 throw failed("cross-origin request in same-origin mode");
             }
-            if (req.mode === "no-cors" && !/^(GET|HEAD|POST)$/.test(req.method)) {
+            if (req.mode === "no-cors" && !corsSafelistedMethod) {
                 throw failed(`method ${req.method} in no-cors mode`);
             }
 
-            const cors = req.mode === "cors" && url.protocol !== "data:";
+            const cors = req.mode === "cors" && !isData;
             const authorHeaders = [...req.headers].filter(
                 ([name, value]) => !isForbiddenHeader(name, value),
             );
             const headers = Object.fromEntries(authorHeaders);
-            if ((cors && crossOrigin) || !/^(GET|HEAD)$/.test(req.method))
+            if ((cors && crossOrigin) || !(req.method === "GET" || req.method === "HEAD"))
                 headers.origin = clientOrigin;
-            const referrer = url.protocol === "data:" ? null : referrerFor(req, win.location);
+            const referrer = isData ? null : referrerFor(req, win.location);
             if (referrer) headers.referer = referrer;
 
             const unsafe = unsafeHeaderNames(authorHeaders);
             const needsPreflight =
-                cors && crossOrigin && (!/^(GET|HEAD|POST)$/.test(req.method) || unsafe.length > 0);
+                cors && crossOrigin && (!corsSafelistedMethod || unsafe.length > 0);
             const hops = [];
             const opts = {
                 method: req.method,
@@ -431,7 +435,8 @@
                 },
             };
 
-            // Reject with the signal's reason the moment it fires, even between redirect hops.
+            // The dispatcher only aborts a hop in flight; this also rejects at once while jsdom
+            // is between hops (redirect handling, preflight) with no hop to cancel.
             let onAbort;
             const aborted = new Promise((_, reject) => {
                 onAbort = () => reject(signal.reason);
