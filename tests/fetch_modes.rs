@@ -76,6 +76,48 @@ fn redirect_error_rejects() {
 }
 
 #[test]
+fn non_redirect_3xx_with_location_is_returned_under_error_and_follow() {
+    for status in [300, 304] {
+        for mode in ["error", "follow"] {
+            let mock = MockFetchBackend::new();
+            mock.reply("http://localhost/x", status, &[("location", "/new")], b"");
+            mock.text("http://localhost/new", "moved");
+            let seen = outcome(&mock, "/x", &format!("{{redirect: '{mode}'}}"));
+            assert_eq!(
+                (&seen["type"], &seen["status"]),
+                (&json!("basic"), &json!(status)),
+                "{status} under {mode}"
+            );
+            assert_eq!(
+                mock.requests().len(),
+                1,
+                "{status} under {mode} is not followed"
+            );
+        }
+    }
+}
+
+#[test]
+fn redirect_status_without_location_follows_the_redirect_mode() {
+    let mock = MockFetchBackend::new();
+    mock.status("http://localhost/x", 302);
+    assert_eq!(
+        outcome(&mock, "/x", "{redirect: 'error'}"),
+        "rejected:TypeError"
+    );
+    let seen = outcome(&mock, "/x", "{redirect: 'manual'}");
+    assert_eq!(
+        (&seen["type"], &seen["status"]),
+        (&json!("opaqueredirect"), &json!(0))
+    );
+    let seen = outcome(&mock, "/x", "{redirect: 'follow'}");
+    assert_eq!(
+        (&seen["type"], &seen["status"]),
+        (&json!("basic"), &json!(302))
+    );
+}
+
+#[test]
 fn a_303_after_post_becomes_a_get_without_body() {
     let mock = MockFetchBackend::new();
     mock.reply("http://localhost/form", 303, &[("location", "/done")], b"");

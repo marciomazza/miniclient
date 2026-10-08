@@ -11,13 +11,15 @@ index 22b6eb0..ab6315e 100644
      const requestFragment = urlRecord.fragment;
      let currentURL = urlRecord;
      let currentMethod = opts.method || "GET";
-@@ -311,7 +311,12 @@ class JSDOMDispatcher extends Dispatcher {
+@@ -311,7 +311,14 @@ class JSDOMDispatcher extends Dispatcher {
 
        // Handle redirect
        const { location } = result.headers;
 -      if (result.status >= 300 && result.status < 400 && location) {
-+      // "manual" falls through so the caller receives the 3xx itself
-+      if (result.status >= 300 && result.status < 400 && location && redirect !== "manual") {
++      // "manual" falls through so the caller receives the 3xx itself; a missing Location only
++      // matters when following, where the response is returned as is
++      const isRedirect = [301, 302, 303, 307, 308].includes(result.status);
++      if (isRedirect && redirect !== "manual" && (location || redirect === "error")) {
 +        if (redirect === "error") {
 +          handler.onResponseError?.(null, new TypeError("Redirect not allowed"));
 +          return;

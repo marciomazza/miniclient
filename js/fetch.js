@@ -327,11 +327,7 @@
         });
         inner.urlList = hops;
         inner.type = "basic";
-        if (
-            req.redirect === "manual" &&
-            REDIRECT_STATUS.has(result.status) &&
-            result.headers.location
-        ) {
+        if (req.redirect === "manual" && REDIRECT_STATUS.has(result.status)) {
             inner.type = "opaqueredirect";
         } else if (req.mode === "no-cors" && crossOrigin) {
             inner.type = "opaque";
