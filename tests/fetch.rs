@@ -172,3 +172,56 @@ fn fetch_abort_cancels_an_in_flight_request() {
     // The backend request was actually ended by the abort, not left running.
     assert_eq!(mock.aborted().len(), 1);
 }
+
+#[test]
+fn request_reads_jsdom_blob_body_with_its_type() {
+    let rt = common::runtime();
+    assert_eq!(
+        rt.eval_promise::<Value>(
+            r#"
+            (async () => {
+              const blob = new Blob(["héllo"], { type: "text/x-demo" });
+              const req = new Request("http://a.example/x", { method: "POST", body: blob });
+              return [await req.text(), req.headers.get("content-type"), blob.type];
+            })()
+            "#
+        ),
+        json!(["héllo", "text/x-demo", "text/x-demo"]),
+    );
+}
+
+#[test]
+fn response_reads_jsdom_blob_and_formdata_bodies() {
+    let rt = common::runtime();
+    assert_eq!(
+        rt.eval_promise::<Value>(
+            r#"
+            (async () => {
+              const fd = new FormData();
+              fd.append("field", "v1");
+              fd.append("up", new File(["file-bytes"], "a.txt", { type: "text/plain" }));
+              const multipart = await new Response(fd).text();
+              const blob = await new Response(new Blob(["raw"])).text();
+              return [blob, multipart.includes('name="field"'), multipart.includes("v1"),
+                      multipart.includes('filename="a.txt"'), multipart.includes("file-bytes"),
+                      new Response("x") instanceof Response];
+            })()
+            "#
+        ),
+        json!(["raw", true, true, true, true, true]),
+    );
+}
+
+#[test]
+fn fetch_keeps_request_headers_when_init_only_sets_body() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://api.example.com/p", "ok");
+    let rt = runtime_with_mock(&mock);
+    rt.eval_promise::<String>(
+        r#"
+        fetch(new Request("http://api.example.com/p", { method: "POST", headers: { "x-a": "1" } }),
+              { body: "b" }).then(r => r.text())
+        "#,
+    );
+    assert_eq!(mock.last_request().header("x-a"), Some("1"));
+}

@@ -8,13 +8,54 @@
 
     // Page-visible classes are the ones fetch() returns, so `instanceof Response` holds.
     globalThis.Headers = D.Headers;
+
+    // deno's body extraction brand-checks its own Blob/FormData and reads anything else as a
+    // string ("[object Blob]"), so the page's jsdom ones are converted to deno's. This must stay
+    // synchronous (constructors are), hence the bytes are read from jsdom's Blob impl directly.
+    const { Blob: DenoBlob, File: DenoFile } = Deno.core.loadExtScript("ext:deno_web/09_file.js");
+    const bytesOf = (blob) =>
+        blob[Object.getOwnPropertySymbols(blob).find((s) => s.description === "impl")]._bytes;
+    function denoBody(body) {
+        if (body instanceof globalThis.FormData) {
+            const form = new D.FormData();
+            for (const [name, value] of body) {
+                if (value instanceof globalThis.File) {
+                    const file = new DenoFile([bytesOf(value)], value.name, { type: value.type });
+                    form.append(name, file, value.name);
+                } else {
+                    form.append(name, value);
+                }
+            }
+            return form;
+        }
+        if (body instanceof globalThis.Blob)
+            return new DenoBlob([bytesOf(body)], { type: body.type });
+        return body;
+    }
+    // `init` may itself be a Request (a dictionary-like), so it is only copied when converted.
+    const withDenoBody = (init) => {
+        const body = init?.body == null ? undefined : denoBody(init.body);
+        return body === init?.body ? init : { ...init, body };
+    };
+
     // deno resolves a relative URL against a base fixed at boot; the page's moves with pushState.
     globalThis.Request = class Request extends D.Request {
         constructor(input, init) {
-            super(typeof input === "string" ? new URL(input, location.href).href : input, init);
+            super(
+                input instanceof D.Request ? input : new URL(input, location.href).href,
+                withDenoBody(init),
+            );
         }
     };
-    globalThis.Response = D.Response;
+    globalThis.Response = class Response extends D.Response {
+        constructor(body, init) {
+            super(denoBody(body), init);
+        }
+        // fetch() builds D.Response instances, which must still count as the page's Response.
+        static [Symbol.hasInstance](value) {
+            return value instanceof D.Response;
+        }
+    };
 
     const header = (headers, name) => {
         const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
@@ -251,42 +292,6 @@
         }
     }
 
-    // deno's Request brand-checks its own Blob/FormData and reads anything else as a string
-    // ("[object Blob]"), so the page's jsdom ones are converted to bodies it understands.
-    async function denoBody(win, body) {
-        const { Blob: DenoBlob, File: DenoFile } =
-            Deno.core.loadExtScript("ext:deno_web/09_file.js");
-        if (body instanceof win.FormData) {
-            const form = new D.FormData();
-            for (const [name, value] of body) {
-                if (value instanceof win.File) {
-                    const bytes = await value.arrayBuffer();
-                    form.append(
-                        name,
-                        new DenoFile([bytes], value.name, { type: value.type }),
-                        value.name,
-                    );
-                } else {
-                    form.append(name, value);
-                }
-            }
-            return { body: form };
-        }
-        if (body instanceof win.Blob) {
-            return { body: new Uint8Array(await body.arrayBuffer()), type: body.type || null };
-        }
-        return { body };
-    }
-
-    async function buildRequest(win, input, init) {
-        if (!(input instanceof D.Request)) input = new URL(input, win.location.href).href;
-        if (init.body === undefined || init.body === null) return new D.Request(input, init);
-        const { body, type } = await denoBody(win, init.body);
-        const headers = new D.Headers(init.headers);
-        if (type && !headers.has("content-type")) headers.set("content-type", type);
-        return new D.Request(input, { ...init, body, headers });
-    }
-
     // ---- response side -----------------------------------------------------------------
 
     // https://fetch.spec.whatwg.org/#cors-safelisted-response-header-name
@@ -374,7 +379,7 @@
 
     mini.makeFetch = (win) =>
         async function fetch(input, init = {}) {
-            const req = await buildRequest(win, input, init ?? {});
+            const req = new globalThis.Request(input, init ?? undefined);
             const { signal } = req;
             if (signal.aborted) throw signal.reason;
 
