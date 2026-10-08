@@ -165,71 +165,50 @@
         });
     }
 
-    // Blob/File/AbortController/AbortSignal — deno_web's real implementations, force-loaded
-    // (like streams above) so the jsdom bundle's cold-pass import of undici's Request/Response
-    // (jsdom-entry.js) sees these globals: its webidl layer references them at module scope
-    // (e.g. `webidl.is.Blob = webidl.util.MakeTypeAssertion(Blob)`), before any Window exists.
-    // Blob/File are deleted again at the end of snapshot_warmup.js: each real Window has its
-    // own spec-correct versions (what jsdom's native FormData checks file-input entries
-    // against), and must still be free to become the live global once one exists --
-    // AbortController/AbortSignal stay, because jsdom's own resource-loader interceptor
-    // (request-interceptor.js) does `new AbortController()` + `new Request(url, { signal })`
-    // internally, and that `Request` is undici's (also bound to this same deno_web
-    // AbortSignal at cold-pass, see below) -- swapping AbortController/AbortSignal for a
-    // per-Window version here would desync that pairing and break every subresource fetch,
-    // not just the one thing it was meant to fix (jsdom's `EventTarget#addEventListener`
-    // brand-checking an `{ signal }` option against its own internal AbortSignal class,
-    // rejecting this deno_web one -- patched instead in jsdom itself, see
-    // patches/jsdom+30.0.1+001+initial.patch).
+    // AbortController/AbortSignal — deno_web's, so the signal a page hands to fetch() passes
+    // deno_fetch's Request brand check. jsdom's EventTarget#addEventListener accepts this class
+    // for its `{ signal }` option through a jsdom patch.
     {
-        const f = Deno.core.loadExtScript("ext:deno_web/09_file.js");
-        const a = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");
+        const abort = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");
         Object.assign(globalThis, {
-            Blob: f.Blob,
-            File: f.File,
-            AbortController: a.AbortController,
-            AbortSignal: a.AbortSignal,
+            AbortController: abort.AbortController,
+            AbortSignal: abort.AbortSignal,
         });
-
-        // 09_file.js (above) clobbers URL.createObjectURL/revokeObjectURL as a side effect of
-        // loading -- it assigns its own real, op-backed versions, which only accept instances
-        // of deno_web's Blob. Reassert mini's original hand-rolled ones (hx-download.js is the
-        // only caller) so this keeps working once Blob/File stop being deno_web's below: the
-        // op-backed versions' storage/URL registry is never actually used here (nothing
-        // resolves a `blob:` URL back into bytes), only their type check would bite.
-        const _blobs = new Map();
-        URL.createObjectURL = (obj) => {
-            const id = `blob:local/${Deno.core.ops.op_crypto_random_uuid()}`;
-            _blobs.set(id, obj);
-            return id;
-        };
-        URL.revokeObjectURL = (id) => _blobs.delete(id);
     }
 
     // Kept off the globals: the page must keep jsdom's FormData/Blob/File/AbortSignal, which
     // deno's classes would otherwise replace and which <form> elements only produce natively.
     {
-        const h = Deno.core.loadExtScript("ext:deno_fetch/20_headers.js");
-        const rq = Deno.core.loadExtScript("ext:deno_fetch/23_request.js");
-        const rs = Deno.core.loadExtScript("ext:deno_fetch/23_response.js");
-        const fd = Deno.core.loadExtScript("ext:deno_fetch/21_formdata.js");
+        const headers = Deno.core.loadExtScript("ext:deno_fetch/20_headers.js");
+        const request = Deno.core.loadExtScript("ext:deno_fetch/23_request.js");
+        const response = Deno.core.loadExtScript("ext:deno_fetch/23_response.js");
+        const formData = Deno.core.loadExtScript("ext:deno_fetch/21_formdata.js");
         const body = Deno.core.loadExtScript("ext:deno_fetch/22_body.js");
+        const file = Deno.core.loadExtScript("ext:deno_web/09_file.js");
+
+        // Loading 09_file.js installs op-backed URL.createObjectURL/revokeObjectURL that only
+        // accept deno's Blob, but pages pass jsdom's. Nothing resolves a `blob:` URL back to
+        // bytes, so a plain id registry is enough.
+        const blobs = new Map();
+        URL.createObjectURL = (obj) => {
+            const id = `blob:local/${Deno.core.ops.op_crypto_random_uuid()}`;
+            blobs.set(id, obj);
+            return id;
+        };
+        URL.revokeObjectURL = (id) => blobs.delete(id);
         globalThis.__denoFetch = {
-            Headers: h.Headers,
-            Request: rq.Request,
-            Response: rs.Response,
-            FormData: fd.FormData,
+            Headers: headers.Headers,
+            Request: request.Request,
+            Response: response.Response,
+            FormData: formData.FormData,
+            Blob: file.Blob,
+            File: file.File,
             // Response internals: `new Response()` cannot build opaque, cors or redirected ones.
             InnerBody: body.InnerBody,
-            newInnerResponse: rs.newInnerResponse,
-            fromInnerResponse: rs.fromInnerResponse,
+            newInnerResponse: response.newInnerResponse,
+            fromInnerResponse: response.fromInnerResponse,
         };
     }
-
-    // MessagePort — same reason as Blob/AbortSignal above (undici's webidl module-scope type
-    // assertion needs the constructor to exist), but never actually constructed here: mini has
-    // no worker/postMessage support, so this is a type-only stand-in, not a real port.
-    globalThis.MessagePort ??= class MessagePort {};
 
     // Internal bridge helpers with no per-navigation state (no closure over `win`/`dom`/host
     // state), so they're defined once here instead of being rebuilt on every bootstrap.js

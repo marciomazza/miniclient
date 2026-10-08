@@ -12,15 +12,14 @@
     // deno's body extraction brand-checks its own Blob/FormData and reads anything else as a
     // string ("[object Blob]"), so the page's jsdom ones are converted to deno's. This must stay
     // synchronous (constructors are), hence the bytes are read from jsdom's Blob impl directly.
-    const { Blob: DenoBlob, File: DenoFile } = Deno.core.loadExtScript("ext:deno_web/09_file.js");
-    const bytesOf = (blob) =>
+        const bytesOf = (blob) =>
         blob[Object.getOwnPropertySymbols(blob).find((s) => s.description === "impl")]._bytes;
     function denoBody(body) {
         if (body instanceof globalThis.FormData) {
             const form = new D.FormData();
             for (const [name, value] of body) {
                 if (value instanceof globalThis.File) {
-                    const file = new DenoFile([bytesOf(value)], value.name, { type: value.type });
+                    const file = new D.File([bytesOf(value)], value.name, { type: value.type });
                     form.append(name, file, value.name);
                 } else {
                     form.append(name, value);
@@ -29,7 +28,7 @@
             return form;
         }
         if (body instanceof globalThis.Blob)
-            return new DenoBlob([bytesOf(body)], { type: body.type });
+            return new D.Blob([bytesOf(body)], { type: body.type });
         return body;
     }
     // `init` may itself be a Request (a dictionary-like), so it is only copied when converted.
