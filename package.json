@@ -10,6 +10,7 @@
     "styleless-innertext": "1.1.5"
   },
   "devDependencies": {
+    "@types/jsdom": "^30.0.0",
     "chai": "4.5.0",
     "esbuild": "^0.28.1",
     "patch-package": "^8.0.1"

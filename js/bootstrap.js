@@ -22,6 +22,8 @@
 // keys onto globalThis, never recurses into an object's properties, so adding methods onto
 // the existing `__mini` object (as this file does) never needs its own entry in this set the
 // way a bare `globalThis.foo = ...` would.
+/** @type {typeof import("jsdom").JSDOM} */
+const JSDOM = globalThis.JSDOM;
 const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
 globalThis.__mini ??= {};
 // Set by boot_jsruntime (src/runtime.rs) before this script runs: `null` on a first boot, or
