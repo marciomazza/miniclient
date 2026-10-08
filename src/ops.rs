@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 /// `Uint8Array`.
 #[derive(Deserialize)]
 pub struct FetchRequest {
-    // Only `op_fetch` (async) uses this, to track an in-flight request for abort. The sync
+    // Only `op_fetch_hop` (async) uses this, to track an in-flight request for abort. The sync
     // path (`op_fetch_sync`, reached from XHR via `node-child-process.js`'s `execFileSync`)
     // has no abort mechanism and never sends one -- defaulted, not required, so it doesn't
     // fail deserialization there.
@@ -62,7 +62,7 @@ pub struct FsStatResult {
     pub is_directory: bool,
 }
 
-/// The transport `op_fetch`/`op_fetch_abort`/`op_fetch_sync` dispatch to, stored in `OpState`
+/// The transport `op_fetch_hop`/`op_fetch_abort`/`op_fetch_sync` dispatch to, stored in `OpState`
 /// as `Rc<dyn FetchBackend>` before JS first reaches one of those ops. Production installs
 /// `PythonFetchBackend` (bridges to `httpx` in `runtime.py`); tests install an in-memory mock,
 /// so the JS-observable fetch suites need no Python. (The fs ops hit the real filesystem
@@ -181,7 +181,7 @@ fn fetch_backend(state: &OpState) -> Rc<dyn FetchBackend> {
 
 #[op2]
 #[serde]
-pub async fn op_fetch(
+pub async fn op_fetch_hop(
     state: Rc<RefCell<OpState>>,
     #[serde] req: FetchRequest,
 ) -> Result<FetchResponse, JsErrorBox> {
@@ -395,7 +395,7 @@ async def fetch_impl(req):
     }
 
     /// A `TaskLocals` pointing at a real asyncio loop, run to completion on its own thread --
-    /// `op_fetch` needs somewhere to actually schedule the Python coroutine it awaits.
+    /// `op_fetch_hop` needs somewhere to actually schedule the Python coroutine it awaits.
     fn running_event_loop(py: Python<'_>) -> PyResult<TaskLocals> {
         let asyncio = py.import("asyncio")?;
         let event_loop: Py<PyAny> = asyncio.call_method0("new_event_loop")?.into();
@@ -489,7 +489,7 @@ async def fetch_impl(req):
         });
         // Invoking an async op (even just to enqueue its future) needs an ambient Tokio
         // context, same as the real isolate thread's `tokio.block_on` in `runtime.rs` --
-        // so the call that triggers `op_fetch` and the event-loop drive both go inside one.
+        // so the call that triggers `op_fetch_hop` and the event-loop drive both go inside one.
         let tokio = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -499,7 +499,7 @@ async def fetch_impl(req):
                 "<test>",
                 r#"
                 globalThis.__result = null;
-                Deno.core.ops.op_fetch({id: 'r1', url: 'http://x/', method: 'GET', headers: {}, body: null})
+                Deno.core.ops.op_fetch_hop({id: 'r1', url: 'http://x/', method: 'GET', headers: {}, body: null})
                     .then((r) => { globalThis.__result = r; });
                 "#,
             )

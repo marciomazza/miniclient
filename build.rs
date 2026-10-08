@@ -118,6 +118,8 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
                     false,
                     <_>::default(),
                 ),
+                deno_net::deno_net::init(None, None),
+                deno_fetch::deno_fetch::init(deno_fetch::Options::default()),
             ],
             extension_transpiler: None,
             with_runtime_cb: Some(Box::new(move |rt| {

@@ -40,7 +40,7 @@ class ClientRequest extends Emitter {
     end() {
         const body = this._chunks.length ? Buffer.concat(this._chunks) : undefined;
         Deno.core.ops
-            .op_fetch({
+            .op_fetch_hop({
                 url: this._url,
                 method: this._options.method ?? "GET",
                 headers: this._options.headers ?? {},

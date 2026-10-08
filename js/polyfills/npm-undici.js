@@ -1,5 +1,5 @@
 // Dispatcher.dispatch() is never called: JSDOMDispatcher (jsdom-dispatcher.js,
-// wired from bootstrap.js's `resources.interceptors`) intercepts first via op_fetch.
+// wired from bootstrap.js's `resources.interceptors`) intercepts first via op_fetch_hop.
 //
 // .request() IS needed: fetchCollected() calls it directly, expecting undici's full
 // package's wrapper installed on Dispatcher.prototype via its entry-point side effect.

@@ -157,13 +157,13 @@ impl Page {
     /// Detaches from the interpreter while waiting, same as `eval`: `close()` blocks on the
     /// isolate thread joining, and that thread needs the GIL back to drop any `Py<PyAny>`
     /// callable still held in `OpState` (the fetch backend) or to finish an in-flight
-    /// `op_fetch` await -- holding the GIL here would deadlock against that.
+    /// `op_fetch_hop` await -- holding the GIL here would deadlock against that.
     fn close(&self, py: Python<'_>) {
         py.detach(|| self.0.runtime().close());
     }
 
-    /// Installs the 3 fetch callables `op_fetch` and friends dispatch to (spec §4). `fetch`
-    /// must be a coroutine function -- `op_fetch` bridges to it via `TaskLocals` captured from
+    /// Installs the 3 fetch callables `op_fetch_hop` and friends dispatch to (spec §4). `fetch`
+    /// must be a coroutine function -- `op_fetch_hop` bridges to it via `TaskLocals` captured from
     /// the caller's own running event loop, so this must be called from inside one. Safe to call
     /// any time before JS first reaches one of those ops (see `send_install_fetch_backend`).
     fn install_host_ops(

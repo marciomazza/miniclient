@@ -43,7 +43,7 @@ const cookieJar = _hostState.cookies
 // and `file:` URLs never reach it -- JSDOMDispatcher resolves those itself before any
 // interceptor runs. This always answers synthetically, mount hit or not: mini must never let
 // undici's real network dispatcher (the interceptor chain's base) see a request, since every
-// HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch
+// HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch_hop
 // transport the Python side controls.
 const resourceInterceptor = __jsdomRequestInterceptor(async (request, { element }) => {
     const mounts = globalThis.__RESOURCE_MOUNTS__;
@@ -359,7 +359,7 @@ globalThis.fetch = async (input, init = {}) => {
     signal?.addEventListener("abort", onAbort);
     let res;
     try {
-        res = await Deno.core.ops.op_fetch({ url, method, headers, body, id: requestId });
+        res = await Deno.core.ops.op_fetch_hop({ url, method, headers, body, id: requestId });
     } catch (err) {
         // Cancelling the Python-side task surfaces as a generic failure here --
         // reinterpret it as the spec-mandated AbortError when it was our abort.

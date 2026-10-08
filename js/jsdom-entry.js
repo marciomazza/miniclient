@@ -11,7 +11,7 @@ import { patchJsdom } from "./patch-jsdom.js";
 // jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
 // Importing its class files directly, not the `undici` package entry point, keeps its real
 // network client/dispatcher out of the bundle -- bootstrap.js's fetch() only needs these as
-// spec-compliant containers around mini's own op_fetch transport.
+// spec-compliant containers around mini's own op_fetch_hop transport.
 //
 // Response must load first: request.js's module-top-level `RequestInit` webidl converter
 // reads `webidl.converters.BodyInit`, which only exists once response.js's own module top

@@ -156,7 +156,7 @@ fn fetch_abort_cancels_an_in_flight_request() {
         (async () => {
           const controller = new AbortController();
           const p = fetch('http://api.example.com/slow', {signal: controller.signal});
-          // Yield so op_fetch is dispatched and the mock registers it in-flight before abort.
+          // Yield so op_fetch_hop is dispatched and the mock registers it in-flight before abort.
           await new Promise(r => setTimeout(r, 5));
           controller.abort();
           return await Promise.race([

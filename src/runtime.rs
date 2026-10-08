@@ -60,6 +60,8 @@ pub(crate) fn extensions() -> Vec<Extension> {
             false,
             Default::default(),
         ),
+        deno_net::deno_net::init(None, None),
+        deno_fetch::deno_fetch::init(deno_fetch::Options::default()),
         miniclient_extension(),
     ]
 }
@@ -70,7 +72,7 @@ pub(crate) fn miniclient_extension() -> Extension {
     Extension {
         name: "miniclient",
         ops: std::borrow::Cow::Owned(vec![
-            ops::op_fetch(),
+            ops::op_fetch_hop(),
             ops::op_fetch_abort(),
             ops::op_fetch_sync(),
             ops::op_fs_stat(),
@@ -383,7 +385,7 @@ fn apply_navigation_mode(history_json: &str, nav: &ops::PendingNavigation) -> St
 
 /// Polls `resolve` to completion the same way a plain `.await` on `with_event_loop_promise`
 /// would, but also drains `rx` in between polls: a Python callback invoked from an in-flight op
-/// (e.g. a mocked fetch transport awaited by `op_fetch`) can call back into another `eval`
+/// (e.g. a mocked fetch transport awaited by `op_fetch_hop`) can call back into another `eval`
 /// on the same runtime without the isolate thread deadlocking on itself, since the command loop
 /// no longer has to fully finish this eval before it can service another one.
 async fn run_with_interleaved_commands<F>(
@@ -884,7 +886,7 @@ impl Runtime {
         rx
     }
 
-    /// Installs the backend `op_fetch`/`op_fetch_abort`/`op_fetch_sync` read from `OpState`.
+    /// Installs the backend `op_fetch_hop`/`op_fetch_abort`/`op_fetch_sync` read from `OpState`.
     /// Safe to call any time before JS first reaches one of those ops -- `bootstrap.js`'s own
     /// top-level execution never does, only functions it defines for later, so this can run
     /// after construction rather than needing to land before `bootstrap.js` loads. Remembered on

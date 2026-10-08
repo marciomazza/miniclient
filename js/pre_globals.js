@@ -206,6 +206,18 @@
         URL.revokeObjectURL = (id) => _blobs.delete(id);
     }
 
+    // Kept off the globals: the page must keep jsdom's FormData/Blob/File/AbortSignal, which
+    // deno's classes would otherwise replace and which <form> elements only produce natively.
+    {
+        const h = Deno.core.loadExtScript("ext:deno_fetch/20_headers.js");
+        const rq = Deno.core.loadExtScript("ext:deno_fetch/23_request.js");
+        const rs = Deno.core.loadExtScript("ext:deno_fetch/23_response.js");
+        const fd = Deno.core.loadExtScript("ext:deno_fetch/21_formdata.js");
+        globalThis.__denoFetch = {
+            Headers: h.Headers, Request: rq.Request, Response: rs.Response, FormData: fd.FormData,
+        };
+    }
+
     // MessagePort — same reason as Blob/AbortSignal above (undici's webidl module-scope type
     // assertion needs the constructor to exist), but never actually constructed here: mini has
     // no worker/postMessage support, so this is a type-only stand-in, not a real port.
