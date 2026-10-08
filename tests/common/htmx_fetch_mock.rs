@@ -303,12 +303,6 @@ impl FetchBackend for HtmxFetchMock {
         self.dispatch(&method, &req.url)
     }
 
-    fn fetch_sync(&self, _req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
-        // htmx 4 only ever calls `fetch()` (see htmx-guidance.md) -- no vendored unit test
-        // reaches this path.
-        Err(JsErrorBox::generic("HtmxFetchMock: no sync backend"))
-    }
-
     fn abort(&self, request_id: &str) -> Result<(), JsErrorBox> {
         if let Some(tx) = self
             .0

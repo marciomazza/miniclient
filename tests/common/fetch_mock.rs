@@ -195,10 +195,6 @@ impl FetchBackend for MockFetchBackend {
         }
     }
 
-    fn fetch_sync(&self, _req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
-        Err(JsErrorBox::generic("mock: no sync backend"))
-    }
-
     fn abort(&self, request_id: &str) -> Result<(), JsErrorBox> {
         // Dropping the sender wakes the pending `rx.await` in `fetch`.
         self.0

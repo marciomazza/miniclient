@@ -162,7 +162,7 @@ impl Page {
         py.detach(|| self.0.runtime().close());
     }
 
-    /// Installs the 3 fetch callables `op_fetch_hop` and friends dispatch to (spec §4). `fetch`
+    /// Installs the fetch callables `op_fetch_hop` and `op_fetch_abort` dispatch to. `fetch`
     /// must be a coroutine function -- `op_fetch_hop` bridges to it via `TaskLocals` captured from
     /// the caller's own running event loop, so this must be called from inside one. Safe to call
     /// any time before JS first reaches one of those ops (see `send_install_fetch_backend`).
@@ -171,7 +171,6 @@ impl Page {
         py: Python<'_>,
         fetch: Py<PyAny>,
         fetch_abort: Py<PyAny>,
-        fetch_sync: Py<PyAny>,
     ) -> PyResult<()> {
         let fetch_locals =
             pyo3_async_runtimes::TaskLocals::with_running_loop(py)?.copy_context(py)?;
@@ -179,7 +178,6 @@ impl Page {
             fetch,
             fetch_locals,
             fetch_abort,
-            fetch_sync,
         };
         let rx = self
             .0

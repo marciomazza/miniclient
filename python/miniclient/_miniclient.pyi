@@ -32,7 +32,6 @@ class Page:
         self,
         fetch: Any,
         fetch_abort: Any,
-        fetch_sync: Any,
     ) -> None: ...
     def close(self) -> None: ...
 

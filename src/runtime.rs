@@ -74,7 +74,6 @@ pub(crate) fn miniclient_extension() -> Extension {
         ops: std::borrow::Cow::Owned(vec![
             ops::op_fetch_hop(),
             ops::op_fetch_abort(),
-            ops::op_fetch_sync(),
             ops::op_fs_stat(),
             ops::op_fs_read(),
             ops::op_call_rust(),
@@ -886,7 +885,7 @@ impl Runtime {
         rx
     }
 
-    /// Installs the backend `op_fetch_hop`/`op_fetch_abort`/`op_fetch_sync` read from `OpState`.
+    /// Installs the backend `op_fetch_hop`/`op_fetch_abort` read from `OpState`.
     /// Safe to call any time before JS first reaches one of those ops -- `bootstrap.js`'s own
     /// top-level execution never does, only functions it defines for later, so this can run
     /// after construction rather than needing to land before `bootstrap.js` loads. Remembered on

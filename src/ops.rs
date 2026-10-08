@@ -15,7 +15,7 @@ use pyo3::types::{PyBytes, PyDict};
 use pyo3_async_runtimes::TaskLocals;
 use serde::{Deserialize, Serialize};
 
-/// Matches the dict shape `_fetch_op`/`_fetch_sync_op` already accept in `runtime.py` --
+/// Matches the dict shape `_fetch_op` already accepts in `runtime.py` --
 /// `headers` is a plain object there, unlike the response side (see `FetchResponse`), because
 /// nothing on the Python side needs duplicate request header names.
 ///
@@ -25,11 +25,6 @@ use serde::{Deserialize, Serialize};
 /// `Uint8Array`.
 #[derive(Deserialize)]
 pub struct FetchRequest {
-    // Only `op_fetch_hop` (async) uses this, to track an in-flight request for abort. The sync
-    // path (`op_fetch_sync`, reached from XHR via `node-child-process.js`'s `execFileSync`)
-    // has no abort mechanism and never sends one -- defaulted, not required, so it doesn't
-    // fail deserialization there.
-    #[serde(default)]
     pub id: String,
     pub url: String,
     pub method: String,
@@ -39,7 +34,7 @@ pub struct FetchRequest {
     pub body: Option<JsBuffer>,
 }
 
-/// Matches the dict shape `_fetch_op`/`_fetch_sync_op` already return. `headers` is a list of
+/// Matches the dict shape `_fetch_op` already returns. `headers` is a list of
 /// pairs, not an object, because a response can carry the same header name twice (e.g.
 /// `Set-Cookie`).
 ///
@@ -62,7 +57,7 @@ pub struct FsStatResult {
     pub is_directory: bool,
 }
 
-/// The transport `op_fetch_hop`/`op_fetch_abort`/`op_fetch_sync` dispatch to, stored in `OpState`
+/// The transport `op_fetch_hop`/`op_fetch_abort` dispatch to, stored in `OpState`
 /// as `Rc<dyn FetchBackend>` before JS first reaches one of those ops. Production installs
 /// `PythonFetchBackend` (bridges to `httpx` in `runtime.py`); tests install an in-memory mock,
 /// so the JS-observable fetch suites need no Python. (The fs ops hit the real filesystem
@@ -70,17 +65,15 @@ pub struct FsStatResult {
 #[async_trait(?Send)]
 pub trait FetchBackend: Send {
     async fn fetch(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox>;
-    fn fetch_sync(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox>;
     fn abort(&self, request_id: &str) -> Result<(), JsErrorBox>;
 }
 
-/// The 3 Python callables plus the `TaskLocals` (event loop + context) `fetch` needs to await a
+/// The Python callables plus the `TaskLocals` (event loop + context) `fetch` needs to await a
 /// Python coroutine from the isolate thread.
 pub struct PythonFetchBackend {
     pub fetch: Py<PyAny>,
     pub fetch_locals: TaskLocals,
     pub fetch_abort: Py<PyAny>,
-    pub fetch_sync: Py<PyAny>,
 }
 
 #[async_trait(?Send)]
@@ -98,15 +91,6 @@ impl FetchBackend for PythonFetchBackend {
         Python::attach(|py| pyobj_to_fetch_response(result.bind(py))).map_err(py_err_to_js)
     }
 
-    fn fetch_sync(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
-        Python::attach(|py| {
-            let dict = fetch_request_to_pydict(py, &req)?;
-            let result = self.fetch_sync.bind(py).call1((dict,))?;
-            pyobj_to_fetch_response(&result)
-        })
-        .map_err(py_err_to_js)
-    }
-
     fn abort(&self, request_id: &str) -> Result<(), JsErrorBox> {
         Python::attach(|py| self.fetch_abort.call1(py, (request_id.to_string(),)))
             .map_err(py_err_to_js)?;
@@ -121,10 +105,6 @@ impl FetchBackend for PythonFetchBackend {
 impl FetchBackend for std::sync::Arc<dyn FetchBackend + Send + Sync> {
     async fn fetch(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
         (**self).fetch(req).await
-    }
-
-    fn fetch_sync(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
-        (**self).fetch_sync(req)
     }
 
     fn abort(&self, request_id: &str) -> Result<(), JsErrorBox> {
@@ -192,16 +172,6 @@ pub async fn op_fetch_hop(
 #[op2(fast)]
 pub fn op_fetch_abort(state: &mut OpState, #[string] request_id: String) -> Result<(), JsErrorBox> {
     fetch_backend(state).abort(&request_id)
-}
-
-/// Plain, not fast: `PythonFetchBackend` blocks on `future.result()` on the Python side.
-#[op2]
-#[serde]
-pub fn op_fetch_sync(
-    state: &mut OpState,
-    #[serde] req: FetchRequest,
-) -> Result<FetchResponse, JsErrorBox> {
-    fetch_backend(state).fetch_sync(req)
 }
 
 // Not `fast`: V8's fast-call ABI only accepts primitive returns, not this and `op_fs_read`'s
@@ -352,15 +322,6 @@ calls = []
 def fetch_abort_impl(request_id):
     calls.append(request_id)
 
-def fetch_sync_impl(req):
-    return {
-        "status": 200,
-        "statusText": "OK",
-        "headers": [["content-type", "text/plain"]],
-        "body": b"sync-body",
-        "url": req["url"],
-    }
-
 async def fetch_impl(req):
     import asyncio
     await asyncio.sleep(0)
@@ -390,7 +351,6 @@ async def fetch_impl(req):
             fetch: get("fetch_impl"),
             fetch_locals: locals,
             fetch_abort: get("fetch_abort_impl"),
-            fetch_sync: get("fetch_sync_impl"),
         })
     }
 
@@ -443,7 +403,7 @@ async def fetch_impl(req):
     }
 
     #[test]
-    fn fetch_sync_and_fetch_abort_round_trip_to_python() {
+    fn fetch_abort_round_trips_to_python() {
         let mut js = bare_runtime();
         let fixtures_module: Py<PyModule> = Python::attach(|py| {
             let fixtures = fixtures(py);
@@ -453,16 +413,6 @@ async def fetch_impl(req):
                 .put(host_ops(py, &fixtures, locals));
             fixtures.unbind()
         });
-        let req_js = r#"{id: 'r1', url: 'http://x/', method: 'GET', headers: {}, body: null}"#;
-        assert_eq!(
-            eval_string(
-                &mut js,
-                &format!(
-                    "(() => {{ const r = Deno.core.ops.op_fetch_sync({req_js}); return `${{r.status}} ${{Array.from(new Uint8Array(r.body)).map(b => String.fromCharCode(b)).join('')}}`; }})()"
-                ),
-            ),
-            "200 sync-body"
-        );
         // op_fetch_abort has no return value worth reading back -- the Python-side `calls`
         // list (recorded by `fetch_abort_impl`) is the only observable effect.
         js.execute_script("<test>", "Deno.core.ops.op_fetch_abort('some-id');")

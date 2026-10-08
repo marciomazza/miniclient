@@ -84,25 +84,3 @@ def _make_fetch_op(httpx_client: httpx.AsyncClient):
             loop.call_soon_threadsafe(task.cancel)
 
     return _fetch_op_impl, _fetch_abort_op
-
-
-def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractEventLoop):
-    # This runtime calls sync-bound functions from its own OS thread, never the
-    # loop's thread, so blocking here on a coroutine scheduled onto the loop is safe.
-    def _fetch_sync_op_impl(req: dict) -> dict:
-        body = req.get("body")
-        content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
-        headers = req.get("headers", {})
-        future = asyncio.run_coroutine_threadsafe(
-            httpx_client.request(
-                req["method"],
-                req["url"],
-                headers=headers,
-                content=content,
-            ),
-            loop,
-        )
-        r = future.result()
-        return _response_dict(r)
-
-    return _fetch_sync_op_impl

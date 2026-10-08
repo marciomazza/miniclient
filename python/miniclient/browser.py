@@ -11,7 +11,7 @@ from miniclient._miniclient import (
     Element as NativeElement,
     Page as NativePage,
 )
-from miniclient.fetch import _make_fetch_op, _make_fetch_sync_op, new_client
+from miniclient.fetch import _make_fetch_op, new_client
 
 
 class AsyncPage(NativePage):
@@ -32,11 +32,7 @@ class AsyncPage(NativePage):
         # requires (it only ever checks for CLOSED), so there's nothing to await yet.
         self._httpx_client = new_client(browser._transport)
         fetch_op, fetch_abort_op = _make_fetch_op(self._httpx_client)
-        self.install_host_ops(
-            fetch_op,
-            fetch_abort_op,
-            _make_fetch_sync_op(self._httpx_client, asyncio.get_running_loop()),
-        )
+        self.install_host_ops(fetch_op, fetch_abort_op)
 
     async def url(self) -> str:
         """The current document URL (`location.href`)."""
