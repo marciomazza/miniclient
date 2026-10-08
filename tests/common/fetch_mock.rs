@@ -134,8 +134,6 @@ impl MockFetchBackend {
 #[async_trait(?Send)]
 impl FetchBackend for MockFetchBackend {
     async fn fetch(&self, req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {
-        // Only the caller's request is recorded, not each redirect hop -- no test inspects the
-        // intermediate ones. ponytail: single record, add per-hop if a test needs it.
         self.0
             .requests
             .lock()
@@ -147,68 +145,54 @@ impl FetchBackend for MockFetchBackend {
                 body: req.body.as_deref().unwrap_or_default().to_vec(),
             });
 
-        let mut url = req.url.clone();
-        // A `Set-Cookie` on an intermediate redirect hop (e.g. a login/session rotation that
-        // answers 302 + Set-Cookie) lands only here, never on the final response -- replayed
-        // onto it below, mirroring what `fetch.py`'s real backend does for the same reason.
-        let mut hop_set_cookies = Vec::new();
-        for _ in 0..20 {
-            let route = self
-                .0
-                .routes
-                .lock()
-                .expect("mock lock poisoned")
-                .get(&url)
-                .cloned()
-                .ok_or_else(|| JsErrorBox::generic(format!("mock: no route for {url}")))?;
-            match route {
-                Route::Hang => {
-                    let (tx, rx) = oneshot::channel();
-                    self.0
-                        .inflight
-                        .lock()
-                        .expect("mock lock poisoned")
-                        .insert(req.id.clone(), tx);
-                    // Wakes with an error the moment abort() drops the sender.
-                    let _ = rx.await;
-                    self.0
-                        .aborted
-                        .lock()
-                        .expect("mock lock poisoned")
-                        .push(req.id.clone());
-                    return Err(JsErrorBox::generic("mock: request aborted"));
+        let route = self
+            .0
+            .routes
+            .lock()
+            .expect("mock lock poisoned")
+            .get(&req.url)
+            .cloned()
+            .ok_or_else(|| JsErrorBox::generic(format!("mock: no route for {}", req.url)))?;
+        match route {
+            Route::Hang => {
+                let (tx, rx) = oneshot::channel();
+                self.0
+                    .inflight
+                    .lock()
+                    .expect("mock lock poisoned")
+                    .insert(req.id.clone(), tx);
+                // Wakes with an error the moment abort() drops the sender.
+                let _ = rx.await;
+                self.0
+                    .aborted
+                    .lock()
+                    .expect("mock lock poisoned")
+                    .push(req.id.clone());
+                Err(JsErrorBox::generic("mock: request aborted"))
+            }
+            Route::Reply {
+                status,
+                mut headers,
+                body,
+            } => {
+                let has = |name: &str| headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
+                // A server open to any origin unless a route says otherwise, so tests of fetch
+                // mechanics don't depend on the page's own origin.
+                if !has("access-control-allow-origin") {
+                    headers.push(("access-control-allow-origin".into(), "*".into()));
                 }
-                Route::Reply {
+                if req.method == "OPTIONS" {
+                    headers.push(("access-control-allow-headers".into(), "*".into()));
+                }
+                Ok(FetchResponse {
                     status,
+                    status_text: String::new(),
                     headers,
-                    body,
-                } => {
-                    if (300..400).contains(&status)
-                        && let Some((_, loc)) = headers
-                            .iter()
-                            .find(|(k, _)| k.eq_ignore_ascii_case("location"))
-                    {
-                        hop_set_cookies.extend(
-                            headers
-                                .iter()
-                                .filter(|(k, _)| k.eq_ignore_ascii_case("set-cookie"))
-                                .cloned(),
-                        );
-                        url = loc.clone();
-                        continue;
-                    }
-                    let headers = hop_set_cookies.into_iter().chain(headers).collect();
-                    return Ok(FetchResponse {
-                        status,
-                        status_text: String::new(),
-                        headers,
-                        body: Some(body.into()),
-                        url,
-                    });
-                }
+                    body: Some(body.into()),
+                    url: req.url,
+                })
             }
         }
-        Err(JsErrorBox::generic("mock: too many redirects"))
     }
 
     fn fetch_sync(&self, _req: FetchRequest) -> Result<FetchResponse, JsErrorBox> {

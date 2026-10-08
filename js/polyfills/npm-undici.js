@@ -1,5 +1,5 @@
-// Dispatcher.dispatch() is never called: JSDOMDispatcher (jsdom-dispatcher.js,
-// wired from bootstrap.js's `resources.interceptors`) intercepts first via op_fetch_hop.
+// Dispatcher.dispatch() is never called: JSDOMDispatcher (jsdom-dispatcher.js) dispatches
+// through the base dispatcher in fetch.js, which sends each hop over op_fetch_hop.
 //
 // .request() IS needed: fetchCollected() calls it directly, expecting undici's full
 // package's wrapper installed on Dispatcher.prototype via its entry-point side effect.
@@ -54,7 +54,40 @@ export class Dispatcher {
         });
     }
 }
-export class DecoratorHandler {}
+// Forwards every callback to the wrapped handler, which is all jsdom's decompress interceptor
+// needs from it. That interceptor sits in every dispatch chain, and the wire never reports a
+// content-encoding it could act on (the transport strips it after decoding).
+export class DecoratorHandler {
+    #handler;
+
+    constructor(handler) {
+        this.#handler = handler;
+    }
+
+    onRequestStart(...args) {
+        return this.#handler.onRequestStart?.(...args);
+    }
+
+    onRequestUpgrade(...args) {
+        return this.#handler.onRequestUpgrade?.(...args);
+    }
+
+    onResponseStart(...args) {
+        return this.#handler.onResponseStart?.(...args);
+    }
+
+    onResponseData(...args) {
+        return this.#handler.onResponseData?.(...args);
+    }
+
+    onResponseEnd(...args) {
+        return this.#handler.onResponseEnd?.(...args);
+    }
+
+    onResponseError(...args) {
+        return this.#handler.onResponseError?.(...args);
+    }
+}
 export class WebSocket {}
 export function getGlobalDispatcher() {
     return new Dispatcher();

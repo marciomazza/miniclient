@@ -5,12 +5,9 @@ from miniclient.wsgi import WSGITransport
 
 
 async def test_cookie_survives_auto_followed_redirect() -> None:
-    # httpx follows the 302 internally (follow_redirects=True in AsyncPage), without going
-    # back through JS, so the redirected leg must still carry the cookie jsdom's jar already
-    # has, not just the leg fetch() was originally called for. This is specific to httpx's
-    # own redirect-following jar reseeding (see fetch.py's _do_fetch), not to bootstrap.js/
-    # jsdom -- MockFetchBackend has no such jar of its own to reseed, so this one stays
-    # pytest-only (cargo test coverage for the rest of cookie handling lives in
+    # The 302 is followed hop by hop in the page, so the redirected leg must carry the cookie
+    # from the page's jar like the first one. Pytest-only: cargo tests mock the backend, which
+    # has no WSGI app to answer the second hop (the rest of cookie handling lives in
     # tests/browser_cookies.rs).
     def _app(environ: WSGIEnvironment, start_response: StartResponse):
         if environ["PATH_INFO"] == "/submit" and environ["REQUEST_METHOD"] == "POST":

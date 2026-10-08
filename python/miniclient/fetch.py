@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+from http.cookiejar import DefaultCookiePolicy
 
 import httpx2 as httpx
+
+
+def new_client(transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
+    # One wire hop per call: redirects, cookies and credentials are the page's (JSDOMDispatcher's)
+    # job. httpx's own jar would otherwise overwrite the Cookie header the page decided on.
+    client = httpx.AsyncClient(transport=transport)
+    client.cookies.jar.set_policy(DefaultCookiePolicy(allowed_domains=[]))
+    return client
 
 
 def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
@@ -14,14 +23,7 @@ def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
     # the Rust side extracts each pair as `(String, String)`, which pyo3 only
     # accepts from an actual Python tuple, silently dropping every header
     # into an empty Vec (via `.unwrap_or_default()`) if given a 2-element list.
-    # Set-Cookie set on an intermediate redirect hop (e.g. a login/session rotation that
-    # answers 302 + Set-Cookie) lands only in httpx's jar, never in the final response --
-    # replay each hop's Set-Cookie ahead of the final headers so consumers (e.g. a future
-    # cookie jar) apply them in order, the final response still winning on any name clash.
-    hop_cookies = [
-        ("set-cookie", v) for hop in r.history for v in hop.headers.get_list("set-cookie")
-    ]
-    headers = hop_cookies + [
+    headers = [
         (k, v)
         for k, v in r.headers.multi_items()
         if k.lower() not in ("content-encoding", "content-length")
@@ -33,26 +35,11 @@ def _clean_response_headers(r: httpx.Response) -> list[tuple[str, str]]:
 def _response_dict(r: httpx.Response) -> dict:
     return {
         "status": r.status_code,
-        "statusText": "",
+        "statusText": r.reason_phrase,
         "headers": _clean_response_headers(r),
         "body": r.content,
         "url": str(r.url),
     }
-
-
-def _sync_client_cookies(httpx_client: httpx.AsyncClient, headers: dict) -> None:
-    # httpx follows redirects internally and, on each hop, rebuilds the Cookie header
-    # from `httpx_client.cookies` -- it discards whatever Cookie header the request was
-    # sent with (httpx2/_client.py:_redirect_headers). The runtime only attaches a
-    # Cookie header to the outgoing request itself, not to any redirect hop -- reseed
-    # httpx's jar from that header before every request so a redirect chain still
-    # carries it.
-    httpx_client.cookies.jar.clear()
-    if cookie_header := next((v for k, v in headers.items() if k.lower() == "cookie"), None):
-        for pair in cookie_header.split(";"):
-            name, _, value = pair.strip().partition("=")
-            if name:
-                httpx_client.cookies.set(name, value)
 
 
 def _make_fetch_op(httpx_client: httpx.AsyncClient):
@@ -69,7 +56,6 @@ def _make_fetch_op(httpx_client: httpx.AsyncClient):
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
         headers = req.get("headers", {})
-        _sync_client_cookies(httpx_client, headers)
         r = await httpx_client.request(
             req["method"],
             req["url"],
@@ -107,7 +93,6 @@ def _make_fetch_sync_op(httpx_client: httpx.AsyncClient, loop: asyncio.AbstractE
         body = req.get("body")
         content = bytes(body) if isinstance(body, (bytes, bytearray)) else None
         headers = req.get("headers", {})
-        _sync_client_cookies(httpx_client, headers)
         future = asyncio.run_coroutine_threadsafe(
             httpx_client.request(
                 req["method"],

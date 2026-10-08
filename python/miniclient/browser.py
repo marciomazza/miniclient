@@ -11,7 +11,7 @@ from miniclient._miniclient import (
     Element as NativeElement,
     Page as NativePage,
 )
-from miniclient.fetch import _make_fetch_op, _make_fetch_sync_op
+from miniclient.fetch import _make_fetch_op, _make_fetch_sync_op, new_client
 
 
 class AsyncPage(NativePage):
@@ -30,7 +30,7 @@ class AsyncPage(NativePage):
         # loop running (true here, same as whenever this is itself awaited into
         # existence) -- entering the client's own async context buys nothing `send()`
         # requires (it only ever checks for CLOSED), so there's nothing to await yet.
-        self._httpx_client = httpx.AsyncClient(transport=browser._transport, follow_redirects=True)
+        self._httpx_client = new_client(browser._transport)
         fetch_op, fetch_abort_op = _make_fetch_op(self._httpx_client)
         self.install_host_ops(
             fetch_op,
@@ -263,8 +263,7 @@ class Browser(NativeBrowser):
     blank runtime booted in the background so a new `Page` doesn't pay the startup cost.
     `preboot=False` boots each Page's runtime on the spot instead, saving that extra isolate.
 
-    Each Page still gets its own event loop and httpx client (the fetch backend reseeds the
-    client's cookie jar on every request, so sharing one across Pages would race).
+    Each Page still gets its own event loop and httpx client, which is bound to the loop it ran on.
     """
 
     def __init__(

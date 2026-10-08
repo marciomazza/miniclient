@@ -98,6 +98,7 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
             read(&js.join("element_registry.js")),
         ),
         ("submit".into(), read(&js.join("submit.js"))),
+        ("fetch".into(), read(&js.join("fetch.js"))),
         (
             "jsdom-bundle".into(),
             read(&js.join("_generated/jsdom-bundle.js")),

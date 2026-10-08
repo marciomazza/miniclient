@@ -38,39 +38,6 @@ const cookieJar = _hostState.cookies
     ? globalThis.__JSDOMCookieJar.deserializeSync(_hostState.cookies)
     : new globalThis.__JSDOMCookieJar();
 
-// `resources` wires every http(s) subresource fetch (<script src>, <link>, ...) through this
-// interceptor instead of jsdom's default (no automatic subresource fetching at all). `data:`
-// and `file:` URLs never reach it -- JSDOMDispatcher resolves those itself before any
-// interceptor runs. This always answers synthetically, mount hit or not: mini must never let
-// undici's real network dispatcher (the interceptor chain's base) see a request, since every
-// HTTP fetch mini makes -- page-level or subresource -- has to go through the same op_fetch_hop
-// transport the Python side controls.
-const resourceInterceptor = __jsdomRequestInterceptor(async (request, { element }) => {
-    const mounts = globalThis.__RESOURCE_MOUNTS__;
-    const prefix = Object.keys(mounts).find((p) => request.url.startsWith(p));
-    if (prefix === undefined) {
-        try {
-            return await globalThis.fetch(request);
-        } catch (error) {
-            // jsdom reports stylesheet failures through the link element. Convert a
-            // transport failure to that path without weakening script failures.
-            if (element?.localName !== "link" || !element.relList?.contains("stylesheet"))
-                throw error;
-            return new Response(null, { status: 404, statusText: "Not Found" });
-        }
-    }
-
-    const path = `${mounts[prefix]}/${request.url.slice(prefix.length)}`;
-    try {
-        const bytes = Deno.core.ops.op_fs_read(path);
-        return new Response(bytes, {
-            headers: { "content-type": globalThis.__mini.contentTypeFor(path) },
-        });
-    } catch {
-        return new Response(null, { status: 404, statusText: "Not Found" });
-    }
-});
-
 // Real navigation has no jsdom equivalent (location only does hash, HTMLFormElement's submit
 // is notImplementedMethod) -- a nav boots a brand new isolate instead, replaying this same
 // createDom call. Built empty: a navigation boot only has a URL, fetching and writing its HTML
@@ -81,7 +48,9 @@ function createDom(url) {
         url,
         runScripts: "dangerously",
         pretendToBeVisual: true,
-        resources: { interceptors: [resourceInterceptor] },
+        // Every http(s) request -- subresource, XHR or fetch() -- ends at mini's own op_fetch_hop
+        // transport, which the Python side controls; jsdom's default would open real sockets.
+        resources: { dispatcher: globalThis.__mini.baseDispatcher },
         cookieJar,
     });
     // IntersectionObserver: jsdom doesn't implement it, polyfill as a no-op.
@@ -314,81 +283,7 @@ if (_hostHistory) {
 // setTimeout/clearTimeout stay whatever pre_globals.js already installed -- settle detection
 // is the isolate's real event loop (runtime.rs), not a JS-side task counter.
 
-globalThis.fetch = async (input, init = {}) => {
-    const signal = input instanceof Request ? input.signal : init.signal;
-    if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-
-    let url, method, headers, body;
-    if (!(input instanceof Request) && init.body instanceof FormData) {
-        // `Request`'s body extraction only recognises its own bundled FormData class (an
-        // internal brand check), not jsdom's native one exposed as the global `FormData`
-        // here -- it would serialise as "[object Object]" with content-type text/plain.
-        // Serialize manually as multipart/form-data so the wire format matches browsers.
-        const { boundary, body: multipart } = globalThis.__mini.serializeMultipart(init.body);
-        body = new TextEncoder().encode(multipart);
-        url = new URL(typeof input === "string" ? input : String(input), location.href).href;
-        method = (init.method ?? "GET").toUpperCase();
-        headers = {
-            ...init.headers,
-            "content-type": `multipart/form-data; boundary=${boundary}`,
-        };
-    } else {
-        // A relative string input must be resolved against location before hitting Request's
-        // constructor -- unlike the FormData branch above, undici's Request never received one.
-        const req =
-            input instanceof Request
-                ? input
-                : new Request(new URL(input, location.href).href, init);
-        body = req.body ? new Uint8Array(await req.arrayBuffer()) : null;
-        url = req.url;
-        method = req.method;
-        headers = Object.fromEntries(req.headers.entries());
-    }
-
-    const requestUrl = new URL(url);
-    const sameOrigin = requestUrl.origin === location.origin;
-    if (init.credentials !== "omit" && (sameOrigin || init.credentials === "include")) {
-        const cookie = cookieJar.getCookieStringSync(url);
-        if (cookie && !Object.keys(headers).some((key) => key.toLowerCase() === "cookie")) {
-            headers.cookie = cookie;
-        }
-    }
-
-    const requestId = crypto.randomUUID();
-    const onAbort = () => Deno.core.ops.op_fetch_abort(requestId);
-    signal?.addEventListener("abort", onAbort);
-    let res;
-    try {
-        res = await Deno.core.ops.op_fetch_hop({ url, method, headers, body, id: requestId });
-    } catch (err) {
-        // Cancelling the Python-side task surfaces as a generic failure here --
-        // reinterpret it as the spec-mandated AbortError when it was our abort.
-        if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-        throw err;
-    } finally {
-        signal?.removeEventListener("abort", onAbort);
-    }
-
-    if (init.credentials !== "omit") {
-        for (const [key, value] of res.headers) {
-            if (/^set-cookie2?$/i.test(key)) cookieJar.setCookieSync(value, url);
-        }
-    }
-    // Set-Cookie is a forbidden response header per spec.
-    const responseHeaders = res.headers.filter(([k]) => !/^set-cookie2?$/i.test(k));
-    // Null-body statuses (204/205/304) must construct with a `null` body, not an empty one --
-    // undici's Response enforces this strictly, unlike the DOM engine this used to run on.
-    const responseBody = res.body != null && res.body.length > 0 ? new Uint8Array(res.body) : null;
-    const response = new Response(responseBody, {
-        status: res.status,
-        statusText: res.statusText ?? "",
-        headers: responseHeaders,
-    });
-    // Response.url has no ResponseInit setter — the platform fills it in as a
-    // side effect of the fetch algorithm, so we do the same here.
-    Object.defineProperty(response, "url", { value: res.url, configurable: true });
-    return response;
-};
+globalThis.fetch = globalThis.__mini.makeFetch(win);
 
 // Set by boot_jsruntime (src/runtime.rs): true only for the navigation op_request_navigation
 // drives (Page.goto()/link click/form submit), never the first boot or an externally-triggered

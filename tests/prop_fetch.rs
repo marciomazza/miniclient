@@ -201,10 +201,12 @@ proptest! {
                 }),
     ) {
         let url = format!("{URL}/response-headers");
-        let headers: Vec<(&str, &str)> = response_headers
+        let mut headers: Vec<(&str, &str)> = response_headers
             .iter()
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
+        // The page is cross-origin to the mock server, which hides unlisted headers.
+        headers.push(("access-control-expose-headers", "*"));
         let mock = MockFetchBackend::new();
         mock.reply(&url, 200, &headers, b"ok");
         let rt = common::fetch_mock::runtime_with_mock(&mock);

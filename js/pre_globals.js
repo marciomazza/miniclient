@@ -213,8 +213,16 @@
         const rq = Deno.core.loadExtScript("ext:deno_fetch/23_request.js");
         const rs = Deno.core.loadExtScript("ext:deno_fetch/23_response.js");
         const fd = Deno.core.loadExtScript("ext:deno_fetch/21_formdata.js");
+        const body = Deno.core.loadExtScript("ext:deno_fetch/22_body.js");
         globalThis.__denoFetch = {
-            Headers: h.Headers, Request: rq.Request, Response: rs.Response, FormData: fd.FormData,
+            Headers: h.Headers,
+            Request: rq.Request,
+            Response: rs.Response,
+            FormData: fd.FormData,
+            // Response internals: `new Response()` cannot build opaque, cors or redirected ones.
+            InnerBody: body.InnerBody,
+            newInnerResponse: rs.newInnerResponse,
+            fromInnerResponse: rs.fromInnerResponse,
         };
     }
 
