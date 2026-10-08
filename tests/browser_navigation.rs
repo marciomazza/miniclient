@@ -498,7 +498,7 @@ async fn first_goto_replaces_the_blank_history_entry() {
 async fn first_goto_commits_an_error_document_when_the_fetch_fails() {
     let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
-    mock.status("http://localhost/boom", 500);
+    // No route for /boom -- the mock answers it with a connection-style error.
     page.install_fetch_backend(Arc::new(mock)).await;
 
     page.goto("http://localhost/boom").await.unwrap();

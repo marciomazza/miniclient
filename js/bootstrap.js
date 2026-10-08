@@ -298,7 +298,6 @@ async function fetchAndWrite(url, request) {
     let html;
     try {
         const res = await fetch(url, request);
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         html = await res.text();
     } catch (err) {
         // Never revert to the old document -- it's already gone. Commit an error-state

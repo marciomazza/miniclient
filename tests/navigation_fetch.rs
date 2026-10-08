@@ -36,7 +36,7 @@ fn navigation_self_fetches_the_new_document_on_success() {
 fn navigation_commits_an_error_document_on_a_failed_fetch() {
     let mut page = Page::new("{}");
     let mock = MockFetchBackend::new();
-    mock.status("http://localhost/next", 500);
+    // No route for /next -- the mock answers it with a connection-style error.
     page.install_fetch_backend(Arc::new(mock));
 
     page.runtime()
@@ -49,6 +49,29 @@ fn navigation_commits_an_error_document_on_a_failed_fetch() {
     );
     assert!(
         page.runtime()
+            .eval::<bool>("document.querySelector('[data-mini-navigation-error]') !== null")
+    );
+}
+
+/// A completed fetch commits its body whatever the status, as a browser's top-level navigation
+/// does -- only a failed fetch gets the error document.
+#[test]
+fn navigation_commits_the_body_of_a_non_2xx_response() {
+    let mut page = Page::new("{}");
+    let mock = MockFetchBackend::new();
+    mock.reply("http://localhost/next", 301, &[], b"<body>moved</body>");
+    page.install_fetch_backend(Arc::new(mock));
+
+    page.runtime()
+        .run("Deno.core.ops.op_request_navigation('http://localhost/next', 'push'); void 0");
+
+    assert_eq!(
+        page.runtime().eval::<String>("document.body.textContent"),
+        "moved"
+    );
+    assert!(
+        !page
+            .runtime()
             .eval::<bool>("document.querySelector('[data-mini-navigation-error]') !== null")
     );
 }
