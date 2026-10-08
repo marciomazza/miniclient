@@ -14,6 +14,7 @@ Install dependencies and vendor htmx:
 uv sync
 npm install
 ./scripts/setup-vendor-htmx.sh   # clones htmx source into vendor/htmx, required by the tests
+./scripts/setup-vendor-wpt.sh    # clones web-platform-tests into vendor/wpt, only for `just test-wpt`
 ```
 
 ## Linting
@@ -57,3 +58,11 @@ pytest -m ""
 ```
 
 Tests can run in parallel by adding the `pytest` option `-n auto`.
+
+### WPT conformance
+
+`just test-wpt` runs 141 web-platform-tests files from `fetch/api` and `cors` inside miniclient
+(about 5 minutes) and fails when a subtest that passed in `tests/wpt/expected.json` no longer
+does. After a change that makes more subtests pass, record them with
+`uv run python tests/wpt/run.py --update`. The files excluded from `tests/wpt/files.txt` need
+XMLHttpRequest, iframes, workers or HTTP/2, which miniclient does not provide.

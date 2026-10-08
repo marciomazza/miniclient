@@ -12,3 +12,7 @@ test-py: develop
 
 # Full suite.
 test: test-rust test-py
+
+# WPT fetch/CORS suite against the built extension; fails on regressions from tests/wpt/expected.json.
+test-wpt: develop
+    uv run python tests/wpt/run.py

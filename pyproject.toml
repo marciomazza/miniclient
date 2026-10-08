@@ -102,6 +102,9 @@ unfixable = [
   "F841",  # Report but don't auto-remove unused variables
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/wpt/run.py" = ["T201"]  # a CLI that reports on stdout
+
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = ["miniclient"]
