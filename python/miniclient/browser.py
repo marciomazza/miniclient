@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any, Self, cast
 
@@ -13,12 +12,6 @@ from miniclient._miniclient import (
     Page as NativePage,
 )
 from miniclient.fetch import _make_fetch_op, _make_fetch_sync_op
-
-
-def _mounts_json(mounts: dict[str, Path] | None) -> str:
-    return json.dumps({
-        mount_url: str(directory) for mount_url, directory in (mounts or {}).items()
-    })
 
 
 class AsyncPage(NativePage):
@@ -273,14 +266,6 @@ class Browser(NativeBrowser):
     Each Page still gets its own event loop and httpx client (the fetch backend reseeds the
     client's cookie jar on every request, so sharing one across Pages would race).
     """
-
-    def __new__(
-        cls,
-        httpx_transport: httpx.AsyncBaseTransport | None = None,
-        mounts: dict[str, Path] | None = None,
-        preboot: bool = True,
-    ) -> Self:
-        return cast(Self, super().__new__(cls, _mounts_json(mounts), preboot))
 
     def __init__(
         self,

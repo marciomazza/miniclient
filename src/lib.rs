@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::future::Future;
+use std::path::PathBuf;
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::runtime::{EvalError, EvalOutcome, Wait};
@@ -73,9 +75,16 @@ struct Browser(std::sync::Arc<browser::Browser>);
 #[pymethods]
 impl Browser {
     #[new]
-    #[pyo3(signature = (resource_mounts_json="{}", preboot=true))]
-    fn new(resource_mounts_json: &str, preboot: bool) -> Self {
-        Self(browser::Browser::new(resource_mounts_json, preboot))
+    #[pyo3(signature = (httpx_transport=None, mounts=None, preboot=true))]
+    fn new(
+        httpx_transport: Option<Py<PyAny>>,
+        mounts: Option<HashMap<String, PathBuf>>,
+        preboot: bool,
+    ) -> PyResult<Self> {
+        let _ = httpx_transport;
+        let mounts_json = serde_json::to_string(&mounts.unwrap_or_default())
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        Ok(Self(browser::Browser::new(&mounts_json, preboot)))
     }
 }
 

@@ -1,4 +1,5 @@
-from typing import Any
+from pathlib import Path
+from typing import Any, Self
 
 class JavaScriptError(Exception):
     name: str
@@ -6,8 +7,18 @@ class JavaScriptError(Exception):
     stack: str | None
 
 class Browser:
-    def __new__(cls, resource_mounts_json: str = "{}", preboot: bool = True) -> Browser: ...
-    def __init__(self, resource_mounts_json: str = "{}", preboot: bool = True) -> None: ...
+    def __new__(
+        cls,
+        httpx_transport: Any | None = None,
+        mounts: dict[str, Path] | None = None,
+        preboot: bool = True,
+    ) -> Self: ...
+    def __init__(
+        self,
+        httpx_transport: Any | None = None,
+        mounts: dict[str, Path] | None = None,
+        preboot: bool = True,
+    ) -> None: ...
 
 class Page:
     def __new__(cls, browser: Browser) -> Page: ...
