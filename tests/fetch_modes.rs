@@ -336,6 +336,131 @@ fn same_origin_credentials_survive_a_same_origin_chain() {
     assert_eq!(stored, "c=1; s=1");
 }
 
+const ALLOW_PAGE: [(&str, &str); 2] = [
+    ("access-control-allow-origin", "http://localhost"),
+    ("access-control-allow-credentials", "true"),
+];
+const ALLOW_ANY: [(&str, &str); 2] = [
+    ("access-control-allow-origin", "*"),
+    ("access-control-allow-credentials", "true"),
+];
+const INCLUDE: &str = "{credentials: 'include'}";
+
+fn passes(seen: &Value) -> bool {
+    seen["type"] == "cors"
+}
+
+#[test]
+fn credentialed_final_response_needs_an_exact_origin() {
+    let url = format!("{OTHER}/b");
+    let mock = MockFetchBackend::new();
+    mock.reply(&url, 200, &ALLOW_ANY, b"");
+    assert_eq!(outcome(&mock, &url, INCLUDE), "rejected:TypeError");
+    assert!(
+        passes(&outcome(&mock, &url, "{}")),
+        "uncredentialed accepts *"
+    );
+    mock.reply(&url, 200, &ALLOW_PAGE, b"");
+    assert!(passes(&outcome(&mock, &url, INCLUDE)));
+}
+
+#[test]
+fn credentialed_redirect_hop_needs_an_exact_origin() {
+    let hop = format!("{OTHER}/a");
+    let mock = MockFetchBackend::new();
+    // The origin turns opaque ("null") after a cross-origin to cross-origin redirect.
+    let opaque = [ALLOW_PAGE[1], ("access-control-allow-origin", "null")];
+    mock.reply("http://third.example.com/c", 200, &opaque, b"");
+    let location = ("location", "http://third.example.com/c");
+    mock.reply(&hop, 302, &[ALLOW_ANY[0], ALLOW_ANY[1], location], b"");
+    assert_eq!(outcome(&mock, &hop, INCLUDE), "rejected:TypeError");
+    mock.reply(&hop, 302, &[ALLOW_PAGE[0], ALLOW_PAGE[1], location], b"");
+    assert!(passes(&outcome(&mock, &hop, INCLUDE)));
+}
+
+#[test]
+fn credentialed_preflight_response_needs_an_exact_origin() {
+    let url = format!("{OTHER}/b");
+    let init = "{credentials: 'include', headers: {'X-Custom': '1'}}";
+    let mock = MockFetchBackend::new();
+    mock.reply(&url, 200, &ALLOW_PAGE, b"");
+    mock.preflight(
+        &url,
+        &[
+            ALLOW_ANY[0],
+            ALLOW_ANY[1],
+            ("access-control-allow-headers", "x-custom"),
+        ],
+    );
+    assert_eq!(outcome(&mock, &url, init), "rejected:TypeError");
+    mock.preflight(
+        &url,
+        &[
+            ALLOW_PAGE[0],
+            ALLOW_PAGE[1],
+            ("access-control-allow-headers", "x-custom"),
+        ],
+    );
+    assert!(passes(&outcome(&mock, &url, init)));
+}
+
+#[test]
+fn a_preflighted_method_must_be_allowed() {
+    let url = format!("{OTHER}/b");
+    let mock = MockFetchBackend::new();
+    mock.reply(&url, 200, &[], b"");
+    let put = |mock: &MockFetchBackend, init: &str| outcome(mock, &url, init);
+    for (allow, init, ok) in [
+        ("GET, POST", "{method: 'PUT'}", false),
+        ("GET, PUT", "{method: 'PUT'}", true),
+        ("*", "{method: 'PUT'}", true),
+        ("*", "{method: 'PUT', credentials: 'include'}", false),
+    ] {
+        let headers = [("access-control-allow-methods", allow)];
+        if init.contains("include") {
+            mock.preflight(&url, &[headers[0], ALLOW_PAGE[0], ALLOW_PAGE[1]]);
+            mock.reply(&url, 200, &ALLOW_PAGE, b"");
+        } else {
+            mock.preflight(&url, &headers);
+        }
+        assert_eq!(passes(&put(&mock, init)), ok, "{allow} for {init}");
+    }
+}
+
+#[test]
+fn credentialed_allow_headers_wildcard_covers_nothing() {
+    let url = format!("{OTHER}/b");
+    let mock = MockFetchBackend::new();
+    mock.reply(&url, 200, &ALLOW_PAGE, b"");
+    let init = "{credentials: 'include', headers: {'X-Custom': '1'}}";
+    let preflight = |allow: &'static str| {
+        mock.preflight(
+            &url,
+            &[
+                ALLOW_PAGE[0],
+                ALLOW_PAGE[1],
+                ("access-control-allow-headers", allow),
+            ],
+        );
+    };
+    preflight("*");
+    assert_eq!(outcome(&mock, &url, init), "rejected:TypeError");
+    preflight("x-custom");
+    assert!(passes(&outcome(&mock, &url, init)));
+}
+
+#[test]
+fn uncredentialed_allow_headers_wildcard_never_covers_authorization() {
+    let url = format!("{OTHER}/b");
+    let mock = MockFetchBackend::new();
+    mock.reply(&url, 200, &[], b"");
+    mock.preflight(&url, &[("access-control-allow-headers", "*")]);
+    let custom = outcome(&mock, &url, "{headers: {'X-Custom': '1'}}");
+    assert!(passes(&custom));
+    let auth = outcome(&mock, &url, "{headers: {'Authorization': 'x'}}");
+    assert_eq!(auth, "rejected:TypeError");
+}
+
 #[test]
 fn blob_file_and_form_data_bodies_keep_their_bytes() {
     let mock = MockFetchBackend::new();

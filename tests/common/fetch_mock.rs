@@ -108,6 +108,11 @@ impl MockFetchBackend {
         self.reply(url, 302, &[("location", location)], b"")
     }
 
+    /// The answer to the CORS preflight (`OPTIONS`) of `url`, apart from its actual response.
+    pub fn preflight(&self, url: &str, headers: &[(&str, &str)]) -> &Self {
+        self.reply(&format!("OPTIONS {url}"), 204, headers, b"")
+    }
+
     pub fn hang(&self, url: &str) -> &Self {
         self.route(url, Route::Hang)
     }
@@ -145,14 +150,16 @@ impl FetchBackend for MockFetchBackend {
                 body: req.body.as_deref().unwrap_or_default().to_vec(),
             });
 
-        let route = self
-            .0
-            .routes
-            .lock()
-            .expect("mock lock poisoned")
-            .get(&req.url)
-            .cloned()
-            .ok_or_else(|| JsErrorBox::generic(format!("mock: no route for {}", req.url)))?;
+        let route = {
+            let routes = self.0.routes.lock().expect("mock lock poisoned");
+            let preflight = format!("OPTIONS {}", req.url);
+            routes
+                .get(&preflight)
+                .filter(|_| req.method == "OPTIONS")
+                .or_else(|| routes.get(&req.url))
+                .cloned()
+        }
+        .ok_or_else(|| JsErrorBox::generic(format!("mock: no route for {}", req.url)))?;
         match route {
             Route::Hang => {
                 let (tx, rx) = oneshot::channel();
@@ -175,14 +182,19 @@ impl FetchBackend for MockFetchBackend {
                 mut headers,
                 body,
             } => {
-                let has = |name: &str| headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
                 // A server open to any origin unless a route says otherwise, so tests of fetch
                 // mechanics don't depend on the page's own origin.
-                if !has("access-control-allow-origin") {
-                    headers.push(("access-control-allow-origin".into(), "*".into()));
-                }
-                if req.method == "OPTIONS" {
-                    headers.push(("access-control-allow-headers".into(), "*".into()));
+                let preflight = req.method == "OPTIONS";
+                for (name, default) in [
+                    ("access-control-allow-origin", "*"),
+                    ("access-control-allow-methods", "*"),
+                    ("access-control-allow-headers", "*, authorization"),
+                ] {
+                    // Only the origin applies to every response; the others answer preflights.
+                    let applies = preflight || name.ends_with("origin");
+                    if applies && !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case(name)) {
+                        headers.push((name.into(), default.into()));
+                    }
                 }
                 Ok(FetchResponse {
                     status,
