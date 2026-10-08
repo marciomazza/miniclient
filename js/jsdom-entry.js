@@ -3,21 +3,11 @@
 // of those modules do their require resolution; ESM evaluates imports in declaration
 // order, so this runs first.
 import "buffer";
-import { CookieJar, JSDOM, requestInterceptor } from "jsdom";
+import { CookieJar, JSDOM } from "jsdom";
 import { implForWrapper, wrapperForImpl } from "jsdom/lib/generated/idl/utils.js";
 import { serializeURL } from "whatwg-url";
 import "./patch-jsdom-hxon-index.js";
 import { patchJsdom } from "./patch-jsdom.js";
-// jsdom has no Request/Response of its own; undici (jsdom's own transitive dep) does.
-// Importing its class files directly, not the `undici` package entry point, keeps its real
-// network client/dispatcher out of the bundle -- bootstrap.js's fetch() only needs these as
-// spec-compliant containers around mini's own op_fetch_hop transport.
-//
-// Response must load first: request.js's module-top-level `RequestInit` webidl converter
-// reads `webidl.converters.BodyInit`, which only exists once response.js's own module top
-// level has run and assigned it.
-import { Response } from "undici/lib/web/fetch/response.js";
-import { Request } from "undici/lib/web/fetch/request.js";
 // jsdom has no DataTransfer/innerText of its own -- both ported from the jsdom-ecosystem
 // (not reimplemented) since real, tested implementations of these already exist. Only the
 // factory function is imported, not the whole @testing-library/user-event package: the
@@ -37,9 +27,6 @@ import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileLis
 globalThis.JSDOM = JSDOM;
 globalThis.__JSDOMCookieJar = CookieJar;
 globalThis.__serializeURL = serializeURL;
-globalThis.Request = Request;
-globalThis.Response = Response;
-globalThis.__jsdomRequestInterceptor = requestInterceptor;
 
 // bootstrap.js runs as a classic script, never a module, so it can't `import` jsdom's
 // webidl2js wrapper<->impl converters directly -- needed there to bridge the public Node

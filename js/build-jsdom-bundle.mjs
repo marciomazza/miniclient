@@ -11,25 +11,17 @@ const _JS = fileURLToPath(new URL(".", import.meta.url));
 const _POLYFILLS = _JS + "polyfills/";
 
 const NODE_POLYFILL_FILES = {
-  assert: "node-assert.js",
   buffer: "node-buffer.js",
   crypto: "node-crypto.js",
   events: "node-events.js",
   fs: "node-fs.js",
-  http: "node-http.js",
-  https: "node-http.js",
-  net: "node-net.js",
   os: "node-os.js",
   path: "node-path.js",
-  perf_hooks: "node-perf-hooks.js",
-  querystring: "node-querystring.js",
   stream: "node-stream.js",
-  "stream/web": "node-stream-web.js",
   url: "node-url.js",
   util: "node-util.js",
   "util/types": "node-util-types.js",
   vm: "node-vm.js",
-  worker_threads: "node-worker-threads.js",
   zlib: "node-zlib.js",
 };
 
