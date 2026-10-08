@@ -9,12 +9,12 @@ environment, not a project dependency.
 **Page**:
 The user-facing handle to one browser window/document/frame — no tabs, mirrors
 Playwright's `Browser.newPage()`.
-Created directly, or from a `Browser`.
+Always created from a `Browser`.
 
 **Browser**:
 The owner of several `Page`s that share a transport and resource mounts, and the one that keeps
 a blank runtime booted ahead of time. Not a window itself: it never navigates or evaluates.
-Closing it leaves already-created Pages working.
+Has no `close()`: it lives until it is dropped.
 
 **Element**:
 A reference to a single DOM node, usable independently of the `Page` that produced it —

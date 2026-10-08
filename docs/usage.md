@@ -12,43 +12,39 @@ If the page includes htmx, it runs normally and htmx requests are awaited automa
 
 ## Creating a page
 
-Create a page:
+Every page comes from a `Browser`:
 
 ```python
-from miniclient.browser import Page
+from miniclient.browser import Browser, Page
 
-page = Page()
+browser = Browser()
+page = Page(browser)
 ...
 page.close()
 ```
 
-`Page` can also be used as a context manager (`with Page() as page:`) to close it on exit.
+`Page` can also be used as a context manager (`with Page(browser) as page:`) to close it on exit.
 
-`Page(...)` accepts:
+`Browser(...)` accepts:
 
 - `httpx_transport` — an `httpx2.AsyncBaseTransport`, useful to test an ASGI/WSGI app in-process
   without an HTTP server (see below).
 - `mounts` — a `dict[str, Path]` mapping a URL prefix to a local directory, so `<script>` tags can
   load local files (e.g. htmx itself or a bundle) without going through an HTTP request.
 
-### Many pages: `Browser`
-
-A `Browser` takes the same `httpx_transport` and `mounts`, and hands out blank pages with
-`new_page()`. It boots the next page's runtime in the background, so creating a page per test is
-nearly free. Pages are independent (own DOM, cookies, event loop and httpx client), and closing
-the `Browser` doesn't affect pages already handed out. To customize pages, subclass `Page` and
-set `Browser.page_class` on a `Browser` subclass. Subclass `Browser` and set `page_class` to
-hand out your own `Page` subclass. With pytest:
+The `Browser` boots the next page's runtime in the background, so creating a page per test is
+nearly free. Pages are independent (own DOM, cookies, event loop and httpx client). The `Browser`
+needs no closing: drop it when you are done. To add helpers, subclass `Page` and create it the
+same way. With pytest:
 
 ```python
 @pytest.fixture(scope="session")
 def browser():
-    with Browser(httpx_transport=WSGITransport(app=app)) as browser:
-        yield browser
+    return Browser(httpx_transport=WSGITransport(app=app))
 
 @pytest.fixture
 def page(browser):
-    with browser.new_page() as page:
+    with Page(browser) as page:
         yield page
 ```
 
@@ -57,16 +53,16 @@ def page(browser):
 An `AsyncPage` with the same constructor is available for async codebases:
 
 ```python
-from miniclient.browser import AsyncPage
+from miniclient.browser import AsyncPage, Browser
 
-async with AsyncPage() as page:
+async with AsyncPage(Browser()) as page:
     ...
 ```
 
 ## Testing a WSGI/ASGI app in-process
 
 You can test your WSGI/ASGI app directly (Django, Flask, FastAPI, etc)
-with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Page(...)`.
+with no HTTP server or network involved, by passing a `miniclient.wsgi.WSGITransport` to `Browser(...)`.
 
 An example with [nanodjango](https://nanodjango.dev/)
 _(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/to/htmx/dist"`)_:
@@ -74,7 +70,7 @@ _(and [`htmx.min.js`](https://four.htmx.org/docs#download) in the folder `"path/
 ```python
 from pathlib import Path
 
-from miniclient.browser import Page
+from miniclient.browser import Browser, Page
 from miniclient.wsgi import WSGITransport
 from nanodjango import Django
 
@@ -98,10 +94,11 @@ def index(request):
 def hello(request):
     return "Hello from Django!"
 
-with Page(
+browser = Browser(
     httpx_transport=WSGITransport(app=app.wsgi),
     mounts={"http://localhost/static/": Path("path/to/htmx/dist")},
-) as page:
+)
+with Page(browser) as page:
     page.goto("/")
     page.find("button").click()
     print(page.find("#result").text)  # prints "Hello from Django!"
@@ -115,7 +112,7 @@ For an ASGI app instead, pass an `httpx2.ASGITransport(app=app.asgi)` — see
 Serve local files through `mounts` so a `<script>` tag can load them without a real server:
 
 ```python
-page = Page(mounts={"http://localhost/ext/": tmp_path})
+page = Page(Browser(mounts={"http://localhost/ext/": tmp_path}))
 page.eval(
     'document.head.innerHTML = \'<script src="http://localhost/ext/external-script.js"></script>\''
 )
@@ -236,7 +233,7 @@ height = page.find("#panel").eval("this.scrollHeight")
 On an `AsyncPage`, elements also have `eval_async()`:
 
 ```python
-async with AsyncPage() as page:
+async with AsyncPage(browser) as page:
     data = await page.find("#panel").eval_async("this.loadData()")  # this.loadData() returns a promise
 ```
 
@@ -244,7 +241,7 @@ async with AsyncPage() as page:
 promise:
 
 ```python
-async with AsyncPage() as page:
+async with AsyncPage(browser) as page:
     title = page.eval("document.title")
     status = await page.eval_async("fetch('/api/status').then(r => r.json())")
 ```

@@ -13,7 +13,7 @@ import httpx2 as httpx
 from playwright.async_api import Page, Request
 from pydantic import BaseModel, field_validator
 
-from miniclient.browser import AsyncPage
+from miniclient.browser import AsyncPage, Browser
 from miniclient.wsgi import WSGITransport
 
 _KEEP_REQUEST_HEADERS = {"content-type"}
@@ -148,7 +148,7 @@ class CrossCheck:
 
         client_talk = Talk()
         capturing_transport = _CapturingTransport(WSGITransport(_wrapped_wsgi), client_talk)
-        client = AsyncPage(httpx_transport=capturing_transport)
+        client = AsyncPage(Browser(httpx_transport=capturing_transport))
 
         server = make_server("127.0.0.1", 0, _wrapped_wsgi, handler_class=_SilentHandler)
         port = server.server_address[1]

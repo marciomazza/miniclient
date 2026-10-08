@@ -78,9 +78,9 @@ fn boot_in_background(resource_mounts_json: String) -> Receiver<runtime::Runtime
     rx
 }
 
-/// Owner of the Pages created from it: keeps one pre-booted `Runtime` buffered, and each
-/// `Page` taking it starts booting the replacement. `subclass` lets the Python `Browser` add
-/// `new_page()`, which needs the Python-side loop and httpx client.
+/// Source of the Pages created from it: keeps one pre-booted `Runtime` buffered, and each
+/// `Page` taking it starts booting the replacement. `subclass` lets the Python `Browser` keep
+/// the httpx transport its Pages' clients use.
 #[pyclass(module = "miniclient._miniclient", subclass)]
 struct Browser {
     resource_mounts_json: String,
@@ -97,12 +97,6 @@ impl Browser {
             next: Mutex::new(Some(boot_in_background(resource_mounts_json.to_string()))),
         }
     }
-
-    /// Stops booting replacements and drops the buffered runtime; Pages already created keep
-    /// working. Idempotent.
-    fn close(&self) {
-        *self.next.lock().expect("buffer mutex poisoned") = None;
-    }
 }
 
 impl Browser {
@@ -111,7 +105,7 @@ impl Browser {
             let mut next = self.next.lock().expect("buffer mutex poisoned");
             let ready = next
                 .take()
-                .ok_or_else(|| PyRuntimeError::new_err("the browser is closed"))?;
+                .unwrap_or_else(|| boot_in_background(self.resource_mounts_json.clone()));
             *next = Some(boot_in_background(self.resource_mounts_json.clone()));
             ready
         };
@@ -129,16 +123,8 @@ struct Page(browser::Page);
 #[pymethods]
 impl Page {
     #[new]
-    #[pyo3(signature = (resource_mounts_json="{}", browser=None))]
-    fn new(
-        py: Python<'_>,
-        resource_mounts_json: &str,
-        browser: Option<&Browser>,
-    ) -> PyResult<Self> {
-        Ok(Self(match browser {
-            Some(browser) => browser::Page::from_runtime(browser.take(py)?),
-            None => browser::Page::new(resource_mounts_json),
-        }))
+    fn new(py: Python<'_>, browser: &Browser) -> PyResult<Self> {
+        Ok(Self(browser::Page::from_runtime(browser.take(py)?)))
     }
 
     /// Evaluate `source` as a top-level script, `this` bound to `globalThis` by the isolate's

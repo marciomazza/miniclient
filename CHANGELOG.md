@@ -9,11 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `Browser`: shares a transport and mounts across Pages and keeps one blank runtime booted in the
-  background, so `new_page()` skips the startup cost. `Browser.page_class` picks the `Page`
-  subclass it hands out.
+  background, so a new `Page` skips the startup cost.
 
 ### Changed
 
+- `Page` and `AsyncPage` now take a `Browser` (`Page(browser)`) instead of `httpx_transport` and
+  `mounts`, which move to `Browser(...)`.
 - V8 now starts with `--no-opt --no-regexp-tier-up --min-semi-space-size=16
   --initial-old-space-size=128`, which cuts CPU ~15% and wall ~6% on a real e2e suite.
   `MINICLIENT_V8_FLAGS` replaces them; set it to an empty string for stock V8.

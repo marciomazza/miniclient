@@ -7,7 +7,7 @@ from playwright.async_api import Page
 
 from crosscheck.crosscheck import _JS_SERIALIZE
 from crosscheck.strategies import st_html_form, st_some_text_maybe_empty
-from miniclient.browser import AsyncPage
+from miniclient.browser import AsyncPage, Browser
 
 pytestmark = pytest.mark.cross
 
@@ -28,7 +28,7 @@ class DomCheck:
 
     @classmethod
     async def create(cls, html: str, page: Page) -> "DomCheck":
-        client = AsyncPage()
+        client = AsyncPage(Browser())
         # Set innerHTML directly without htmx.process so that neither side adds
         # htmx-specific attributes (e.g. data-htmx-powered) during setup.
         await client.eval(f"document.documentElement.innerHTML = {json.dumps(html)}")

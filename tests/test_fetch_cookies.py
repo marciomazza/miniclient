@@ -1,6 +1,6 @@
 from wsgiref.types import StartResponse, WSGIEnvironment
 
-from miniclient.browser import AsyncPage
+from miniclient.browser import AsyncPage, Browser
 from miniclient.wsgi import WSGITransport
 
 
@@ -21,7 +21,7 @@ async def test_cookie_survives_auto_followed_redirect() -> None:
         start_response("200 OK", [("Content-Type", "text/html")])
         return [body]
 
-    page = AsyncPage(httpx_transport=WSGITransport(app=_app))
+    page = AsyncPage(Browser(httpx_transport=WSGITransport(app=_app)))
     try:
         await page.goto("http://testserver/echo")
         await page.eval("document.cookie = 'sessionid=abc123; path=/'")

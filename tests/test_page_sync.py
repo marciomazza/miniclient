@@ -1,12 +1,11 @@
 import gc
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
-from conftest import HTMX_RESOURCE_MOUNT, HTMX_SCRIPT_TAG
+from conftest import HTMX_SCRIPT_TAG
 from pytest_httpx2 import HTTPXMock
 
-from miniclient.browser import Element, Page
+from miniclient.browser import Browser, Element, Page
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -14,9 +13,9 @@ from miniclient.browser import Element, Page
 
 
 @pytest.fixture
-def page() -> Iterator[Page]:
+def page(browser: Browser) -> Iterator[Page]:
     """A fresh Page, closed automatically unless the test closes it first."""
-    b = Page()
+    b = Page(browser)
     try:
         yield b
     finally:
@@ -24,11 +23,9 @@ def page() -> Iterator[Page]:
 
 
 @pytest.fixture
-def htmx_page() -> Iterator[Page]:
-    """A fresh Page that can reach the vendored htmx.js, closed automatically unless
-    the test closes it first. Each load()/goto() is a real navigation, so htmx must be
-    (re-)loaded per page via HTMX_SCRIPT_TAG, same as a real page."""
-    b = Page(mounts={url: Path(directory) for url, directory in HTMX_RESOURCE_MOUNT.items()})
+def htmx_page(htmx_browser: Browser) -> Iterator[Page]:
+    """A fresh Page from `htmx_browser`, closed automatically unless the test closes it first."""
+    b = Page(htmx_browser)
     try:
         yield b
     finally:
@@ -107,8 +104,8 @@ def test_click_and_form_submit_via_htmx(htmx_page: Page, httpx_mock: HTTPXMock) 
 # ---------------------------------------------------------------------------
 
 
-def test_page_context_manager_closes() -> None:
-    with Page() as b:
+def test_page_context_manager_closes(browser: Browser) -> None:
+    with Page(browser) as b:
         b.load("<p>hi</p>")
         assert b.find("p") is not None
     assert b._closed
@@ -125,10 +122,10 @@ def test_page_context_manager_closes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gc_regression_held_element() -> None:
+def test_gc_regression_held_element(browser: Browser) -> None:
     # Element kept alive past Page.close() must not raise when
     # it's eventually garbage collected.
-    with Page() as b:
+    with Page(browser) as b:
         b.load("<button id='x'>hi</button>")
         el = b.find("#x")
         assert el is not None
@@ -136,10 +133,10 @@ def test_gc_regression_held_element() -> None:
     gc.collect()
 
 
-def test_gc_regression_never_closed() -> None:
+def test_gc_regression_never_closed(browser: Browser) -> None:
     # A Page that is never explicitly closed must still clean up silently
     # via __del__ when it's dropped.
-    b = Page()
+    b = Page(browser)
     b.load("<button id='x'>hi</button>")
     el = b.find("#x")
     assert el is not None
@@ -148,11 +145,11 @@ def test_gc_regression_never_closed() -> None:
     gc.collect()
 
 
-async def test_page_rejects_running_event_loop() -> None:
+async def test_page_rejects_running_event_loop(browser: Browser) -> None:
     # Page drives its own event loop on the caller's thread; it can't nest
     # inside one that's already running (e.g. this test coroutine's own loop).
     with pytest.raises(RuntimeError, match="running event loop"):
-        Page()
+        Page(browser)
 
 
 def test_goto_after_hash_change_does_not_hang(page: Page, httpx_mock: HTTPXMock) -> None:
