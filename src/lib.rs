@@ -68,7 +68,7 @@ fn block_on<T: Send>(
 /// Thin pyo3 wrapper around [`browser::Browser`]. `subclass` lets the Python `Browser` keep the
 /// httpx transport its Pages' clients use.
 #[pyclass(module = "miniclient._miniclient", subclass)]
-struct Browser(browser::Browser);
+struct Browser(std::sync::Arc<browser::Browser>);
 
 #[pymethods]
 impl Browser {
@@ -174,7 +174,6 @@ impl Page {
         };
         let rx = self
             .0
-            .runtime()
             .send_install_fetch_backend(std::sync::Arc::new(backend));
         py.detach(|| rx.blocking_recv()).map_err(closed)
     }

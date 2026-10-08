@@ -33,7 +33,7 @@ async fn goto_navigates_and_load_rewrites_the_document_in_place() {
 
     page.goto("http://localhost/next").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/next"
     );
     let a = page.find("#a", None).await.unwrap().expect("must find #a");
@@ -42,7 +42,7 @@ async fn goto_navigates_and_load_rewrites_the_document_in_place() {
     // load() rewrites the document in place -- same URL, no navigation.
     page.load("<p id=\"b\">loaded</p>").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/next"
     );
     assert!(page.find("#a", None).await.unwrap().is_none());
@@ -69,7 +69,7 @@ async fn click_dispatches_an_event_and_fill_sets_the_value() {
     let input = page.find("#inp", None).await.unwrap().unwrap();
     input.fill("hi there").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "document.querySelector('#inp').value").await,
+        eval_str(&page.runtime(), "document.querySelector('#inp').value").await,
         "hi there"
     );
 }
@@ -126,7 +126,7 @@ async fn request_submit_performs_the_forms_native_navigation() {
     form.request_submit().await.unwrap();
 
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/submitted?x=1"
     );
     assert!(page.find("#done", None).await.unwrap().is_some());
@@ -198,7 +198,7 @@ async fn goto_loads_head_and_body() {
     page.install_fetch_backend(Arc::new(mock)).await;
 
     page.goto("http://localhost/page").await.unwrap();
-    assert_eq!(eval_str(page.runtime(), "document.title").await, "T");
+    assert_eq!(eval_str(&page.runtime(), "document.title").await, "T");
     let s = page.find("#s", None).await.unwrap().unwrap();
     assert_eq!(s.inner_html().await.unwrap(), "ok");
 }
@@ -241,21 +241,21 @@ async fn goto_navigates_across_domains() {
 
     page.goto("http://localhost/start").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/start"
     );
     assert_eq!(
-        eval_str(page.runtime(), "document.baseURI").await,
+        eval_str(&page.runtime(), "document.baseURI").await,
         "http://localhost/start"
     );
 
     page.goto("http://example.com/other").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://example.com/other"
     );
     assert_eq!(
-        eval_str(page.runtime(), "document.baseURI").await,
+        eval_str(&page.runtime(), "document.baseURI").await,
         "http://example.com/other"
     );
 }
@@ -274,7 +274,7 @@ async fn assert_goto_resolves(initial_url: Option<&str>, relative_url: &str, exp
     }
     page.goto(relative_url).await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         expected_url
     );
 }
@@ -322,12 +322,12 @@ async fn goto_isolates_globals_and_timers_across_navigations() {
     page.install_fetch_backend(Arc::new(mock)).await;
 
     page.goto("http://localhost/a").await.unwrap();
-    let foo: i64 = aeval_async(page.runtime(), "window.__foo").await;
+    let foo: i64 = aeval_async(&page.runtime(), "window.__foo").await;
     assert_eq!(foo, 1);
 
     page.goto("http://localhost/b").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "typeof window.__foo").await,
+        eval_str(&page.runtime(), "typeof window.__foo").await,
         "undefined"
     );
 
@@ -341,7 +341,7 @@ async fn goto_isolates_globals_and_timers_across_navigations() {
         .unwrap()
         .unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "typeof window.__leaked").await,
+        eval_str(&page.runtime(), "typeof window.__leaked").await,
         "undefined"
     );
 }
@@ -362,21 +362,21 @@ async fn history_back_and_forward_span_full_navigations() {
     page.goto("http://localhost/a").await.unwrap();
     page.goto("http://localhost/b").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/b"
     );
-    let length: i64 = aeval_async(page.runtime(), "history.length").await;
+    let length: i64 = aeval_async(&page.runtime(), "history.length").await;
     assert!(length > 1);
 
-    arun_async(page.runtime(), "history.back()").await;
+    arun_async(&page.runtime(), "history.back()").await;
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/a"
     );
 
-    arun_async(page.runtime(), "history.forward()").await;
+    arun_async(&page.runtime(), "history.forward()").await;
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/b"
     );
 }
@@ -401,7 +401,7 @@ async fn goto_executes_a_module_script_from_a_resource_mount() {
     page.install_fetch_backend(Arc::new(mock)).await;
 
     page.goto("http://localhost/").await.unwrap();
-    let ran: i64 = aeval_async(page.runtime(), "window.__ran").await;
+    let ran: i64 = aeval_async(&page.runtime(), "window.__ran").await;
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(ran, 1);
 }
@@ -433,7 +433,7 @@ async fn goto_after_hash_change_does_not_hang() {
         .expect("goto() must not error");
 
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/b"
     );
 }
@@ -447,19 +447,19 @@ async fn only_the_first_goto_keeps_the_realm() {
     mock.text("http://localhost/a", "<p id=\"a\">a</p>");
     mock.text("http://localhost/b", "<p id=\"b\">b</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
-    arun_async(page.runtime(), "globalThis.__marker = 1").await;
+    arun_async(&page.runtime(), "globalThis.__marker = 1").await;
 
     page.goto("http://localhost/a").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/a"
     );
-    let kept: i64 = aeval_async(page.runtime(), "globalThis.__marker").await;
+    let kept: i64 = aeval_async(&page.runtime(), "globalThis.__marker").await;
     assert_eq!(kept, 1);
     assert!(page.find("#a", None).await.unwrap().is_some());
 
     page.goto("http://localhost/b").await.unwrap();
-    let gone = eval_str(page.runtime(), "typeof globalThis.__marker").await;
+    let gone = eval_str(&page.runtime(), "typeof globalThis.__marker").await;
     assert_eq!(gone, "undefined");
     assert!(page.find("#b", None).await.unwrap().is_some());
 }
@@ -472,11 +472,11 @@ async fn goto_after_load_boots_a_fresh_isolate() {
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p id=\"a\">a</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
-    arun_async(page.runtime(), "globalThis.__marker = 1").await;
+    arun_async(&page.runtime(), "globalThis.__marker = 1").await;
     page.load("<p id=\"loaded\">x</p>").await.unwrap();
 
     page.goto("http://localhost/a").await.unwrap();
-    let gone = eval_str(page.runtime(), "typeof globalThis.__marker").await;
+    let gone = eval_str(&page.runtime(), "typeof globalThis.__marker").await;
     assert_eq!(gone, "undefined");
     assert!(page.find("#a", None).await.unwrap().is_some());
 }
@@ -490,7 +490,7 @@ async fn first_goto_replaces_the_blank_history_entry() {
     page.install_fetch_backend(Arc::new(mock)).await;
 
     page.goto("http://localhost/a").await.unwrap();
-    let length: i64 = aeval_async(page.runtime(), "history.length").await;
+    let length: i64 = aeval_async(&page.runtime(), "history.length").await;
     assert_eq!(length, 1);
 }
 
@@ -503,7 +503,7 @@ async fn first_goto_commits_an_error_document_when_the_fetch_fails() {
 
     page.goto("http://localhost/boom").await.unwrap();
     assert_eq!(
-        eval_str(page.runtime(), "location.href").await,
+        eval_str(&page.runtime(), "location.href").await,
         "http://localhost/boom"
     );
     assert!(
@@ -521,8 +521,50 @@ async fn cookie_set_before_the_first_goto_survives_it() {
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p>a</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
-    arun_async(page.runtime(), "document.cookie = 'sid=abc'").await;
+    arun_async(&page.runtime(), "document.cookie = 'sid=abc'").await;
 
     page.goto("http://localhost/a").await.unwrap();
-    assert_eq!(eval_str(page.runtime(), "document.cookie").await, "sid=abc");
+    assert_eq!(
+        eval_str(&page.runtime(), "document.cookie").await,
+        "sid=abc"
+    );
+}
+
+/// Every `goto` after the first swaps in the `Browser`'s prebooted runtime: cookies and history
+/// carry over, a relative URL resolves against the page left behind, and elements found before
+/// the swap stop working.
+#[tokio::test]
+async fn goto_swaps_in_a_prebooted_runtime_carrying_state_over() {
+    let page = Browser::new("{}", true).new_page();
+    let mock = MockFetchBackend::new();
+    for path in ["a", "b", "c"] {
+        mock.text(
+            &format!("http://localhost/dir/{path}"),
+            &format!("<p>{path}</p>"),
+        );
+    }
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/dir/a").await.unwrap();
+    arun_async(&page.runtime(), "document.cookie = 'sid=abc; path=/'").await;
+    let p = page.find("p", None).await.unwrap().expect("must find <p>");
+    page.goto("b").await.unwrap();
+    assert!(p.text().await.is_err());
+    page.goto("c").await.unwrap();
+
+    assert_eq!(
+        eval_str(&page.runtime(), "location.href").await,
+        "http://localhost/dir/c"
+    );
+    assert_eq!(
+        eval_str(&page.runtime(), "document.cookie").await,
+        "sid=abc"
+    );
+    let length: i64 = aeval_async(&page.runtime(), "history.length").await;
+    assert_eq!(length, 3);
+    arun_async(&page.runtime(), "history.back()").await;
+    assert_eq!(
+        eval_str(&page.runtime(), "location.href").await,
+        "http://localhost/dir/b"
+    );
 }

@@ -26,7 +26,7 @@ async fn assert_script_src_loads(attr_setup_js: &str) {
     mock.text("http://localhost/x.js", "window.__ran = 1;");
     let page = page_with_mock(&mock).await;
     let ran: i64 = aeval_async(
-        page.runtime(),
+        &page.runtime(),
         &format!(
             r#"
             new Promise((resolve, reject) => {{
@@ -65,7 +65,7 @@ async fn classic_script_src_real_network_executes() {
     mock.text("http://localhost/classic.js", "window.__ran = 1;");
     let page = page_with_mock(&mock).await;
     let ran: i64 = aeval_async(
-        page.runtime(),
+        &page.runtime(),
         r#"
         new Promise((resolve, reject) => {
           const script = document.createElement('script');
@@ -85,7 +85,7 @@ async fn assert_script_src_errors_on_404(script_setup_js: &str) {
     mock.status("http://localhost/missing.js", 404);
     let page = page_with_mock(&mock).await;
     let outcome: String = aeval_async(
-        page.runtime(),
+        &page.runtime(),
         &format!(
             r#"
             new Promise(resolve => {{
@@ -119,7 +119,7 @@ async fn assert_script_src_follows_redirect(script_setup_js: &str) {
     mock.text("http://localhost/new.js", "window.__ran = 'redirected';");
     let page = page_with_mock(&mock).await;
     let ran: String = aeval_async(
-        page.runtime(),
+        &page.runtime(),
         &format!(
             r#"
             new Promise((resolve, reject) => {{
@@ -153,7 +153,7 @@ async fn link_stylesheet_real_network_loads() {
     mock.text("http://localhost/x.css", "body { color: red; }");
     let page = page_with_mock(&mock).await;
     let outcome: String = aeval_async(
-        page.runtime(),
+        &page.runtime(),
         r#"
         new Promise((resolve, reject) => {
           const link = document.createElement('link');
@@ -176,7 +176,7 @@ async fn unmocked_stylesheet_fires_error_not_exception() {
     let mock = MockFetchBackend::new();
     let page = page_with_mock(&mock).await;
     let outcome: String = aeval_async(
-        page.runtime(),
+        &page.runtime(),
         r#"
         new Promise(resolve => {
           const link = document.createElement('link');

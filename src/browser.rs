@@ -7,6 +7,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 
 use deno_core::serde_json;
+use tokio::sync::oneshot;
 
 use crate::ops;
 use crate::runtime::{self, EvalError, EvalOutcome, Wait};
@@ -174,17 +175,22 @@ pub struct Browser {
 }
 
 impl Browser {
-    pub fn new(resource_mounts_json: &str, preboot: bool) -> Self {
-        Self {
+    pub fn new(resource_mounts_json: &str, preboot: bool) -> Arc<Self> {
+        Arc::new(Self {
             resource_mounts_json: resource_mounts_json.to_string(),
             preboot,
             next: Mutex::new(preboot.then(|| boot_in_background(resource_mounts_json.to_string()))),
-        }
+        })
     }
 
     /// Blocks until the runtime is booted.
-    pub fn new_page(&self) -> Page {
-        Page::from_runtime(self.take())
+    pub fn new_page(self: &Arc<Self>) -> Page {
+        Page {
+            browser: self.clone(),
+            runtime: Mutex::new(Arc::new(self.take())),
+            fetch_backend: Mutex::new(None),
+            pristine: AtomicBool::new(true),
+        }
     }
 
     /// Blocks until the runtime is booted, outside the lock; the next one is only spawned.
@@ -204,7 +210,11 @@ impl Browser {
 }
 
 pub struct Page {
-    inner: runtime::Page,
+    browser: Arc<Browser>,
+    // Swapped for a fresh one from `browser` on every `goto` after the first.
+    runtime: Mutex<Arc<runtime::Runtime>>,
+    // Installed again on each swapped-in runtime.
+    fetch_backend: Mutex<Option<Arc<dyn ops::FetchBackend + Send + Sync>>>,
     // Still the blank realm `Runtime::new` booted: its first `goto` can navigate in place
     // instead of booting a second isolate. Only `goto` and `load` end it -- `eval` before the
     // first `goto` keeps it so a seeded cookie doesn't cost that saving; globals it defines
@@ -213,16 +223,8 @@ pub struct Page {
 }
 
 impl Page {
-    /// Wraps a freshly booted, still-blank `runtime` -- the precondition `pristine` relies on.
-    fn from_runtime(runtime: runtime::Runtime) -> Self {
-        Self {
-            inner: runtime::Page::from_runtime(runtime),
-            pristine: AtomicBool::new(true),
-        }
-    }
-
-    pub fn runtime(&self) -> &runtime::Runtime {
-        self.inner.runtime()
+    pub fn runtime(&self) -> Arc<runtime::Runtime> {
+        self.runtime.lock().expect("runtime mutex poisoned").clone()
     }
 
     /// Return the first element matching `selector`, or `None` if nothing matches. `text`, when
@@ -250,23 +252,58 @@ impl Page {
 
     /// Async because the blocking runtime method would panic inside a `tokio::test`.
     pub async fn install_fetch_backend(&self, backend: Arc<dyn ops::FetchBackend + Send + Sync>) {
-        self.runtime()
-            .send_install_fetch_backend(backend)
+        self.send_install_fetch_backend(backend)
             .await
             .expect("install channel dropped");
     }
 
+    pub fn send_install_fetch_backend(
+        &self,
+        backend: Arc<dyn ops::FetchBackend + Send + Sync>,
+    ) -> oneshot::Receiver<()> {
+        *self.fetch_backend.lock().expect("backend mutex poisoned") = Some(backend.clone());
+        self.runtime().send_install_fetch_backend(backend)
+    }
+
     /// Fetch and load the document at `url`. The first navigation of an untouched page reuses
-    /// its blank realm; every later one boots a fresh isolate -- same mechanism as an in-page
-    /// link click or `location.href =`.
+    /// its blank realm; every later one swaps in a blank runtime from the `Browser`, carrying
+    /// cookies and history over. Elements found before then stop working.
     pub async fn goto(&self, url: &str) -> Result<(), EvalError> {
-        let handle = self.runtime().handle();
-        let source = if self.pristine.swap(false, Ordering::Relaxed) {
-            format!("__mini.navigateBlank({})", json_str(url))
-        } else {
-            format!("__mini.navigateFetch(null, {})", json_str(url))
-        };
-        full_eval(&handle, source).await?;
+        let url = json_str(url);
+        if self.pristine.swap(false, Ordering::Relaxed) {
+            full_eval(
+                &self.runtime().handle(),
+                format!("__mini.navigateBlank({url})"),
+            )
+            .await?;
+            return Ok(());
+        }
+        let from = fast_eval(&self.runtime().handle(), "__mini.goingFrom()".into()).await?;
+        let from = from.expect("goingFrom() returns an object");
+        // Blocks the caller until the boot ends; `preboot` is what keeps that short.
+        let runtime = Arc::new(self.browser.take());
+        let backend = self
+            .fetch_backend
+            .lock()
+            .expect("backend mutex poisoned")
+            .clone();
+        if let Some(backend) = backend {
+            runtime
+                .send_install_fetch_backend(backend)
+                .await
+                .map_err(|_| EvalError::Other("the runtime is closed".into()))?;
+        }
+        let old = std::mem::replace(
+            &mut *self.runtime.lock().expect("runtime mutex poisoned"),
+            runtime.clone(),
+        );
+        // Dropping joins the isolate thread, which may wait on the GIL: never on the caller.
+        std::thread::spawn(move || drop(old));
+        full_eval(
+            &runtime.handle(),
+            format!("__mini.navigateBlank({url}, {from})"),
+        )
+        .await?;
         Ok(())
     }
 

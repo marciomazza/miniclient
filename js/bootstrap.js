@@ -415,13 +415,29 @@ async function fetchAndWrite(url, request) {
     win.document.close();
 }
 
-// Page.goto() on a page nothing has navigated yet: its blank realm is what a navigation boot
-// would build anyway, so retarget its URL and write the document in place instead of rebooting.
-// Replaces the blank history entry, like a browser's first navigation does.
-globalThis.__mini.navigateBlank = function (url) {
-    url = new URL(url, location.href).href;
+// Page.goto() lands on a blank realm -- the page's own, if nothing navigated it yet, or a fresh one
+// swapped in -- which is what a navigation boot would build anyway, so retarget its URL and write
+// the document in place. `from` is `__mini.goingFrom()` of the realm swapped out, or absent: its
+// cookies carry over and `url` is pushed after its current history entry. Without it, `url`
+// replaces the blank history entry, like a browser's first navigation does.
+globalThis.__mini.navigateBlank = function (url, from) {
+    url = new URL(url, from?.base ?? location.href).href;
+    if (from) {
+        globalThis.__JSDOMCookieJar.deserializeSync(from.cookies, cookieJar.store);
+        _historyBefore = from.history.entries.slice(0, from.history.current + 1);
+    }
     dom.reconfigure({ url });
     return fetchAndWrite(url, { method: "GET" });
+};
+
+// What Page.goto() carries from this realm into the one replacing it. `base` resolves the
+// relative URL the next realm is given, since that realm boots at the blank URL.
+globalThis.__mini.goingFrom = function () {
+    return {
+        base: location.href,
+        cookies: cookieJar.serializeSync(),
+        history: sessionEntries(),
+    };
 };
 
 if (globalThis.__NAVIGATION_BOOT__) {

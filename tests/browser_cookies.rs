@@ -22,7 +22,7 @@ async fn document_cookie_reaches_request_cookie_header() {
 
     page.goto("http://testserver/").await.unwrap();
     common::arun_async(
-        page.runtime(),
+        &page.runtime(),
         "document.cookie = 'sessionid=abc123; path=/'",
     )
     .await;
@@ -59,7 +59,7 @@ async fn set_cookie_response_reaches_document_cookie_unless_http_only() {
         page.install_fetch_backend(Arc::new(mock)).await;
 
         page.goto("http://testserver/login").await.unwrap();
-        let document_cookie: String = aeval_async(page.runtime(), "document.cookie").await;
+        let document_cookie: String = aeval_async(&page.runtime(), "document.cookie").await;
         assert_eq!(document_cookie, expected_document_cookie);
     }
 }
@@ -83,7 +83,7 @@ async fn cookie_set_on_a_followed_redirect_reaches_the_jar() {
     page.install_fetch_backend(Arc::new(mock)).await;
 
     page.goto("http://testserver/login").await.unwrap();
-    let document_cookie: String = aeval_async(page.runtime(), "document.cookie").await;
+    let document_cookie: String = aeval_async(&page.runtime(), "document.cookie").await;
     assert_eq!(document_cookie, "sessionid=rotated");
 }
 
