@@ -98,12 +98,13 @@
 
         // The jar lives in JSDOMDispatcher, above this layer, and applies the cookie rules of
         // the CORS flags it was given. `credentials` is the fetch rule on top: "omit" never
-        // sends or stores, "same-origin" only for same-origin hops (no-cors requests carry no
-        // origin for jsdom to compare).
+        // sends or stores, "same-origin" only while every hop so far stayed on the page's origin (a
+        // chain that left it is tainted for good; no-cors requests carry no origin for jsdom).
         const useCookies =
             credentials === undefined ||
             credentials === "include" ||
-            (credentials === "same-origin" && new URL(url).origin === clientOrigin);
+            (credentials === "same-origin" &&
+                (hops ?? [url]).every((u) => new URL(u).origin === clientOrigin));
         const body =
             typeof opts.body === "string" ? new TextEncoder().encode(opts.body) : opts.body;
         const res = await Deno.core.ops.op_fetch_hop({

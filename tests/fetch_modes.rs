@@ -250,6 +250,50 @@ fn credentials_decide_whether_cookies_travel() {
     );
 }
 
+fn same_origin_credentials_chain(via: &str) -> (Vec<Option<String>>, String) {
+    let mock = MockFetchBackend::new();
+    let cors = [("access-control-allow-origin", "*")];
+    mock.redirect("http://localhost/a", via);
+    mock.reply(
+        &format!("{OTHER}/b"),
+        302,
+        &[cors[0], ("location", "http://localhost/c")],
+        b"",
+    );
+    mock.reply(
+        "http://localhost/c",
+        200,
+        &[cors[0], ("set-cookie", "s=1; Path=/")],
+        b"",
+    );
+    mock.reply("http://localhost/mid", 302, &[("location", "/c")], b"");
+    let rt = runtime_with_mock(&mock);
+    rt.run("document.cookie = 'c=1; path=/'");
+    let stored = rt.eval_promise::<String>(
+        "fetch('/a', {credentials: 'same-origin'}).then(() => document.cookie)",
+    );
+    let sent = mock
+        .requests()
+        .iter()
+        .map(|r| r.header("cookie").map(str::to_owned))
+        .collect();
+    (sent, stored)
+}
+
+#[test]
+fn same_origin_credentials_stop_once_the_chain_left_the_origin() {
+    let (sent, stored) = same_origin_credentials_chain(&format!("{OTHER}/b"));
+    assert_eq!(sent, [Some("c=1".into()), None, None]);
+    assert_eq!(stored, "c=1");
+}
+
+#[test]
+fn same_origin_credentials_survive_a_same_origin_chain() {
+    let (sent, stored) = same_origin_credentials_chain("/mid");
+    assert_eq!(sent, vec![Some("c=1".to_string()); 3]);
+    assert_eq!(stored, "c=1; s=1");
+}
+
 #[test]
 fn blob_file_and_form_data_bodies_keep_their_bytes() {
     let mock = MockFetchBackend::new();
