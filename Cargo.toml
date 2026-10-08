@@ -58,3 +58,7 @@ todo = "warn"
 # expect_used stays off on purpose: `.expect("why")` is the recommended fix for a bare
 # `.unwrap()`, and the runtime's isolate-thread setup relies on it for real invariants.
 unwrap_used = "warn"
+
+[profile.dev]
+# Smaller objects and faster links; backtraces keep file:line.
+debug = "line-tables-only"
