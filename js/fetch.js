@@ -69,9 +69,14 @@
     }
 
     async function hop(opts, handler, controller, id) {
-        const { url, hops, credentials, clientOrigin } = opts.opaque;
+        const { url, hops, credentials, clientOrigin, mode } = opts.opaque;
         if (opts.signal?.aborted) throw opts.signal.reason;
         if (opts.upgrade) throw new TypeError(`${opts.upgrade} is not supported`);
+        // jsdom's dispatcher knows nothing of same-origin mode, so a redirect target must be
+        // refused here, before it reaches the wire.
+        const hopUrl = new URL(url);
+        if (mode === "same-origin" && hopUrl.protocol !== "data:" && hopUrl.origin !== clientOrigin)
+            throw new TypeError("cross-origin redirect in same-origin mode");
 
         // A preflight is not a hop of the request's own redirect chain.
         const preflight =
@@ -420,6 +425,7 @@
                     preflight: needsPreflight ? { unsafeHeaders: unsafe } : undefined,
                     credentials: req.credentials,
                     clientOrigin,
+                    mode: req.mode,
                     hops,
                 },
             };

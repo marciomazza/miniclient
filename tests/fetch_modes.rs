@@ -306,3 +306,31 @@ fn abort_between_redirect_hops_rejects() {
         "the second hop was cancelled on the wire"
     );
 }
+
+#[test]
+fn same_origin_mode_rejects_a_cross_origin_redirect_before_sending_it() {
+    let mock = MockFetchBackend::new();
+    mock.redirect("http://localhost/old", &format!("{OTHER}/b"));
+    mock.text(&format!("{OTHER}/b"), "b");
+    assert_eq!(
+        outcome(&mock, "/old", "{mode: 'same-origin'}"),
+        "rejected:TypeError"
+    );
+    assert!(
+        mock.requests().iter().all(|r| !r.url.starts_with(OTHER)),
+        "the other origin never sees the request"
+    );
+}
+
+#[test]
+fn same_origin_mode_follows_a_same_origin_redirect_chain() {
+    let mock = MockFetchBackend::new();
+    mock.redirect("http://localhost/old", "/mid");
+    mock.redirect("http://localhost/mid", "/new");
+    mock.text("http://localhost/new", "moved");
+    let seen = outcome(&mock, "/old", "{mode: 'same-origin'}");
+    assert_eq!(
+        (&seen["type"], &seen["redirected"]),
+        (&json!("basic"), &json!(true))
+    );
+}
