@@ -31,6 +31,8 @@ page.close()
   without an HTTP server (see below).
 - `mounts` — a `dict[str, Path]` mapping a URL prefix to a local directory, so `<script>` tags can
   load local files (e.g. htmx itself or a bundle) without going through an HTTP request.
+- `preboot` — `True` by default. `False` skips the background boot: each page boots its runtime
+  when created, which is slower but holds one isolate less in memory.
 
 The `Browser` boots the next page's runtime in the background, so creating a page per test is
 nearly free. Pages are independent (own DOM, cookies, event loop and httpx client). The `Browser`

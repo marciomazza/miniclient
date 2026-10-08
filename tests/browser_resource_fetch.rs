@@ -11,12 +11,12 @@ mod common;
 
 use std::sync::Arc;
 
-use _miniclient::browser::Page;
+use _miniclient::browser::{Browser, Page};
 use common::aeval_async;
 use common::fetch_mock::MockFetchBackend;
 
 async fn page_with_mock(mock: &MockFetchBackend) -> Page {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     page.install_fetch_backend(Arc::new(mock.clone())).await;
     page
 }

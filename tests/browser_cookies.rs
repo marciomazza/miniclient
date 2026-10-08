@@ -7,7 +7,7 @@ mod common;
 
 use std::sync::Arc;
 
-use _miniclient::browser::Page;
+use _miniclient::browser::Browser;
 use common::aeval_async;
 use common::fetch_mock::MockFetchBackend;
 
@@ -15,7 +15,7 @@ use common::fetch_mock::MockFetchBackend;
 /// same-origin fetch (here, the next `goto()`'s own navigation fetch).
 #[tokio::test]
 async fn document_cookie_reaches_request_cookie_header() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://testserver/", "<p id='cookie'></p>");
     page.install_fetch_backend(Arc::new(mock.clone())).await;
@@ -45,7 +45,7 @@ async fn set_cookie_response_reaches_document_cookie_unless_http_only() {
         ("sessionid=xyz789; Path=/", "sessionid=xyz789"),
         ("sessionid=httponlyval; Path=/; HttpOnly", ""),
     ] {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         let mock = MockFetchBackend::new();
         mock.reply(
             "http://testserver/login",
@@ -68,7 +68,7 @@ async fn set_cookie_response_reaches_document_cookie_unless_http_only() {
 /// land the cookie in jsdom's jar even though it never appears on the final response's headers.
 #[tokio::test]
 async fn cookie_set_on_a_followed_redirect_reaches_the_jar() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.reply(
         "http://testserver/login",

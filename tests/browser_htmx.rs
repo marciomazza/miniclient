@@ -6,7 +6,7 @@ mod common;
 
 use std::sync::Arc;
 
-use _miniclient::browser::Page;
+use _miniclient::browser::{Browser, Page};
 use common::fetch_mock::MockFetchBackend;
 
 const VENDOR_HTMX_SRC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/htmx/src");
@@ -19,7 +19,7 @@ fn htmx_mounts() -> String {
 /// A fresh `Page` that can reach the vendored `htmx.js` via a resource mount, with the given
 /// mock fetch backend installed.
 async fn htmx_page(mock: &MockFetchBackend) -> Page {
-    let page = Page::new(&htmx_mounts());
+    let page = Browser::new(&htmx_mounts(), false).new_page();
     page.install_fetch_backend(Arc::new(mock.clone())).await;
     page
 }

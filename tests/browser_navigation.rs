@@ -7,7 +7,7 @@ mod common;
 
 use std::sync::Arc;
 
-use _miniclient::browser::Page;
+use _miniclient::browser::Browser;
 use _miniclient::runtime::Wait;
 use common::fetch_mock::MockFetchBackend;
 use common::{aeval_async, arun_async};
@@ -26,7 +26,7 @@ async fn eval_str(runtime: &_miniclient::runtime::Runtime, src: &str) -> String 
 
 #[tokio::test]
 async fn goto_navigates_and_load_rewrites_the_document_in_place() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/next", "<p id=\"a\">hello</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
@@ -52,7 +52,7 @@ async fn goto_navigates_and_load_rewrites_the_document_in_place() {
 
 #[tokio::test]
 async fn click_dispatches_an_event_and_fill_sets_the_value() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     page.install_fetch_backend(Arc::new(MockFetchBackend::new()))
         .await;
     page.load(
@@ -76,7 +76,7 @@ async fn click_dispatches_an_event_and_fill_sets_the_value() {
 
 #[tokio::test]
 async fn trigger_dispatches_an_arbitrary_event_with_the_given_init() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     page.install_fetch_backend(Arc::new(MockFetchBackend::new()))
         .await;
     page.load(
@@ -110,7 +110,7 @@ async fn trigger_dispatches_an_arbitrary_event_with_the_given_init() {
 
 #[tokio::test]
 async fn request_submit_performs_the_forms_native_navigation() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/submitted?x=1", "<p id=\"done\">ok</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
@@ -134,7 +134,7 @@ async fn request_submit_performs_the_forms_native_navigation() {
 
 #[tokio::test]
 async fn request_submit_post_sends_the_forms_encoded_body() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/action", "<body><p>done</p></body>");
     page.install_fetch_backend(Arc::new(mock.clone())).await;
@@ -164,7 +164,7 @@ async fn request_submit_post_sends_the_forms_encoded_body() {
 /// `fetch()`-driven handler.
 #[tokio::test]
 async fn click_awaits_a_plain_fetch_settle() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/data", "done");
     page.install_fetch_backend(Arc::new(mock)).await;
@@ -189,7 +189,7 @@ async fn click_awaits_a_plain_fetch_settle() {
 
 #[tokio::test]
 async fn goto_loads_head_and_body() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text(
         "http://localhost/page",
@@ -210,7 +210,7 @@ async fn goto_loads_head_and_body() {
 /// `Err` for it.
 #[tokio::test]
 async fn goto_commits_an_error_document_on_failed_navigation() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     // No route registered for /unreachable -- the mock answers every unregistered URL with an
     // error, same effect as a real connection failure.
@@ -227,7 +227,7 @@ async fn goto_commits_an_error_document_on_failed_navigation() {
 
 #[tokio::test]
 async fn goto_navigates_across_domains() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text(
         "http://localhost/start",
@@ -261,7 +261,7 @@ async fn goto_navigates_across_domains() {
 }
 
 async fn assert_goto_resolves(initial_url: Option<&str>, relative_url: &str, expected_url: &str) {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     if let Some(initial_url) = initial_url {
         mock.text(initial_url, "<html><body><p>start</p></body></html>");
@@ -309,7 +309,7 @@ async fn goto_resolves_root_relative_with_no_prior_navigation() {
 /// rather than being reset in place.
 #[tokio::test]
 async fn goto_isolates_globals_and_timers_across_navigations() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text(
         "http://localhost/a",
@@ -351,7 +351,7 @@ async fn goto_isolates_globals_and_timers_across_navigations() {
 /// real browser.
 #[tokio::test]
 async fn history_back_and_forward_span_full_navigations() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     // history.back()/forward() re-fetch each URL (no document cache, see
     // __mini.navigateHistory), so the same route must answer more than once.
@@ -392,7 +392,7 @@ async fn goto_executes_a_module_script_from_a_resource_mount() {
         r#"{{"http://localhost/ext/": {:?}}}"#,
         dir.to_str().unwrap()
     );
-    let page = Page::new(&mounts);
+    let page = Browser::new(&mounts, false).new_page();
     let mock = MockFetchBackend::new();
     mock.text(
         "http://localhost/",
@@ -410,7 +410,7 @@ async fn goto_executes_a_module_script_from_a_resource_mount() {
 /// leave the native settle-wait stuck waiting on it.
 #[tokio::test]
 async fn goto_after_hash_change_does_not_hang() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p>/a</p>");
     mock.text("http://localhost/b", "<p>/b</p>");
@@ -442,7 +442,7 @@ async fn goto_after_hash_change_does_not_hang() {
 /// navigation boots a fresh isolate, so the marker survives exactly one `goto`.
 #[tokio::test]
 async fn only_the_first_goto_keeps_the_realm() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p id=\"a\">a</p>");
     mock.text("http://localhost/b", "<p id=\"b\">b</p>");
@@ -468,7 +468,7 @@ async fn only_the_first_goto_keeps_the_realm() {
 /// navigation and must isolate it.
 #[tokio::test]
 async fn goto_after_load_boots_a_fresh_isolate() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p id=\"a\">a</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
@@ -484,7 +484,7 @@ async fn goto_after_load_boots_a_fresh_isolate() {
 /// The first navigation replaces the blank entry, like a browser's initial document.
 #[tokio::test]
 async fn first_goto_replaces_the_blank_history_entry() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p>a</p>");
     page.install_fetch_backend(Arc::new(mock)).await;
@@ -496,7 +496,7 @@ async fn first_goto_replaces_the_blank_history_entry() {
 
 #[tokio::test]
 async fn first_goto_commits_an_error_document_when_the_fetch_fails() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.status("http://localhost/boom", 500);
     page.install_fetch_backend(Arc::new(mock)).await;
@@ -517,7 +517,7 @@ async fn first_goto_commits_an_error_document_when_the_fetch_fails() {
 /// A cookie seeded through `eval` before the first `goto` reaches that document's fetches.
 #[tokio::test]
 async fn cookie_set_before_the_first_goto_survives_it() {
-    let page = Page::new("{}");
+    let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a", "<p>a</p>");
     page.install_fetch_backend(Arc::new(mock)).await;

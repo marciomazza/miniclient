@@ -268,6 +268,7 @@ class Page:
 class Browser(NativeBrowser):
     """Shares one transport and one set of mounts across the `Page`s created from it, keeping one
     blank runtime booted in the background so a new `Page` doesn't pay the startup cost.
+    `preboot=False` boots each Page's runtime on the spot instead, saving that extra isolate.
 
     Each Page still gets its own event loop and httpx client (the fetch backend reseeds the
     client's cookie jar on every request, so sharing one across Pages would race).
@@ -277,12 +278,14 @@ class Browser(NativeBrowser):
         cls,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
+        preboot: bool = True,
     ) -> Self:
-        return cast(Self, super().__new__(cls, _mounts_json(mounts)))
+        return cast(Self, super().__new__(cls, _mounts_json(mounts), preboot))
 
     def __init__(
         self,
         httpx_transport: httpx.AsyncBaseTransport | None = None,
         mounts: dict[str, Path] | None = None,
+        preboot: bool = True,
     ) -> None:
         self._transport = httpx_transport

@@ -9,7 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `Browser`: shares a transport and mounts across Pages and keeps one blank runtime booted in the
-  background, so a new `Page` skips the startup cost.
+  background, so a new `Page` skips the startup cost. `preboot=False` turns that off to save
+  memory.
 
 ### Changed
 

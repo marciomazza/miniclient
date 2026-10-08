@@ -2,8 +2,9 @@
 //! `runtime::Runtime`/pyclass `Page` split in `src/lib.rs`: `browser::Page` wraps
 //! `runtime::Page`, driven directly by `cargo test`/`tokio::test`, no pyo3/GIL involved.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, channel};
+use std::sync::{Arc, Mutex};
 
 use deno_core::serde_json;
 
@@ -153,6 +154,55 @@ fn resolve_matches(
         .collect())
 }
 
+/// Boots a blank `Runtime` on its own thread, so the caller only waits when it `recv`s. If the
+/// receiver is dropped first, the thread drops the runtime it just built.
+fn boot_in_background(resource_mounts_json: String) -> Receiver<runtime::Runtime> {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(runtime::Runtime::new(&resource_mounts_json));
+    });
+    rx
+}
+
+/// Source of the runtimes its Pages run on. With `preboot`, it keeps one booted ahead in the
+/// background, so taking a runtime rarely waits; without it, nothing boots in the background and
+/// every take boots on the spot, saving that extra isolate.
+pub struct Browser {
+    resource_mounts_json: String,
+    preboot: bool,
+    next: Mutex<Option<Receiver<runtime::Runtime>>>,
+}
+
+impl Browser {
+    pub fn new(resource_mounts_json: &str, preboot: bool) -> Self {
+        Self {
+            resource_mounts_json: resource_mounts_json.to_string(),
+            preboot,
+            next: Mutex::new(preboot.then(|| boot_in_background(resource_mounts_json.to_string()))),
+        }
+    }
+
+    /// Blocks until the runtime is booted.
+    pub fn new_page(&self) -> Page {
+        Page::from_runtime(self.take())
+    }
+
+    /// Blocks until the runtime is booted, outside the lock; the next one is only spawned.
+    fn take(&self) -> runtime::Runtime {
+        let ready = {
+            let mut next = self.next.lock().expect("buffer mutex poisoned");
+            let ready = next
+                .take()
+                .unwrap_or_else(|| boot_in_background(self.resource_mounts_json.clone()));
+            if self.preboot {
+                *next = Some(boot_in_background(self.resource_mounts_json.clone()));
+            }
+            ready
+        };
+        ready.recv().expect("the runtime boot thread panicked")
+    }
+}
+
 pub struct Page {
     inner: runtime::Page,
     // Still the blank realm `Runtime::new` booted: its first `goto` can navigate in place
@@ -163,12 +213,8 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn new(resource_mounts_json: &str) -> Self {
-        Self::from_runtime(runtime::Runtime::new(resource_mounts_json))
-    }
-
     /// Wraps a freshly booted, still-blank `runtime` -- the precondition `pristine` relies on.
-    pub fn from_runtime(runtime: runtime::Runtime) -> Self {
+    fn from_runtime(runtime: runtime::Runtime) -> Self {
         Self {
             inner: runtime::Page::from_runtime(runtime),
             pristine: AtomicBool::new(true),
@@ -356,12 +402,12 @@ impl Element {
 
 #[cfg(test)]
 mod tests {
-    use super::{Page, fast_eval, full_eval};
+    use super::{Browser, fast_eval, full_eval};
     use crate::runtime::Wait;
 
     #[tokio::test]
     async fn find_locates_an_element_and_reads_it_back() {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         page.runtime()
             .send_eval(
                 r#"document.body.innerHTML = '<p id="a">hello <b>world</b></p>';"#.into(),
@@ -382,7 +428,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_with_text_filters_matches() {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         page.runtime()
             .send_eval(
                 "document.body.innerHTML = '<p>no</p><p>yes match</p>';".into(),
@@ -403,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn parent_and_nested_find_walk_the_tree() {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         page.runtime()
             .send_eval(
                 r#"document.body.innerHTML = '<div id="outer"><span>child</span></div>';"#.into(),
@@ -430,7 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn element_outlives_a_closed_page_without_panicking() {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         page.runtime()
             .send_eval("document.body.innerHTML = '<p>hi</p>';".into(), Wait::None)
             .await
@@ -447,7 +493,7 @@ mod tests {
     /// must tear the element's later access down silently too.
     #[tokio::test]
     async fn element_outlives_a_dropped_page_without_panicking() {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         page.runtime()
             .send_eval("document.body.innerHTML = '<p>hi</p>';".into(), Wait::None)
             .await
@@ -464,7 +510,7 @@ mod tests {
     /// A pending timer distinguishes them: only the settle-waiting path observes its effect.
     #[tokio::test]
     async fn fast_eval_does_not_drain_while_full_eval_does() {
-        let page = Page::new("{}");
+        let page = Browser::new("{}", false).new_page();
         let handle = page.runtime().handle();
         page.runtime()
             .send_eval(
