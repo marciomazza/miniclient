@@ -279,7 +279,7 @@ globalThis.__mini.documentWrite = async function (html) {
     win.document.close();
 };
 
-// Patched into jsdom's navigateFetch (patches/jsdom+30.0.1.patch) -- the catch-all for
+// Patched into jsdom's navigateFetch (patches/jsdom+30.0.1+001+initial.patch) -- the catch-all for
 // location.href=/link clicks that jsdom itself can't finish. Also backs Page.goto() (browser.py).
 // Just records the request; runtime.rs drives the actual isolate navigation once this eval settles.
 globalThis.__mini.navigateFetch = function (_window, url, replacement) {
@@ -289,13 +289,13 @@ globalThis.__mini.navigateFetch = function (_window, url, replacement) {
     );
 };
 
-// Patched into jsdom's History#length getter (patches/jsdom+30.0.1.patch): current window's
+// Patched into jsdom's History#length getter (patches/jsdom+30.0.1+001+initial.patch): current window's
 // own entries plus the ones outside it, minus the shared current one.
 globalThis.__mini.historyLength = function () {
     return _historyBefore.length + _historyAfter.length + 1;
 };
 
-// Patched into jsdom's History#go() (patches/jsdom+30.0.1.patch) for deltas past the current
+// Patched into jsdom's History#go() (patches/jsdom+30.0.1+001+initial.patch) for deltas past the current
 // window's own session history. Just records the request; runtime.rs drives the actual
 // navigation once this eval settles.
 globalThis.__mini.navigateHistory = function (delta) {

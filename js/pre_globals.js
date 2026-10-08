@@ -180,7 +180,7 @@
     // not just the one thing it was meant to fix (jsdom's `EventTarget#addEventListener`
     // brand-checking an `{ signal }` option against its own internal AbortSignal class,
     // rejecting this deno_web one -- patched instead in jsdom itself, see
-    // patches/jsdom+30.0.1.patch).
+    // patches/jsdom+30.0.1+001+initial.patch).
     {
         const f = Deno.core.loadExtScript("ext:deno_web/09_file.js");
         const a = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");

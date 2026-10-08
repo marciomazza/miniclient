@@ -13,7 +13,7 @@ globalThis.__mini ??= {};
         await doAction(el);
     };
 
-    // Patched into jsdom's HTMLFormElement#requestSubmit (see patches/jsdom+30.0.1.patch):
+    // Patched into jsdom's HTMLFormElement#requestSubmit (see patches/jsdom+30.0.1+001+initial.patch):
     // jsdom already validates the form (novalidate/reportValidity()) and dispatches the
     // `submit` event, respecting preventDefault() -- it just has no navigation of its own
     // past that point. This runs for both __mini.submit below (explicit
