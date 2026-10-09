@@ -5,7 +5,7 @@
 // call. jsdom's larger bundle does cost real snapshot-restore time, not just disk space.
 //
 // Patches applied to this Window: XPath's ANY_TYPE default (below) and the hx-on index
-// short-circuit (pre_globals.js's __mini.installXPathShortCircuit), plus
+// short-circuit (mini_helpers.js's installXPathShortCircuit), plus
 // __mini.documentWrite/navigateFetch for navigation.
 
 // Snapshot the global names that already exist before Window is constructed: native
@@ -17,7 +17,7 @@
 //
 // `__mini` (this runtime's whole Python<->JS bridge surface: element refs, navigation,
 // settle-tracking) is already among these names by the time this line runs -- it's set up
-// by element_registry.js/submit.js, which are baked into the snapshot and so run once at
+// by snapshot-entry.js, which is baked into the snapshot and so runs once at
 // snapshot-build time, before bootstrap.js's own fresh run on every Runtime() restore. That
 // makes it pre-existing for free: registerWindowGlobals() below only ever adds `win`'s own
 // keys onto globalThis, never recurses into an object's properties, so adding methods onto
@@ -28,7 +28,6 @@ const JSDOM = /** @type {any} */ (globalThis).JSDOM;
 const _preExistingGlobals = new Set(
     /** @type {(string | symbol)[]} */ (Object.getOwnPropertyNames(globalThis)),
 );
-globalThis.__mini ??= /** @type {Mini} */ ({});
 // Set by boot_jsruntime (src/runtime.rs) before this script runs: `null` on a first boot, or
 // `{cookies, history}` -- captured from the realm a navigation is replacing -- when carrying host
 // state forward across one. Read once, here, since cookieJar/_historyBefore/_historyAfter are
