@@ -64,6 +64,8 @@
  "/fetch/api/abort/request.any.html": [
   "Aborting a request after calling arrayBuffer()",
   "Aborting a request after calling blob()",
+  "Aborting a request after calling formData()",
+  "Aborting a request after calling json()",
   "Aborting a request after calling text()",
   "Calling arrayBuffer() on an aborted consumed empty request",
   "Calling arrayBuffer() on an aborted consumed nonempty request",
@@ -72,7 +74,9 @@
   "Calling blob() on an aborted consumed nonempty request",
   "Calling blob() on an aborted request",
   "Calling formData() on an aborted consumed nonempty request",
+  "Calling formData() on an aborted request",
   "Calling json() on an aborted consumed nonempty request",
+  "Calling json() on an aborted request",
   "Calling text() on an aborted consumed empty request",
   "Calling text() on an aborted consumed nonempty request",
   "Calling text() on an aborted request"
@@ -86,7 +90,12 @@
  "/fetch/api/basic/conditional-get.any.html": [],
  "/fetch/api/basic/error-after-response.any.html": [],
  "/fetch/api/basic/gc.any.html": [
-  "GC/CC should not abruptly close the stream while being consumed by Response"
+  "GC/CC should not abruptly close the stream while being consumed by Response",
+  "GC/CC should not discard a FormData body's Blob before its stream is read",
+  "GC/CC should not discard a Request's FormData body Blob before it is read",
+  "GC/CC should not discard a Response's FormData body Blob before it is read",
+  "GC/CC should not discard a cloned FormData body's Blob before it is read",
+  "GC/CC should not discard a moved FormData body's Blob before it is read"
  ],
  "/fetch/api/basic/header-value-combining.any.html": [],
  "/fetch/api/basic/header-value-null-byte.any.html": [
@@ -450,22 +459,30 @@
  "/fetch/api/basic/url-parsing.sub.html": [
   "Request uses the UTF-8 URL parser"
  ],
- "/fetch/api/body/formdata.any.html": [],
+ "/fetch/api/body/formdata.any.html": [
+  "Consume multipart/form-data headers case-insensitively"
+ ],
  "/fetch/api/body/mime-type.any.html": [
   "Request: Content-Type in headers wins Blob\"s type",
   "Request: Extract a MIME type with clone",
+  "Request: MIME type for Blob",
   "Request: MIME type for Blob from empty body",
   "Request: MIME type for Blob from empty body with Content-Type",
+  "Request: MIME type for Blob with non-empty type",
   "Request: overriding explicit Content-Type",
   "Request: removing implicit Content-Type",
   "Request: setting missing Content-Type",
+  "Request: setting missing Content-Type in headers and it wins Blob\"s type",
   "Response: Content-Type in headers wins Blob\"s type",
   "Response: Extract a MIME type with clone",
+  "Response: MIME type for Blob",
   "Response: MIME type for Blob from empty body",
   "Response: MIME type for Blob from empty body with Content-Type",
+  "Response: MIME type for Blob with non-empty type",
   "Response: overriding explicit Content-Type",
   "Response: removing implicit Content-Type",
-  "Response: setting missing Content-Type"
+  "Response: setting missing Content-Type",
+  "Response: setting missing Content-Type in headers and it wins Blob\"s type"
  ],
  "/fetch/api/body/textstream.any.html": [
   "Request.textStream() basic functionality",
@@ -575,7 +592,9 @@
   "Same domain different protocol different port [origin KO]"
  ],
  "/fetch/api/cors/cors-preflight-cache-tainted.any.html": [],
- "/fetch/api/cors/cors-preflight-cache.any.html": [],
+ "/fetch/api/cors/cors-preflight-cache.any.html": [
+  "CORS preflight cache does not reuse wildcard header entries for Authorization"
+ ],
  "/fetch/api/cors/cors-preflight-not-cors-safelisted.any.html": [
   "Loading data\u2026",
   "Need CORS-preflight for accept-language/\u0001 header",
@@ -602,6 +621,17 @@
  ],
  "/fetch/api/cors/cors-preflight-response-validation.any.html": [],
  "/fetch/api/cors/cors-preflight-star.any.html": [
+  "CORS that fails with credentials: false; method: POST (allowed: *); header: Authorization,123 (allowed: *)",
+  "CORS that fails with credentials: true; method: DELETE (allowed: delete); header:  (allowed: *)",
+  "CORS that fails with credentials: true; method: GET (allowed: *); header: X-Test,1 (allowed: *)",
+  "CORS that fails with credentials: true; method: GET (allowed: get); header: X-Test,1 (allowed: *)",
+  "CORS that fails with credentials: true; method: OK (allowed: *); header: X-Test,1 (allowed: *)",
+  "CORS that fails with credentials: true; method: PATCH (allowed: patch); header:  (allowed: *)",
+  "CORS that fails with credentials: true; method: PUT (allowed: *); header:  (allowed: )",
+  "CORS that fails with credentials: true; method: PUT (allowed: put); header:  (allowed: *)",
+  "CORS that fails with credentials: true; method: delete (allowed: delete); header:  (allowed: *)",
+  "CORS that fails with credentials: true; method: patch (allowed: PATCH); header:  (allowed: *)",
+  "CORS that fails with credentials: true; method: put (allowed: put); header:  (allowed: *)",
   "CORS that succeeds with credentials: false; method: GET (allowed: get); header: X-Test,1 (allowed: x-test)",
   "CORS that succeeds with credentials: false; method: OK (allowed: *); header: X-Test,1 (allowed: *)",
   "CORS that succeeds with credentials: false; method: POST (allowed: *); header: Authorization,123 (allowed: *, Authorization)",
@@ -658,18 +688,25 @@
  "/fetch/api/cors/cors-preflight-unterminated-body.any.html": [],
  "/fetch/api/cors/cors-preflight.any.html": [
   "\"authorization\" should be covered by \"authorization\"",
+  "\"authorization\" should not be covered by the wildcard symbol",
   "CORS [DELETE], server allows",
+  "CORS [DELETE], server refuses",
   "CORS [GET] [several headers], server refuses",
   "CORS [GET] [x-test-header: allowed], server allows",
   "CORS [GET] [x-test-header: refused], server refuses",
   "CORS [NEW], server allows",
+  "CORS [NEW], server refuses",
   "CORS [PATCH], server allows",
+  "CORS [PATCH], server refuses",
   "CORS [PUT] [only safe headers], server allows",
   "CORS [PUT] [several headers], server refuses",
   "CORS [PUT], server allows",
   "CORS [PUT], server allows, check preflight has user agent",
+  "CORS [PUT], server refuses",
   "CORS [chicken], server allows",
-  "CORS [patcH], server allows"
+  "CORS [chicken], server refuses",
+  "CORS [patcH], server allows",
+  "CORS [patcH], server refuses"
  ],
  "/fetch/api/cors/cors-redirect-credentials.any.html": [
   "Redirect 301 from remote to another remote with password",
@@ -745,6 +782,7 @@
   "Redirect 307: cors to same cors",
   "Redirect 307: same origin to cors",
   "Redirect 308: cors to same cors",
+  "Redirect 308: cors to same origin",
   "Redirect 308: same origin to cors"
  ],
  "/fetch/api/credentials/authentication-basic.any.html": [
@@ -926,7 +964,9 @@
   "Redirect 308 20 times",
   "Redirect 308 21 times"
  ],
- "/fetch/api/redirect/redirect-empty-location.any.html": [],
+ "/fetch/api/redirect/redirect-empty-location.any.html": [
+  "redirect response with empty Location, manual mode"
+ ],
  "/fetch/api/redirect/redirect-location-escape.tentative.any.html": [
   "Escaping produces double-percent",
   "Redirect to escaped UTF-8",
@@ -943,6 +983,7 @@
   "Redirect 301 in \"follow\" mode without location",
   "Redirect 301 in \"manual\" mode with invalid location",
   "Redirect 301 in \"manual\" mode with valid location",
+  "Redirect 301 in \"manual\" mode without location",
   "Redirect 302 in \"error\" mode with data location",
   "Redirect 302 in \"error\" mode with invalid location",
   "Redirect 302 in \"error\" mode with valid location",
@@ -952,6 +993,7 @@
   "Redirect 302 in \"follow\" mode without location",
   "Redirect 302 in \"manual\" mode with invalid location",
   "Redirect 302 in \"manual\" mode with valid location",
+  "Redirect 302 in \"manual\" mode without location",
   "Redirect 303 in \"error\" mode with data location",
   "Redirect 303 in \"error\" mode with invalid location",
   "Redirect 303 in \"error\" mode with valid location",
@@ -961,6 +1003,7 @@
   "Redirect 303 in \"follow\" mode without location",
   "Redirect 303 in \"manual\" mode with invalid location",
   "Redirect 303 in \"manual\" mode with valid location",
+  "Redirect 303 in \"manual\" mode without location",
   "Redirect 307 in \"error\" mode with data location",
   "Redirect 307 in \"error\" mode with invalid location",
   "Redirect 307 in \"error\" mode with valid location",
@@ -970,6 +1013,7 @@
   "Redirect 307 in \"follow\" mode without location",
   "Redirect 307 in \"manual\" mode with invalid location",
   "Redirect 307 in \"manual\" mode with valid location",
+  "Redirect 307 in \"manual\" mode without location",
   "Redirect 308 in \"error\" mode with data location",
   "Redirect 308 in \"error\" mode with invalid location",
   "Redirect 308 in \"error\" mode with valid location",
@@ -978,7 +1022,8 @@
   "Redirect 308 in \"follow\" mode with valid location",
   "Redirect 308 in \"follow\" mode without location",
   "Redirect 308 in \"manual\" mode with invalid location",
-  "Redirect 308 in \"manual\" mode with valid location"
+  "Redirect 308 in \"manual\" mode with valid location",
+  "Redirect 308 in \"manual\" mode without location"
  ],
  "/fetch/api/redirect/redirect-method.any.html": [
   "Redirect 301 with GET",
@@ -1028,13 +1073,13 @@
   "[GET] Redirect 302 Same origin to other origin",
   "[GET] Redirect 302 Same origin to same origin",
   "[GET] Redirect 303 Other origin to other origin",
-  "[GET] Redirect 303 Other origin to same origin",
   "[GET] Redirect 303 Same origin to other origin",
   "[GET] Redirect 303 Same origin to same origin",
   "[GET] Redirect 307 Other origin to other origin",
   "[GET] Redirect 307 Same origin to other origin",
   "[GET] Redirect 307 Same origin to same origin",
   "[GET] Redirect 308 Other origin to other origin",
+  "[GET] Redirect 308 Other origin to same origin",
   "[GET] Redirect 308 Same origin to other origin",
   "[GET] Redirect 308 Same origin to same origin",
   "[POST] Redirect 301 Other origin to other origin",
@@ -1359,8 +1404,9 @@
  ],
  "/fetch/api/request/request-consume-empty.any.html": [
   "Consume empty ArrayBuffer request body as text",
-  "Consume empty FormData request body as text",
   "Consume empty URLSearchParams request body as text",
+  "Consume empty blob request body as arrayBuffer",
+  "Consume empty blob request body as text",
   "Consume empty text request body as arrayBuffer",
   "Consume empty text request body as text",
   "Consume request's body as arrayBuffer",
@@ -1405,6 +1451,12 @@
   "Consume Uint8Array request's body as blob",
   "Consume Uint8Array request's body as bytes",
   "Consume Uint8Array request's body as text",
+  "Consume blob response's body as arrayBuffer",
+  "Consume blob response's body as blob",
+  "Consume blob response's body as blob (empty blob as input)",
+  "Consume blob response's body as bytes",
+  "Consume blob response's body as json",
+  "Consume blob response's body as text",
   "Trying to consume bad JSON text as JSON: '['",
   "Trying to consume bad JSON text as JSON: 'a'",
   "Trying to consume bad JSON text as JSON: 'undefined'",
@@ -1416,6 +1468,7 @@
   "Check creating a new request from a disturbed request",
   "Check creating a new request with a new body from a disturbed request",
   "Input request used for creating new request became disturbed",
+  "Request construction failure should not set \"bodyUsed\"",
   "Request without body cannot be disturbed",
   "Request's body: initial state"
  ],
@@ -1502,6 +1555,8 @@
  "/fetch/api/request/request-init-002.any.html": [
   "Initialize Request with headers values",
   "Initialize Request's body with \"This is a USVString\", text/plain;charset=UTF-8",
+  "Initialize Request's body with \"[object Blob]\", application/octet-binary",
+  "Initialize Request's body with \"[object FormData]\", multipart/form-data",
   "Initialize Request's body with \"hi!\", text/plain;charset=UTF-8",
   "Initialize Request's body with \"name=value\", application/x-www-form-urlencoded;charset=UTF-8",
   "Initialize Request's body with \"null\", null",
@@ -1523,6 +1578,10 @@
   "Can override Content-Type for Request with buffer source body",
   "Can override Content-Type for Request with empty body",
   "Can override Content-Type for Request with string body",
+  "Default Content-Type for Request with Blob body (empty type)",
+  "Default Content-Type for Request with Blob body (no type set)",
+  "Default Content-Type for Request with Blob body (set type)",
+  "Default Content-Type for Request with FormData body",
   "Default Content-Type for Request with ReadableStream body",
   "Default Content-Type for Request with URLSearchParams body",
   "Default Content-Type for Request with buffer source body",
@@ -1630,8 +1689,9 @@
  ],
  "/fetch/api/response/response-consume-empty.any.html": [
   "Consume empty ArrayBuffer response body as text",
-  "Consume empty FormData response body as text",
   "Consume empty URLSearchParams response body as text",
+  "Consume empty blob response body as arrayBuffer",
+  "Consume empty blob response body as text",
   "Consume empty text response body as arrayBuffer",
   "Consume empty text response body as text",
   "Consume response's body as arrayBuffer",
@@ -1645,7 +1705,12 @@
   "Getting an error Response stream",
   "Read URLSearchParams response's body as readableStream with mode=undefined",
   "Read array buffer response's body as readableStream with mode=undefined",
+  "Read blob response's body as readableStream with mode=byob",
+  "Read blob response's body as readableStream with mode=undefined",
+  "Read empty blob response's body as readableStream",
   "Read empty text response's body as readableStream",
+  "Read form data response's body as readableStream with mode=byob",
+  "Read form data response's body as readableStream with mode=undefined",
   "Read text response's body as readableStream with mode=undefined"
  ],
  "/fetch/api/response/response-consume.html": [
@@ -1653,6 +1718,9 @@
   "Consume response's body: from URLSearchParams to arrayBuffer",
   "Consume response's body: from URLSearchParams to text",
   "Consume response's body: from URLSearchParams without correct type to formData (error case)",
+  "Consume response's body: from blob to arrayBuffer",
+  "Consume response's body: from blob to json",
+  "Consume response's body: from blob to text",
   "Consume response's body: from blob without correct multipart type to formData (error case)",
   "Consume response's body: from blob without correct urlencoded type to formData (error case)",
   "Consume response's body: from fetch to arrayBuffer",
@@ -1698,6 +1766,7 @@
   "Throws TypeError when responseInit's statusText is \u0100"
  ],
  "/fetch/api/response/response-form-data.html": [
+  "Empty form data",
   "Validate buggy form data - cr1",
   "Validate buggy form data - cr2",
   "Validate buggy form data - cr_",
@@ -1731,7 +1800,9 @@
  ],
  "/fetch/api/response/response-init-002.any.html": [
   "Initialize Response with headers values",
+  "Initialize Response's body with application/octet-binary",
   "Initialize Response's body with application/x-www-form-urlencoded;charset=UTF-8",
+  "Initialize Response's body with multipart/form-data",
   "Initialize Response's body with text/plain;charset=UTF-8",
   "Read Response's body as readableStream",
   "Testing empty Response Content-Type header",
@@ -1747,6 +1818,10 @@
   "Can override Content-Type for Response with buffer source body",
   "Can override Content-Type for Response with empty body",
   "Can override Content-Type for Response with string body",
+  "Default Content-Type for Response with Blob body (empty type)",
+  "Default Content-Type for Response with Blob body (no type set)",
+  "Default Content-Type for Response with Blob body (set type)",
+  "Default Content-Type for Response with FormData body",
   "Default Content-Type for Response with ReadableStream body",
   "Default Content-Type for Response with URLSearchParams body",
   "Default Content-Type for Response with buffer source body",

@@ -213,6 +213,14 @@ fn response_reads_jsdom_blob_and_formdata_bodies() {
 }
 
 #[test]
+fn empty_formdata_body_is_the_closing_multipart_delimiter() {
+    let rt = common::runtime();
+    assert!(rt.eval_promise::<bool>(
+        r#"new Response(new FormData()).text().then((t) => /^--\S+--(\r\n)?$/.test(t))"#
+    ));
+}
+
+#[test]
 fn fetch_keeps_request_headers_when_init_only_sets_body() {
     let mock = MockFetchBackend::new();
     mock.text("http://api.example.com/p", "ok");
