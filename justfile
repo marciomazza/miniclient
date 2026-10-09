@@ -16,3 +16,7 @@ test: test-rust test-py
 # WPT fetch/CORS suite against the built extension; fails on regressions from tests/wpt/expected.json.
 test-wpt: develop
     uv run python tests/wpt/run.py
+
+# Type-check the JS under js/ (files opt in with // @ts-check).
+check-js:
+    npx tsc -p jsconfig.json

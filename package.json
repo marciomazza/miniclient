@@ -13,7 +13,8 @@
     "@types/jsdom": "^30.0.0",
     "chai": "4.5.0",
     "esbuild": "^0.28.1",
-    "patch-package": "^8.0.1"
+    "patch-package": "^8.0.1",
+    "typescript": "^7.0.2"
   },
   "//": "chai pinned to 4.5.0 to match vendor/htmx/test/ (loaded from unpkg CDN)"
 }

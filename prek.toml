@@ -45,7 +45,8 @@ rev = "v1.71.0"
 hooks = [{ id = "oxlint" }]
 
 # Rust had neither formatting nor linting enforced, unlike Python and JS. Both run on the
-# whole crate, not per file, so Cargo.toml changes trigger them too.
+# whole crate, not per file, so Cargo.toml changes trigger them too. tsc type-checks the JS
+# the same way: as one project, not per file.
 [[repos]]
 repo = "local"
 hooks = [
@@ -63,6 +64,14 @@ hooks = [
     entry = "cargo clippy --all-targets -- -D warnings",
     language = "system",
     files = '\.rs$|^Cargo\.(toml|lock)$',
+    pass_filenames = false
+  },
+  {
+    id = "tsc",
+    name = "tsc (js)",
+    entry = "npx tsc -p jsconfig.json",
+    language = "system",
+    files = '^js/.*\.(js|mjs|ts)$|^jsconfig\.json$',
     pass_filenames = false
   },
 ]
