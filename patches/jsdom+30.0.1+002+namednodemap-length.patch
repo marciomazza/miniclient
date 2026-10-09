@@ -1,16 +1,41 @@
 diff --git a/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js b/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js
-index 8ea8266..9a66504 100644
+index 8ea8266..f37afbc 100644
 --- a/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js
 +++ b/node_modules/jsdom/lib/generated/idl/NamedNodeMap.js
-@@ -367,6 +367,11 @@ class ProxyHandler {
+@@ -98,6 +98,8 @@
+ 
+ const exposed = new Set(["Window"]);
+ 
++// Original `length` getter per prototype, to detect page script replacing it.
++const originalLengthGetter = new WeakMap();
+ exports.install = (globalObject, globalNames) => {
+   if (!globalNames.some(globalName => exposed.has(globalName))) {
+     return;
+@@ -348,6 +350,10 @@
+     [Symbol.toStringTag]: { value: "NamedNodeMap", configurable: true },
+     [Symbol.iterator]: { value: globalObject.Array.prototype[Symbol.iterator], configurable: true, writable: true }
+   });
++  originalLengthGetter.set(
++    NamedNodeMap.prototype,
++    Object.getOwnPropertyDescriptor(NamedNodeMap.prototype, "length").get
++  );
+   ctorRegistry[interfaceName] = NamedNodeMap;
+ 
+   Object.defineProperty(globalObject, interfaceName, {
+@@ -366,6 +372,16 @@
+   get(target, P, receiver) {
      if (typeof P === "symbol") {
        return Reflect.get(target, P, receiver);
-     }
-+    // Skips the named/indexed lookup and the proxied brand check that the getter would repeat.
-+    // Only for the wrapper itself: another receiver must still reach the getter's own checks.
-+    if (P === "length" && receiver === target[implSymbol][utils.wrapperSymbol]) {
-+      return target[implSymbol].length;
 +    }
++    // Skips the named/indexed lookup and the brand check the getter would repeat. Only while the
++    // prototype still holds the original getter and the receiver is the wrapper itself: anything
++    // else must reach the spec path (a replaced getter, a changed prototype, a foreign receiver).
++    if (P === "length" && receiver === target[implSymbol][utils.wrapperSymbol]) {
++      const proto = Object.getPrototypeOf(target);
++      const original = originalLengthGetter.get(proto);
++      if (original !== undefined && Reflect.getOwnPropertyDescriptor(proto, "length")?.get === original) {
++        return target[implSymbol].length;
++      }
+     }
      const desc = this.getOwnPropertyDescriptor(target, P);
      if (desc === undefined) {
-       const parent = Object.getPrototypeOf(target);
