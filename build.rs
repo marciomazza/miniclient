@@ -92,13 +92,10 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
         std::fs::read_to_string(p).unwrap_or_else(|e| panic!("snapshot input {p:?}: {e}"))
     };
     let scripts: Vec<(String, String)> = vec![
-        ("pre_globals".into(), read(&js.join("pre_globals.js"))),
         (
-            "element-registry".into(),
-            read(&js.join("element_registry.js")),
+            "snapshot-bundle".into(),
+            read(&js.join("_generated/snapshot-bundle.js")),
         ),
-        ("submit".into(), read(&js.join("submit.js"))),
-        ("fetch".into(), read(&js.join("fetch.js"))),
         (
             "jsdom-bundle".into(),
             read(&js.join("_generated/jsdom-bundle.js")),

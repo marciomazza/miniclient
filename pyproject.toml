@@ -52,6 +52,7 @@ features = ["pyo3/extension-module"]
 # build.rs generates these, so they are gitignored and maturin would otherwise skip them.
 include = [
   { path = "js/_generated/jsdom-bundle.js", format = ["sdist", "wheel"] },
+  { path = "js/_generated/snapshot-bundle.js", format = ["sdist", "wheel"] },
   { path = "python/miniclient/_vendor/**/LICENSE*", format = ["sdist", "wheel"] },
   # The npm sources the bundle embeds, plus their licences, so the sdist carries what it
   # redistributes. Wider than build.rs's VENDORED list, which ships licences only.

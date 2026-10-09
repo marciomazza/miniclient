@@ -91,3 +91,16 @@ await build({
   // snapshot build, and pointless for a file whose content never changes at runtime).
   define: { __dirname: '"/jsdom-lib"', global: "globalThis" },
 });
+
+// Mini's own snapshot scripts, bundled so they can `import` each other instead of sharing
+// state through globalThis. Kept readable (no minify): stack frames from these land here.
+await build({
+  entryPoints: [_JS + "snapshot-entry.js"],
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "es2022",
+  keepNames: true,
+  outfile: _JS + "_generated/snapshot-bundle.js",
+  logLevel: "info",
+});
