@@ -107,8 +107,12 @@ globalThis.SharedArrayBuffer ??= class SharedArrayBuffer {
     get growable() {
         return false;
     }
-    slice(...args) {
-        return this.#buf.slice(...args);
+    /**
+     * @param {number} [begin]
+     * @param {number} [end]
+     */
+    slice(begin, end) {
+        return this.#buf.slice(begin, end);
     }
 };
 

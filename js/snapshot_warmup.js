@@ -31,14 +31,15 @@
     root.innerHTML =
         '<button hx-get="/warm" hx-target="#warm">go</button>' +
         '<form><input name="a" value="1"></form>';
-    root.firstElementChild.getAttribute("hx-get");
+    const first = /** @type {Element} */ (root.firstElementChild);
+    first.getAttribute("hx-get");
 
     // DOM mutation: the other half of every Page's hot path, alongside parsing.
     const span = doc.createElement("span");
     root.appendChild(span);
     root.insertBefore(doc.createElement("i"), span);
     root.replaceChild(doc.createElement("b"), span);
-    root.removeChild(root.lastElementChild);
+    root.removeChild(/** @type {Element} */ (root.lastElementChild));
     root.cloneNode(true);
 
     root.setAttribute("data-warm", "1");
@@ -75,7 +76,7 @@
     const doc = win.document;
     const rules = doc.styleSheets[0].cssRules; // css-tree parse
     for (const r of rules) r.cssText;
-    const p = doc.querySelector("#b > .c"); // dom-selector
+    const p = /** @type {Element} */ (doc.querySelector("#b > .c")); // dom-selector
     p.matches(".a, .zz");
     doc.querySelectorAll("div[data-x^='y'], p:not(.d)");
     win.getComputedStyle(p).getPropertyValue("color"); // css-color + cascade
@@ -258,7 +259,7 @@
     );
     const win = dom.window;
     const doc = win.document;
-    const walk = (list) => {
+    const walk = (/** @type {any} */ list) => {
         for (const r of list) {
             r.cssText;
             if (r.style) {

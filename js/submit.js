@@ -7,6 +7,10 @@ import { serializeMultipart } from "./mini_helpers.js";
 // Runs `doAction(el)` against the element. Settle wait now happens natively in runtime.rs
 // after every eval_async. Shared by Element.trigger()/click() (browser.py) and __mini.submit
 // below.
+/**
+ * @param {number} handle
+ * @param {(el: Element) => unknown} doAction
+ */
 export async function awaitSettle(handle, doAction) {
     const el = deref(handle);
     if (!el) throw new Error("Element not found (handle " + handle + ")");
@@ -23,6 +27,10 @@ export async function awaitSettle(handle, doAction) {
 // triggered it.
 // Every branch below ends in op_request_navigation -- the old isolate (and its timers)
 // is dropped as part of that navigation, so there's nothing to clear here.
+/**
+ * @param {HTMLFormElement} form
+ * @param {HTMLElement | null} [submitter]
+ */
 export function formSubmitFetch(form, submitter) {
     const method = form.method; // already normalized/defaulted by jsdom: "get" or "post"
     const enctype = form.enctype; // already normalized/defaulted to urlencoded
@@ -70,6 +78,7 @@ export function formSubmitFetch(form, submitter) {
 
 // Drives jsdom's patched requestSubmit() (which already does validation, dispatch, and
 // navigation); this only awaits settle.
+/** @param {number} handle */
 export async function submit(handle) {
     const el = deref(handle);
     if (!el) throw new Error("Element not found (handle " + handle + ")");

@@ -51,7 +51,7 @@ declare var __serializeURL: (url: any) => string;
 declare var __jsdomImplForWrapper: (wrapper: any) => any;
 declare var __jsdomWrapperForImpl: (impl: any) => any;
 declare var __patchJsdom: (win: JSDOMWindow) => void;
-declare var __innerText: (el: Element, options?: any) => string;
+declare var __innerText: (el: HTMLElement, options?: any) => string;
 declare var __createDataTransfer: (...args: any[]) => any;
 declare var __createRealFileList: (win: JSDOMWindow, files: File[]) => FileList;
 

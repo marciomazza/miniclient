@@ -45,6 +45,7 @@ const cookieJar = _hostState.cookies
 // createDom call. Built empty: a navigation boot only has a URL, fetching and writing its HTML
 // itself once this isolate is up (see __NAVIGATION_BOOT__ below); a first boot has no content
 // at all until a caller navigates or calls Page.load().
+/** @param {string} url */
 function createDom(url) {
     const d = new JSDOM("", {
         url,
@@ -57,7 +58,7 @@ function createDom(url) {
     });
     // IntersectionObserver: jsdom doesn't implement it, polyfill as a no-op.
     d.window.IntersectionObserver ??= class {
-        constructor(cb, options) {}
+        constructor(/** @type {any} */ cb, /** @type {any} */ options) {}
         observe() {}
         unobserve() {}
         disconnect() {}
@@ -87,7 +88,9 @@ function createDom(url) {
                 get: () =>
                     globalThis.__createRealFileList(
                         d.window,
-                        dt.items.filter((i) => i.kind === "file").map((i) => i.getAsFile()),
+                        dt.items
+                            .filter((/** @type {any} */ i) => i.kind === "file")
+                            .map((/** @type {any} */ i) => i.getAsFile()),
                     ),
                 configurable: true,
             });
@@ -106,6 +109,7 @@ const win = dom.window;
 // browser, and there's no need to keep the two objects in sync after this point. Runs once,
 // right after this isolate's one and only Window is constructed above.
 
+/** @param {any} win jsdom's Window, patched at runtime beyond its public typings */
 function registerWindowGlobals(win) {
     // `event` is re-installed as a live accessor below; skip the plain-value copy so it
     // isn't churned accessor->value->accessor.
@@ -146,8 +150,10 @@ function registerWindowGlobals(win) {
     ) {
         for (const key of Object.getOwnPropertySymbols(proto)) {
             if (key in globalThis) continue;
-            const { value } = Object.getOwnPropertyDescriptor(proto, key);
-            if (typeof value === "function") globalThis[key] = value.bind(win);
+            const { value } = /** @type {PropertyDescriptor} */ (
+                Object.getOwnPropertyDescriptor(proto, key)
+            );
+            if (typeof value === "function") /** @type {any} */ (globalThis)[key] = value.bind(win);
         }
     }
 
@@ -158,7 +164,7 @@ function registerWindowGlobals(win) {
     // Symbol methods above: the underlying webidl2js implementation rejects any `this` that
     // isn't the real wrapper instance.
     for (const key of ["addEventListener", "removeEventListener", "dispatchEvent"]) {
-        globalThis[key] = win[key].bind(win);
+        /** @type {any} */ (globalThis)[key] = /** @type {any} */ (win)[key].bind(win);
     }
 
     // Legacy `window.event` current-event global: jsdom maintains `win.event` natively for
@@ -186,7 +192,11 @@ function registerWindowGlobals(win) {
     // NOT_SUPPORTED_ERR instead of defaulting `type` to ANY_TYPE (0) per the DOM spec.
     {
         const origEvaluate = win.XPathExpression.prototype.evaluate;
-        win.XPathExpression.prototype.evaluate = function (contextNode, type = 0, result) {
+        win.XPathExpression.prototype.evaluate = function (
+            /** @type {any} */ contextNode,
+            type = 0,
+            /** @type {any} */ result,
+        ) {
             return origEvaluate.call(this, contextNode, type, result);
         };
     }
@@ -230,7 +240,9 @@ function registerWindowGlobals(win) {
 // jsdom can't navigate a Window in place, so real navigation always gets a fresh one.
 // window._sessionHistory only holds that Window's own entries; the rest are parked here and
 // rejoined in sessionEntries().
+/** @type {HistoryEntries["entries"]} */
 let _historyBefore = [];
+/** @type {HistoryEntries["entries"]} */
 let _historyAfter = [];
 // Seeded from injected host state, if any; the current entry's `state` is applied to
 // `win.history` after `registerWindowGlobals(win)` below.
@@ -241,7 +253,7 @@ if (_hostHistory) {
 }
 
 function sessionEntries() {
-    const local = win._sessionHistory._entries.map((e) => ({
+    const local = win._sessionHistory._entries.map((/** @type {any} */ e) => ({
         url: globalThis.__serializeURL(e.url),
         state: e.stateObject,
     }));
@@ -305,6 +317,10 @@ globalThis.fetch = globalThis.__mini.makeFetch(win);
 // Fire-and-forget, not top-level await (bootstrap.js is a plain script, not a module): the
 // isolate's real event loop (runtime.rs) drains to idle after this script returns, same as
 // every other fire-and-forget fetch in this file.
+/**
+ * @param {string} url
+ * @param {any} request
+ */
 async function fetchAndWrite(url, request) {
     let html;
     try {

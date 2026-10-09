@@ -13,8 +13,13 @@ globalThis.Headers = denoFetch.Headers;
 // deno's body extraction brand-checks its own Blob/FormData and reads anything else as a
 // string ("[object Blob]"), so the page's jsdom ones are converted to deno's. This must stay
 // synchronous (constructors are), hence the bytes are read from jsdom's Blob impl directly.
-const bytesOf = (blob) =>
-    blob[Object.getOwnPropertySymbols(blob).find((s) => s.description === "impl")]._bytes;
+const bytesOf = (/** @type {any} */ blob) =>
+    blob[
+        /** @type {symbol} */ (
+            Object.getOwnPropertySymbols(blob).find((s) => s.description === "impl")
+        )
+    ]._bytes;
+/** @param {any} body */
 function denoBody(body) {
     if (body instanceof globalThis.FormData) {
         const form = new denoFetch.FormData();
@@ -35,14 +40,14 @@ function denoBody(body) {
     return body;
 }
 // `init` may itself be a Request (a dictionary-like), so it is only copied when converted.
-const withDenoBody = (init) => {
+const withDenoBody = (/** @type {any} */ init) => {
     const body = init?.body == null ? undefined : denoBody(init.body);
     return body === init?.body ? init : { ...init, body };
 };
 
 // deno resolves a relative URL against a base fixed at boot; the page's moves with pushState.
 globalThis.Request = class Request extends denoFetch.Request {
-    constructor(input, init) {
+    constructor(/** @type {any} */ input, /** @type {any} */ init) {
         super(
             input instanceof denoFetch.Request ? input : new URL(input, location.href).href,
             withDenoBody(init),
@@ -50,34 +55,43 @@ globalThis.Request = class Request extends denoFetch.Request {
     }
 };
 globalThis.Response = class Response extends denoFetch.Response {
-    constructor(body, init) {
+    constructor(/** @type {any} */ body, /** @type {any} */ init) {
         super(denoBody(body), init);
     }
     // fetch() builds denoFetch.Response instances, which must still count as the page's Response.
-    static [Symbol.hasInstance](value) {
+    static [Symbol.hasInstance](/** @type {any} */ value) {
         return value instanceof denoFetch.Response;
     }
 };
 
+/**
+ * @param {Record<string, any>} headers
+ * @param {string} name
+ */
 const header = (headers, name) => {
     const key = Object.keys(headers).find((k) => k.toLowerCase() === name);
     return key === undefined ? undefined : headers[key];
 };
+/**
+ * @param {Record<string, any>} headers
+ * @param {string} name
+ */
 const omit = (headers, name) =>
     Object.fromEntries(Object.entries(headers).filter(([k]) => k.toLowerCase() !== name));
 
 // ---- wire: one hop, no redirects, no cookie jar of its own -------------------------
 
+/** @param {() => void} onAbort */
 function makeController(onAbort) {
     const controller = {
         aborted: false,
-        reason: undefined,
+        reason: /** @type {any} */ (undefined),
         paused: false,
         rawHeaders: [],
         rawTrailers: [],
         pause() {},
         resume() {},
-        abort(reason) {
+        abort(/** @type {any} */ reason) {
             if (controller.aborted) return;
             controller.aborted = true;
             controller.reason = reason;
@@ -87,12 +101,21 @@ function makeController(onAbort) {
     return controller;
 }
 
+/**
+ * @param {any} handler
+ * @param {any} controller
+ * @param {number} status
+ * @param {string} statusText
+ * @param {Record<string, any>} headers
+ * @param {Uint8Array | null} body
+ */
 function emit(handler, controller, status, statusText, headers, body) {
     handler.onResponseStart?.(controller, status, headers, statusText);
     if (body?.length) handler.onResponseData?.(controller, body);
     handler.onResponseEnd?.(controller, {});
 }
 
+/** @param {string} url */
 function fromMount(url) {
     const mounts = globalThis.__RESOURCE_MOUNTS__;
     const prefix = Object.keys(mounts).find((p) => url.startsWith(p));
@@ -111,6 +134,12 @@ function fromMount(url) {
     }
 }
 
+/**
+ * @param {any} opts
+ * @param {any} handler
+ * @param {any} controller
+ * @param {string} id
+ */
 async function hop(opts, handler, controller, id) {
     const { url, hops, credentials, clientOrigin, mode } = opts.opaque;
     if (opts.signal?.aborted) throw opts.signal.reason;
@@ -147,7 +176,7 @@ async function hop(opts, handler, controller, id) {
         credentials === undefined ||
         credentials === "include" ||
         (credentials === "same-origin" &&
-            (hops ?? [url]).every((u) => new URL(u).origin === clientOrigin));
+            (hops ?? [url]).every((/** @type {string} */ u) => new URL(u).origin === clientOrigin));
     const body = typeof opts.body === "string" ? new TextEncoder().encode(opts.body) : opts.body;
     const res = await Deno.core.ops.op_fetch_hop({
         url,
@@ -157,6 +186,7 @@ async function hop(opts, handler, controller, id) {
         id,
     });
 
+    /** @type {Record<string, any>} */
     const headers = {};
     for (const [name, value] of res.headers) {
         const key = name.toLowerCase();
@@ -178,11 +208,11 @@ async function hop(opts, handler, controller, id) {
 
 // jsdom reports stylesheet failures through the <link> element, so a transport failure
 // there becomes a 404; a failed script must still fail loudly.
-const failsAsNotFound = (opaque) =>
+const failsAsNotFound = (/** @type {any} */ opaque) =>
     opaque.element?.localName === "link" && opaque.element.relList?.contains("stylesheet");
 
 export const baseDispatcher = {
-    dispatch(opts, handler) {
+    dispatch(/** @type {any} */ opts, /** @type {any} */ handler) {
         const id = crypto.randomUUID();
         const controller = makeController(() => Deno.core.ops.op_fetch_abort(id));
         const onAbort = () => controller.abort(opts.signal.reason);
@@ -232,6 +262,10 @@ const FORBIDDEN_HEADERS = new Set([
     "via",
 ]);
 const FORBIDDEN_METHODS = /^(connect|trace|track)$/i;
+/**
+ * @param {string} name
+ * @param {string} value
+ */
 const isForbiddenHeader = (name, value) => {
     name = name.toLowerCase();
     if (FORBIDDEN_HEADERS.has(name) || name.startsWith("proxy-") || name.startsWith("sec-"))
@@ -246,7 +280,9 @@ const isForbiddenHeader = (name, value) => {
 const SAFELISTED_VALUE = /^[^\x00-\x08\x0a-\x1f"():<>?@[\\\]{}\x7f]*$/;
 const SAFELISTED_CONTENT_TYPES =
     /^(application\/x-www-form-urlencoded|multipart\/form-data|text\/plain)$/i;
+/** @param {Iterable<[string, string]>} headers */
 function unsafeHeaderNames(headers) {
+    /** @type {Set<string>} */
     const unsafe = new Set();
     for (const [name, value] of headers) {
         const safe =
@@ -262,6 +298,10 @@ function unsafeHeaderNames(headers) {
 }
 
 // https://w3c.github.io/webappsec-referrer-policy/#determine-requests-referrer
+/**
+ * @param {Request} req
+ * @param {Location} location
+ */
 function referrerFor(req, location) {
     if (req.referrer === "" || !/^https?:$/.test(location.protocol)) return null;
     const full = new URL(req.referrer === "about:client" ? location.href : req.referrer);
@@ -303,7 +343,12 @@ const CORS_SAFELISTED_RESPONSE = new Set([
     "last-modified",
     "pragma",
 ]);
+/**
+ * @param {[string, string][]} pairs
+ * @param {string} credentials
+ */
 function corsFilter(pairs, credentials) {
+    /** @type {Set<string>} */
     const exposed = new Set();
     for (const [name, value] of pairs) {
         if (name === "access-control-expose-headers") {
@@ -317,8 +362,15 @@ function corsFilter(pairs, credentials) {
 const NULL_BODY_STATUS = new Set([101, 204, 205, 304]);
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
+/**
+ * @param {Request} req
+ * @param {any} result
+ * @param {string[]} hops
+ * @param {string} clientOrigin
+ */
 function buildResponse(req, result, hops, clientOrigin) {
     const inner = denoFetch.newInnerResponse(result.status, result.statusText);
+    /** @type {[string, string][]} */
     let pairs = Object.entries(result.headers)
         .filter(([name]) => name !== "set-cookie" && name !== "set-cookie2")
         // The list bypasses Headers' own value normalization.
@@ -349,33 +401,51 @@ function buildResponse(req, result, hops, clientOrigin) {
     return denoFetch.fromInnerResponse(inner, "immutable");
 }
 
+/**
+ * @param {any} dispatcher
+ * @param {any} opts
+ * @returns {Promise<any>}
+ */
 function collect(dispatcher, opts) {
     return new Promise((resolve, reject) => {
+        /** @type {Uint8Array[]} */
         const chunks = [];
+        /** @type {any} */
         let head;
-        dispatcher.dispatch(opts, {
-            onResponseStart: (_, status, headers, statusText) => {
-                head = { status, headers, statusText };
-            },
-            onResponseData: (_, chunk) => chunks.push(chunk),
-            onResponseEnd: () => {
-                const body = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
-                let offset = 0;
-                for (const chunk of chunks) {
-                    body.set(chunk, offset);
-                    offset += chunk.length;
-                }
-                resolve({ ...head, body });
-            },
-            onResponseError: (_, error) => reject(error),
-        });
+        dispatcher.dispatch(
+            opts,
+            /** @type {any} */ ({
+                onResponseStart: (
+                    /** @type {unknown} */ _,
+                    /** @type {number} */ status,
+                    /** @type {unknown} */ headers,
+                    /** @type {string} */ statusText,
+                ) => {
+                    head = { status, headers, statusText };
+                },
+                onResponseData: (/** @type {unknown} */ _, /** @type {Uint8Array} */ chunk) =>
+                    chunks.push(chunk),
+                onResponseEnd: () => {
+                    const body = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+                    let offset = 0;
+                    for (const chunk of chunks) {
+                        body.set(chunk, offset);
+                        offset += chunk.length;
+                    }
+                    resolve({ ...head, body });
+                },
+                onResponseError: (/** @type {unknown} */ _, /** @type {unknown} */ error) =>
+                    reject(error),
+            }),
+        );
     });
 }
 
 // ---- fetch -------------------------------------------------------------------------
 
+/** @param {any} win */
 export const makeFetch = (win) =>
-    async function fetch(input, init = {}) {
+    async function fetch(/** @type {any} */ input, /** @type {any} */ init = {}) {
         const req = new globalThis.Request(input, init ?? undefined);
         const { signal } = req;
         if (signal.aborted) throw signal.reason;
@@ -385,7 +455,8 @@ export const makeFetch = (win) =>
         const crossOrigin = url.origin !== clientOrigin;
         const isData = url.protocol === "data:";
         const corsSafelistedMethod = /^(GET|HEAD|POST)$/.test(req.method);
-        const failed = (message, cause) => new TypeError(`Failed to fetch: ${message}`, { cause });
+        const failed = (/** @type {string} */ message, /** @type {unknown} */ cause = undefined) =>
+            new TypeError(`Failed to fetch: ${message}`, { cause });
         if (url.protocol !== "http:" && url.protocol !== "https:" && !isData) {
             throw failed(`unsupported scheme ${url.protocol}`);
         }
@@ -408,6 +479,7 @@ export const makeFetch = (win) =>
 
         const unsafe = unsafeHeaderNames(authorHeaders);
         const needsPreflight = cors && crossOrigin && (!corsSafelistedMethod || unsafe.length > 0);
+        /** @type {string[]} */
         const hops = [];
         const opts = {
             method: req.method,
@@ -431,6 +503,7 @@ export const makeFetch = (win) =>
 
         // The dispatcher only aborts a hop in flight; this also rejects at once while jsdom
         // is between hops (redirect handling, preflight) with no hop to cancel.
+        /** @type {(() => void) | undefined} */
         let onAbort;
         const aborted = new Promise((_, reject) => {
             onAbort = () => reject(signal.reason);
@@ -446,8 +519,8 @@ export const makeFetch = (win) =>
             if (signal.aborted) throw signal.reason;
             throw error instanceof TypeError
                 ? error
-                : failed(String(error?.message ?? error), error);
+                : failed(String(/** @type {any} */ (error)?.message ?? error), error);
         } finally {
-            signal.removeEventListener("abort", onAbort);
+            signal.removeEventListener("abort", /** @type {() => void} */ (onAbort));
         }
     };
