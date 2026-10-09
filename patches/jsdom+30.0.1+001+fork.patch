@@ -1,0 +1,519 @@
+diff --git a/node_modules/jsdom/lib/generated/idl/HTMLElement.js b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
+--- a/node_modules/jsdom/lib/generated/idl/HTMLElement.js
++++ b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
+@@ -301,7 +301,7 @@
+ 
+       ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
+       try {
+-        return esValue[implSymbol]._reflectGetTheContentAttribute("hidden") !== null;
++        return utils.tryWrapperForImpl(esValue[implSymbol]["hidden"]);
+       } finally {
+         ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
+       }
+@@ -316,18 +316,30 @@
+         );
+       }
+ 
+-      V = conversions["boolean"](V, {
+-        context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
+-        globals: globalObject
+-      });
++      if (V === null || V === undefined) {
++        V = null;
++      } else {
++        if (typeof V === "boolean") {
++          V = conversions["boolean"](V, {
++            context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
++            globals: globalObject
++          });
++        } else if (typeof V === "number") {
++          V = conversions["unrestricted double"](V, {
++            context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
++            globals: globalObject
++          });
++        } else {
++          V = conversions["DOMString"](V, {
++            context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
++            globals: globalObject
++          });
++        }
++      }
+ 
+       ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
+       try {
+-        if (V) {
+-          esValue[implSymbol]._reflectSetTheContentAttribute("hidden", "");
+-        } else {
+-          esValue[implSymbol]._reflectDeleteTheContentAttribute("hidden");
+-        }
++        esValue[implSymbol]["hidden"] = V;
+       } finally {
+         ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
+       }
+diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
+--- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
++++ b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
+@@ -23,6 +23,11 @@
+   6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080
+ ]);
+ 
++// A credentialed request needs an exact origin match; "*" only satisfies uncredentialed ones.
++function allowsOrigin(acao, origin, withCredentials) {
++  return acao === origin || (acao === "*" && !withCredentials);
++}
++
+ /**
+  * JSDOMDispatcher - Full undici Dispatcher implementation for jsdom.
+  *
+@@ -148,7 +153,7 @@
+    * https://fetch.spec.whatwg.org/#concept-fetch also live here.
+    */
+   async #dispatchHTTP(urlRecord, handler, opts) {
+-    const { corsMode, origin, withCredentials, auth, preflight } = opts.opaque || {};
++    const { corsMode, origin, withCredentials, auth, preflight, redirect } = opts.opaque || {};
+     const requestFragment = urlRecord.fragment;
+     let currentURL = urlRecord;
+     let currentMethod = opts.method || "GET";
+@@ -239,7 +244,7 @@
+ 
+       // CORS validation on preflight response
+       const acao = preflightResult.headers["access-control-allow-origin"];
+-      if (acao !== "*" && acao !== origin) {
++      if (!allowsOrigin(acao, origin, withCredentials)) {
+         handler.onResponseError?.(null, new Error("Cross origin " + origin + " forbidden"));
+         return;
+       }
+@@ -251,15 +256,25 @@
+         }
+       }
+ 
+-      // Validate allowed headers
++      // Validate allowed method; "*" is a wildcard only without credentials
++      const acamStr = preflightResult.headers["access-control-allow-methods"];
++      const acam = new Set(acamStr ? acamStr.split(/\s*,\s*/) : []);
++      if (!["GET", "HEAD", "POST"].includes(currentMethod) && !acam.has(currentMethod) &&
++          !(acam.has("*") && !withCredentials)) {
++        handler.onResponseError?.(null, new Error("Method " + currentMethod + " forbidden"));
++        return;
++      }
++
++      // Validate allowed headers; "*" is a wildcard only without credentials, and never covers
++      // Authorization
+       const acahStr = preflightResult.headers["access-control-allow-headers"];
+-      const acah = new Set(acahStr ? acahStr.toLowerCase().split(/,\s*/) : []);
+-      if (!acah.has("*")) {
+-        for (const unsafeHeader of preflight.unsafeHeaders || []) {
+-          if (!acah.has(unsafeHeader.toLowerCase())) {
+-            handler.onResponseError?.(null, new Error("Header " + unsafeHeader + " forbidden"));
+-            return;
+-          }
++      const acah = new Set(acahStr ? acahStr.toLowerCase().split(/\s*,\s*/) : []);
++      const acahWildcard = acah.has("*") && !withCredentials;
++      for (const unsafeHeader of preflight.unsafeHeaders || []) {
++        const lower = unsafeHeader.toLowerCase();
++        if (!acah.has(lower) && !(acahWildcard && lower !== "authorization")) {
++          handler.onResponseError?.(null, new Error("Header " + unsafeHeader + " forbidden"));
++          return;
+         }
+       }
+     }
+@@ -311,7 +326,14 @@
+ 
+       // Handle redirect
+       const { location } = result.headers;
+-      if (result.status >= 300 && result.status < 400 && location) {
++      // "manual" falls through so the caller receives the 3xx itself; a missing Location only
++      // matters when following, where the response is returned as is
++      const isRedirect = [301, 302, 303, 307, 308].includes(result.status);
++      if (isRedirect && redirect !== "manual" && (location || redirect === "error")) {
++        if (redirect === "error") {
++          handler.onResponseError?.(null, new TypeError("Redirect not allowed"));
++          return;
++        }
+         const targetURL = parseURL(location, { baseURL: currentURL });
+         if (!targetURL) {
+           handler.onResponseError?.(null, new TypeError("Invalid redirect URL"));
+@@ -354,7 +376,7 @@
+           // CORS validation on redirect response (if source was cross-origin)
+           if (origin !== currentOrigin) {
+             const acao = result.headers["access-control-allow-origin"];
+-            if (acao !== "*" && acao !== origin) {
++            if (!allowsOrigin(acao, origin, withCredentials)) {
+               handler.onResponseError?.(null, new Error("Cross origin " + origin + " forbidden"));
+               return;
+             }
+@@ -389,7 +411,7 @@
+       // Final response - CORS validation (if destination is cross-origin or effective origin is "null")
+       if (origin !== undefined && (origin !== currentOrigin || effectiveOrigin === "null")) {
+         const acao = result.headers["access-control-allow-origin"];
+-        if (acao !== "*" && acao !== effectiveOrigin) {
++        if (!allowsOrigin(acao, effectiveOrigin, withCredentials)) {
+           handler.onResponseError?.(null, new Error("Cross origin " + effectiveOrigin + " forbidden"));
+           return;
+         }
+diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
+--- a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
++++ b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
+@@ -103,7 +103,10 @@
+     if (element.localName === "script" && element.hasAttributeNS(null, "async")) {
+       this._asyncQueue.push(request, onLoadWrapped, onErrorWrapped, this._queue.getLastScript());
+     } else if (
++      // Dynamically inserted scripts never enter the parser's defer queue; that queue is
++      // resumed only during document parsing, so putting one there leaves its load event pending.
+       element.localName === "script" &&
++        element._parserInserted &&
+         element.hasAttributeNS(null, "defer") &&
+         this._document.readyState !== "interactive") {
+       this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
+@@ -234,12 +234,20 @@
+         "NoModificationAllowedError"
+       ]);
+     }
+-    if (!this.#values.has(property)) {
+-      return "";
++    const prevValue = this.#values.get(property) ?? "";
++    if (this.#values.has(property)) {
++      this.#values.delete(property);
++      this._priorities.delete(property);
+     }
+-    const prevValue = this.#values.get(property);
+-    this.#values.delete(property);
+-    this._priorities.delete(property);
++    // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-removeproperty
++    // removing a shorthand must also remove the longhands it represents.
++    // TODO: consider upstreaming this fix as a PR to jsdom/jsdom (no existing issue/PR found for it).
++    if (shorthandProperties.has(property)) {
++      const { shorthandFor } = shorthandProperties.get(property);
++      for (const longhand of shorthandFor.keys()) {
++        this.removeProperty(longhand);
++      }
++    }
+     this.#updateStyleAttribute();
+     return prevValue;
+   }
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+@@ -10,6 +10,8 @@
+ class CSSStyleSheetImpl extends StyleSheetImpl {
+   #constructed;
+   #disallowModification;
++  #cssRules;
++  #pendingParse = null;
+ 
+   constructor(globalObject, args, privateData = {}) {
+     super(globalObject, args, privateData);
+@@ -17,9 +19,24 @@
+     this.#constructed = "constructed" in privateData ? privateData.constructed : true;
+     this.#disallowModification = false;
+     this.ownerRule = privateData.ownerRule || null;
+-    this.cssRules = CSSRuleList.createImpl(globalObject);
++    this.#cssRules = CSSRuleList.createImpl(globalObject);
+   }
+ 
++  // Sheets created with _deferParse() are only parsed on first access: most linked sheets are
++  // never read, and parsing dominates their cost. Parse errors are reported at that point.
++  get cssRules() {
++    if (this.#pendingParse) {
++      const { text, onError } = this.#pendingParse;
++      this.#pendingParse = null;
++      cssParser.parseIntoStyleSheet(text, this._globalObject, this, onError);
++    }
++    return this.#cssRules;
++  }
++
++  _deferParse(text, onError) {
++    this.#pendingParse = { text, onError };
++  }
++
+   // Legacy alias for cssRules
+   get rules() {
+     return this.cssRules;
+@@ -80,6 +97,7 @@
+     }
+ 
+     // Clear existing rules
++    this.#pendingParse = null;
+     this.cssRules._clear();
+ 
+     // Parse and populate
+@@ -109,6 +127,7 @@
+     // promise settling.
+     return new Promise(resolve => {
+       queueMicrotask(() => {
++        this.#pendingParse = null;
+         this.cssRules._clear();
+         cssParser.parseIntoStyleSheet(text, this._globalObject, this);
+         this.#disallowModification = false;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+@@ -94,7 +94,7 @@
+  * @param {Function} [options.onError] - Error callback.
+  * @returns {object} CSSStyleSheet impl.
+  */
+-function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerRule, mediaText, onError } = {}) {
++function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerRule, mediaText, onError, defer } = {}) {
+   const sheetImpl = CSSStyleSheet.createImpl(globalObject, [], {
+     href: href ?? null,
+     title: title ?? null,
+@@ -104,7 +104,11 @@
+     constructed: false
+   });
+ 
+-  parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError);
++  if (defer) {
++    sheetImpl._deferParse(cssText, onError);
++  } else {
++    parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError);
++  }
+ 
+   return sheetImpl;
+ }
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+@@ -70,7 +70,11 @@
+   const globalObject = elementImpl._globalObject;
+   const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
+ 
++  // `@import` rules must be found (and fetched) at creation, so only sheets that cannot contain
++  // one -- including CSS-escaped spellings, hence `@\\` -- are parsed lazily.
++  const defer = !/@import|@\\/i.test(cssText);
+   const sheetImpl = parseStyleSheet(cssText, globalObject, {
++    defer,
+     href,
+     ownerNode: elementImpl,
+     mediaText: elementImpl.getAttributeNS(null, "media") || "",
+@@ -84,7 +88,9 @@
+     }
+   });
+ 
+-  scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
++  if (!defer) {
++    scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
++  }
+ 
+   return sheetImpl;
+ };
+diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
+--- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
++++ b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
+@@ -88,7 +88,9 @@
+     activeMutationObservers.add(observer);
+   }
+ 
+-  queueMutationObserverMicrotask();
++  if (interestedObservers.size > 0) {
++    queueMutationObserverMicrotask();
++  }
+ }
+ 
+ // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+@@ -221,7 +221,8 @@
+     if (!this.#domSelector) {
+       this.#domSelector = new DOMSelector(this._globalObject, this._ownerDocument, {
+         domSymbolTree,
+-        idlUtils
++        idlUtils,
++        cacheSize: 256
+       });
+     }
+     return this.#domSelector;
+@@ -922,6 +923,14 @@
+           inclusiveDescendant._adoptingSteps(oldDocument);
+         }
+       }
++
++      for (const inclusiveDescendant of shadowIncludingInclusiveDescendantsIterator(node)) {
++        for (const attribute of inclusiveDescendant._attributeList ?? []) {
++          if (attribute._qualifiedName.startsWith("on")) {
++            inclusiveDescendant._globalEventChanged?.(attribute._qualifiedName.substring(2));
++          }
++        }
++      }
+     }
+   }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
+@@ -66,6 +66,24 @@
+     }
+   }
+ 
++  // https://html.spec.whatwg.org/multipage/interaction.html#dom-hidden
++  get hidden() {
++    const value = this.getAttributeNS(null, "hidden");
++    if (value === null) {
++      return false;
++    }
++    return asciiLowercase(value) === "until-found" ? "until-found" : true;
++  }
++  set hidden(value) {
++    if (typeof value === "string" && asciiLowercase(value) === "until-found") {
++      this.setAttributeNS(null, "hidden", "until-found");
++    } else if (!value) {
++      this.removeAttributeNS(null, "hidden");
++    } else {
++      this.setAttributeNS(null, "hidden", "");
++    }
++  }
++
+   click() {
+     // https://html.spec.whatwg.org/multipage/interaction.html#dom-click
+     // https://html.spec.whatwg.org/multipage/webappapis.html#fire-a-synthetic-pointer-event
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
+@@ -127,7 +127,20 @@
+       return;
+     }
+ 
+-    notImplementedMethod(this._ownerDocument._defaultView, "HTMLFormElement", "requestSubmit");
++    // mini: delegates the actual submission fetch
++    // and document replacement to the embedder, since jsdom has no navigation implementation
++    // of its own here. Runs for both an explicit requestSubmit() call and a real click on a
++    // submit button/input (whose activation behaviour calls requestSubmit(submitter) here
++    // too). Falls back to the original not-implemented behaviour if the embedder never
++    // installed a hook (e.g. jsdom used standalone, outside mini).
++    const hook = globalThis.__mini && globalThis.__mini.formSubmitFetch;
++    if (!hook) {
++      notImplementedMethod(this._ownerDocument._defaultView, "HTMLFormElement", "requestSubmit");
++      return;
++    }
++    // this/submitter are jsdom impl objects here, not the public DOM wrappers the hook (and
++    // anything it passes to FormData()) needs.
++    hook(idlUtils.wrapperForImpl(this), submitter && idlUtils.wrapperForImpl(submitter));
+   }
+ 
+   _doReset() {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
+@@ -143,8 +143,7 @@
+     const scriptBlocksTypeString = this._getTypeString();
+     const type = getType(scriptBlocksTypeString);
+ 
+-    if (type !== "classic") {
+-      // TODO: implement modules, and then change the check to `type === null`.
++    if (type === null) {
+       return;
+     }
+ 
+@@ -163,7 +162,8 @@
+ 
+   _innerEval(text, filename) {
+     this._ownerDocument._writeAfterElement = this;
+-    processJavaScript(this, text, filename);
++    const isModule = getType(this._getTypeString()) === "module";
++    processJavaScript(this, text, filename, isModule);
+     delete this._ownerDocument._writeAfterElement;
+   }
+ 
+@@ -208,7 +208,7 @@
+   }
+ }
+ 
+-function processJavaScript(element, code, filename) {
++function processJavaScript(element, code, filename, isModule = false) {
+   const document = element.ownerDocument;
+   const window = document && document._global;
+ 
+@@ -225,6 +225,16 @@
+           break;
+         }
+       }
++    }
++
++    // Module scripts are always strict-mode, per spec. This isn't a real ESM loader (no
++    // import/export resolution) -- it only covers already-bundled module scripts (e.g. Vite
++    // output) that have no remaining static imports to resolve. A function wrapper (not a
++    // "use strict" script directive) keeps V8's eval cache hittable: the lookup key uses the
++    // caller's sloppy mode, so a strict-directive source never matches its own stored entry.
++    // No newline after the opener keeps line numbers unchanged.
++    if (isModule) {
++      code = `(function(){"use strict";${code}\n}).call(undefined)`;
+     }
+ 
+     try {
+diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
+--- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
+@@ -25,7 +25,12 @@
+   get length() {
+     this._guardAgainstInactiveDocuments();
+ 
+-    return this._window._sessionHistory.length;
++    const localLength = this._window._sessionHistory.length;
++    // mini: localLength alone undercounts every
++    // full-document navigation before this one (a fresh Window always starts at 1) -- add the
++    // embedder's persistent count, minus the 1 entry both already agree on (this document).
++    const hook = globalThis.__mini && globalThis.__mini.historyLength;
++    return hook ? hook() + localLength - 1 : localLength;
+   }
+ 
+   get state() {
+@@ -43,7 +48,17 @@
+       this._actAsIfLocationReloadCalled();
+     } else {
+       // Otherwise, the user agent must traverse the history by a delta whose value is delta
+-      this._window._sessionHistory.traverseByDelta(delta);
++      const sessionHistory = this._window._sessionHistory;
++      const newIndex = sessionHistory._currentIndex + delta;
++      // mini: this window's session history never
++      // spans a full-document navigation -- delegate out-of-range deltas to the embedder's
++      // persistent one, bypassing traverseByDelta's setTimeout queueing (unpumped here).
++      const hook = globalThis.__mini && globalThis.__mini.navigateHistory;
++      if (hook && (newIndex < 0 || newIndex >= sessionHistory.length)) {
++        hook(delta);
++      } else {
++        sessionHistory.traverseByDelta(delta);
++      }
+     }
+   }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
+--- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js
++++ b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
+@@ -54,7 +54,7 @@
+     }, 0);
+     return;
+   }
+-  navigateFetch(window);
++  navigateFetch(window, newURL, flags);
+ };
+ 
+ // https://html.spec.whatwg.org/#scroll-to-fragid
+@@ -68,15 +68,21 @@
+     // see https://github.com/whatwg/html/issues/2796 for spec bug
+     window._sessionHistory.removeAllEntriesAfterCurrentEntry();
+   }
+-  const newEntry = { document, url: newURL };
++  // The classic history API state must be explicitly null on fragment navigation, per
++  // https://html.spec.whatwg.org/#url-and-history-update-steps; left unset, `history.state`
++  // reads back as `undefined` instead of `null`.
++  const newEntry = { document, url: newURL, stateObject: null };
+   window._sessionHistory.addEntryAfterCurrentEntry(newEntry);
+   window._sessionHistory.traverseHistory(newEntry, { nonBlockingEvents: true, replacement: flags.replacement });
+ }
+ 
+ // https://html.spec.whatwg.org/#process-a-navigate-fetch
+-function navigateFetch(window) {
+-  // TODO:
+-  notImplemented(window, "navigation to another Document");
++//
++// mini: delegates the actual cross-document fetch and document replacement to the embedder,
++// since jsdom has no navigation implementation of its own here. This jsdom copy is vendored
++// for mini alone, so the hook is always installed.
++function navigateFetch(window, newURL, flags) {
++  globalThis.__mini.navigateFetch(window, whatwgURL.serializeURL(newURL), flags.replacement);
+ }
+ 
+ // https://url.spec.whatwg.org/#concept-url-equals
