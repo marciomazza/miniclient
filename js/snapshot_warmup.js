@@ -1,3 +1,4 @@
+// @ts-check
 // Second pass of deno_core's two-pass snapshot: this runs against the cold snapshot, and the
 // context it exercises is what ships, so whatever it compiles is already compiled at Page
 // load. It warms what every Page pays for first -- window construction, jsdom's HTML parser,
@@ -78,8 +79,9 @@
     p.matches(".a, .zz");
     doc.querySelectorAll("div[data-x^='y'], p:not(.d)");
     win.getComputedStyle(p).getPropertyValue("color"); // css-color + cascade
-    p.style.color = "rgb(10 20 30)";
-    p.style.cssText;
+    const styled = /** @type {HTMLElement} */ (p);
+    styled.style.color = "rgb(10 20 30)";
+    styled.style.cssText;
     dom.window.close();
 })();
 

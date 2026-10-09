@@ -1,5 +1,6 @@
+// @ts-check
 (function () {
-    globalThis.__mini ??= {};
+    globalThis.__mini ??= /** @type {Mini} */ ({});
 
     const ids = new WeakMap();
     const refs = new Map();

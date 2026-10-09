@@ -1,4 +1,5 @@
-globalThis.__mini ??= {};
+// @ts-check
+globalThis.__mini ??= /** @type {Mini} */ ({});
 
 // Form submission. Navigation primitives live in bootstrap.js.
 (function () {
@@ -31,7 +32,7 @@ globalThis.__mini ??= {};
         async function navigate() {
             if (method === "get") {
                 const url = new URL(form.action);
-                url.search = new URLSearchParams(formData).toString();
+                url.search = new URLSearchParams(/** @type {any} */ (formData)).toString();
                 Deno.core.ops.op_request_navigation(url.href, "push");
                 return;
             }
@@ -47,7 +48,7 @@ globalThis.__mini ??= {};
                 body = [...formData].map(([k, v]) => `${k}=${v}\r\n`).join("");
                 headers = { "content-type": "text/plain" };
             } else {
-                body = new URLSearchParams(formData).toString();
+                body = new URLSearchParams(/** @type {any} */ (formData)).toString();
                 // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8"; real
                 // browsers send the bare mime type for form submissions.
                 headers = { "content-type": "application/x-www-form-urlencoded" };
@@ -78,6 +79,6 @@ globalThis.__mini ??= {};
                 "requestSubmit() only works on <form> elements (handle " + handle + ")",
             );
         }
-        el.requestSubmit();
+        /** @type {HTMLFormElement} */ (el).requestSubmit();
     };
 })();

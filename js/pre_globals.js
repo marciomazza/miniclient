@@ -1,3 +1,4 @@
+// @ts-check
 (function () {
     // Real, circular-safe console (replaces deno_core's built-in one, which throws on any
     // circular arg -- htmx passes those). 00_url.js is force-loaded too: 01_console.js
@@ -37,6 +38,7 @@
         arch: "x64",
         env: {},
         version: "",
+        // @ts-expect-error -- only the parts the bundle reads, not node's ProcessVersions
         versions: {},
         argv: ["node"],
         // jsdom schedules internal microtasks (e.g. event dispatch) through this; a plain
@@ -76,6 +78,7 @@
     // formdata paths pull randomUUID / randomFillSync / randomInt from there. The polyfill
     // forwards this global as `webcrypto`. Only getRandomValues + randomUUID are used
     // anywhere; no crypto.subtle.
+    // @ts-expect-error -- no subtle; only random values and UUIDs are provided
     globalThis.crypto ??= {
         getRandomValues(arr) {
             const bytes = new Uint8Array(Deno.core.ops.op_crypto_random_bytes(arr.byteLength));
@@ -93,6 +96,7 @@
     // jsdom ser importado: generated/idl/utils.js e webidl-conversions leem os descriptors
     // "byteLength"/"growable" de `SharedArrayBuffer.prototype` no topo do módulo, mesmo que
     // nada que o mini exercite construa um de verdade.
+    // @ts-expect-error -- partial stand-in, only the prototype descriptors are read
     globalThis.SharedArrayBuffer ??= class SharedArrayBuffer {
         #buf;
         constructor(length = 0) {
@@ -128,6 +132,7 @@
     globalThis.setInterval = timers.setInterval;
     globalThis.clearTimeout = timers.clearTimeout;
     globalThis.clearInterval = timers.clearInterval;
+    // @ts-expect-error -- a plain timer, not a node Immediate
     globalThis.setImmediate ??= (fn, ...a) => setTimeout(fn, 0, ...a);
     globalThis.clearImmediate ??= () => {};
 
@@ -215,7 +220,7 @@
     // restore. Kept on `__mini` rather than as bare globals since they're plumbing, not
     // page-visible API — `__mini` itself may not exist yet this early (element_registry.js/
     // submit.js create it later in the cold pass), hence the `??=`.
-    globalThis.__mini ??= {};
+    globalThis.__mini ??= /** @type {Mini} */ ({});
 
     // Resource-mount interceptor's content-type sniffing (bootstrap.js's resourceInterceptor).
     globalThis.__mini.contentTypeFor = function (path) {
@@ -344,6 +349,7 @@
         });
     };
 
+    // @ts-expect-error -- only CSS.escape is provided
     globalThis.CSS = {
         escape(value) {
             value = String(value);

@@ -1,6 +1,7 @@
 // What the host and the V8 snapshot put on `globalThis`, for the classic scripts in this
 // directory that share the realm instead of importing each other.
 
+type JSDOMWindow = import("jsdom").DOMWindow;
 type NavigationMode = "push" | "replace" | { traverseTo: number };
 type HistoryEntries = { entries: { url: string; state: unknown }[]; current: number };
 
@@ -14,22 +15,22 @@ interface Mini {
   submit(handle: number): Promise<void>;
   contentTypeFor(path: string): string;
   serializeMultipart(formData: FormData): { boundary: string; body: string };
-  installXPathShortCircuit(win: Window): void;
-  installInnerHtmlRadioFix(win: Window): void;
-  installInnerText(win: Window): void;
+  installXPathShortCircuit(win: JSDOMWindow): void;
+  installInnerHtmlRadioFix(win: JSDOMWindow): void;
+  installInnerText(win: JSDOMWindow): void;
   // fetch.js: the wire jsdom's dispatcher sits on, and the page's fetch for a window.
   baseDispatcher: any;
-  makeFetch(win: Window): typeof fetch;
+  makeFetch(win: JSDOMWindow): typeof fetch;
   // bootstrap.js
   documentWrite(html: string): Promise<void>;
-  navigateFetch(window: Window, url: string, replacement?: boolean): void;
+  navigateFetch(window: JSDOMWindow, url: string, replacement?: boolean): void;
   historyLength(): number;
   navigateHistory(delta: number): void;
   navigateBlank(
     url: string,
-    from?: { base: string; cookies: unknown; history: HistoryEntries },
+    from?: { base: string; cookies: any; history: HistoryEntries },
   ): Promise<void>;
-  goingFrom(): { base: string; cookies: unknown; history: HistoryEntries };
+  goingFrom(): { base: string; cookies: any; history: HistoryEntries };
 }
 
 declare var __mini: Mini;
@@ -49,10 +50,10 @@ declare var __JSDOMCookieJar: typeof import("jsdom").CookieJar;
 declare var __serializeURL: (url: any) => string;
 declare var __jsdomImplForWrapper: (wrapper: any) => any;
 declare var __jsdomWrapperForImpl: (impl: any) => any;
-declare var __patchJsdom: (win: Window) => void;
-declare var __innerText: (el: Element) => string;
+declare var __patchJsdom: (win: JSDOMWindow) => void;
+declare var __innerText: (el: Element, options?: any) => string;
 declare var __createDataTransfer: (...args: any[]) => any;
-declare var __createRealFileList: (win: Window, files: File[]) => FileList;
+declare var __createRealFileList: (win: JSDOMWindow, files: File[]) => FileList;
 
 // pre_globals.js: deno_fetch's classes, kept apart from the page-visible jsdom ones.
 declare var __denoFetch: {
@@ -69,6 +70,8 @@ declare var __denoFetch: {
 
 declare namespace Deno {
   const core: {
+    loadExtScript(specifier: string): any;
+    print(message: string, isErr?: boolean): void;
     ops: {
       op_request_navigation(
         url: string,
@@ -81,7 +84,7 @@ declare namespace Deno {
       op_fetch_abort(id: string): void;
       op_fs_read(path: string): Uint8Array;
       op_fs_stat(path: string): any;
-      op_crypto_random_uuid(): string;
+      op_crypto_random_uuid(): `${string}-${string}-${string}-${string}-${string}`;
       op_crypto_random_bytes(n: number): Uint8Array;
       op_now(): number;
     };

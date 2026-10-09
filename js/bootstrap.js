@@ -1,3 +1,4 @@
+// @ts-check
 // JSDOM comes from globalThis.JSDOM instead of `import`, because that class (bundled by
 // build-jsdom-bundle.mjs) is baked into the V8 snapshot: importing jsdom's module graph
 // fresh on every Runtime() startup would cost the same kind of parse/compile time on every
@@ -23,14 +24,16 @@
 // the existing `__mini` object (as this file does) never needs its own entry in this set the
 // way a bare `globalThis.foo = ...` would.
 /** @type {typeof import("jsdom").JSDOM} */
-const JSDOM = globalThis.JSDOM;
-const _preExistingGlobals = new Set(Object.getOwnPropertyNames(globalThis));
-globalThis.__mini ??= {};
+const JSDOM = /** @type {any} */ (globalThis).JSDOM;
+const _preExistingGlobals = new Set(
+    /** @type {(string | symbol)[]} */ (Object.getOwnPropertyNames(globalThis)),
+);
+globalThis.__mini ??= /** @type {Mini} */ ({});
 // Set by boot_jsruntime (src/runtime.rs) before this script runs: `null` on a first boot, or
 // `{cookies, history}` -- captured from the realm a navigation is replacing -- when carrying host
 // state forward across one. Read once, here, since cookieJar/_historyBefore/_historyAfter are
 // constructed below and never revisited.
-const _hostState = globalThis.__HOST_STATE__ ?? {};
+const _hostState = globalThis.__HOST_STATE__ ?? /** @type {any} */ ({});
 // `{entries: [{url, state}, ...], current: N}` or `null` -- destructured once, read from two
 // places below (seeding _historyBefore/_historyAfter, then applying the current entry's state).
 const _hostHistory = _hostState.history ?? null;
@@ -107,8 +110,17 @@ const win = dom.window;
 function registerWindowGlobals(win) {
     // `event` is re-installed as a live accessor below; skip the plain-value copy so it
     // isn't churned accessor->value->accessor.
-    const _ignored = new Set(["constructor", "undefined", "NaN", "global", "globalThis", "event"]);
-    const descriptors = Object.getOwnPropertyDescriptors(win);
+    const _ignored = new Set(
+        /** @type {(string | symbol)[]} */ ([
+            "constructor",
+            "undefined",
+            "NaN",
+            "global",
+            "globalThis",
+            "event",
+        ]),
+    );
+    const descriptors = /** @type {any} */ (Object.getOwnPropertyDescriptors(win));
     for (const key of Reflect.ownKeys(descriptors)) {
         if (_ignored.has(key) || _preExistingGlobals.has(key)) continue;
         const winDescriptor = descriptors[key];
