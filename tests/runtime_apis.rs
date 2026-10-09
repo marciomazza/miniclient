@@ -38,6 +38,23 @@ fn foreign_abort_signal_removes_listener() {
 }
 
 #[test]
+fn listener_signal_rejects_a_signal_lookalike() {
+    let rt = runtime();
+    assert_eq!(
+        rt.eval::<String>(
+            r#"
+            (() => {
+              const fake = { aborted: false, addEventListener() {} };
+              try { document.body.addEventListener("click", () => {}, { signal: fake }); return "accepted"; }
+              catch (e) { return e.name; }
+            })()
+            "#,
+        ),
+        "TypeError",
+    );
+}
+
+#[test]
 fn deno_web_globals_wired() {
     let rt = runtime();
     for name in [
