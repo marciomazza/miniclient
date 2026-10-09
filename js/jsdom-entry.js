@@ -1,3 +1,4 @@
+// @ts-check
 // Some modules in the bundle (notably undici) require "buffer" eagerly at module top
 // level. Importing it here installs the real polyfill on globalThis.Buffer before any
 // of those modules do their require resolution; ESM evaluates imports in declaration
@@ -24,7 +25,7 @@ import { create as createFileListWrapper } from "jsdom/lib/generated/idl/FileLis
 
 // The esbuild bundle wraps this entry point in an anonymous IIFE, so the import above stays
 // scoped to it -- this is the one explicit hand-off point to the shared realm.
-globalThis.JSDOM = JSDOM;
+/** @type {any} */ (globalThis).JSDOM = JSDOM;
 globalThis.__JSDOMCookieJar = CookieJar;
 globalThis.__serializeURL = serializeURL;
 
