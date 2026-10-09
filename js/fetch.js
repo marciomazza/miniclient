@@ -1,10 +1,11 @@
+// @ts-check
 // The page's `fetch`: deno_fetch's Request/Response/Headers over the window's JSDOMDispatcher.
 // jsdom's dispatcher is the HTTP-fetch layer (cookies per hop, redirect rewrites, CORS and
 // preflight checks); `baseDispatcher` below is the wire, one hop per `op_fetch_hop`. This file
 // adds what sits above them: mode and credentials rules, Origin/Referer, response filtering.
 (() => {
     const denoFetch = globalThis.__denoFetch;
-    const mini = (globalThis.__mini ??= {});
+    const mini = (globalThis.__mini ??= /** @type {Mini} */ ({}));
 
     // Page-visible classes are the ones fetch() returns, so `instanceof Response` holds.
     globalThis.Headers = denoFetch.Headers;
@@ -443,7 +444,10 @@
                 signal.addEventListener("abort", onAbort);
             });
             try {
-                const result = await Promise.race([collect(win._dispatcher, opts), aborted]);
+                const result = await Promise.race([
+                    collect(/** @type {any} */ (win)._dispatcher, opts),
+                    aborted,
+                ]);
                 return buildResponse(req, result, hops, clientOrigin);
             } catch (error) {
                 if (signal.aborted) throw signal.reason;
