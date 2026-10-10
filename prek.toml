@@ -2,7 +2,7 @@
 # See https://prek.j178.dev for more information.
 #:schema https://www.schemastore.org/prek.json
 
-exclude = '^patches/'
+exclude = "^patches/"
 
 [[repos]]
 repo = "https://github.com/pre-commit/pre-commit-hooks"
@@ -39,7 +39,7 @@ hooks = [{ id = "pyrefly-check", pass_filenames = false, language = "system" }]
 [[repos]]
 repo = "https://github.com/oxc-project/mirrors-oxfmt"
 rev = "v0.71.0"
-hooks = [{ id = "oxfmt", exclude = '^js/_generated/' }]
+hooks = [{ id = "oxfmt", exclude = "^js/_generated/" }]
 
 [[repos]]
 repo = "https://github.com/oxc-project/mirrors-oxlint"
@@ -48,17 +48,26 @@ hooks = [{ id = "oxlint" }]
 
 # Rust had neither formatting nor linting enforced, unlike Python and JS. Both run on the
 # whole crate, not per file, so Cargo.toml changes trigger them too. tsc type-checks the JS
-# the same way: as one project, not per file.
+# the same way: as one project, not per file. jsdom-patches rebuilds patches/ from the fork, which
+# prek cannot see (vendor/ is untracked), so it always runs.
 [[repos]]
 repo = "local"
 hooks = [
+  {
+    id = "jsdom-patches",
+    name = "regenerate jsdom patches",
+    entry = "python3 scripts/patch-jsdom.py",
+    language = "system",
+    always_run = true,
+    pass_filenames = false,
+  },
   {
     id = "cargo-fmt",
     name = "cargo fmt",
     entry = "cargo fmt",
     language = "system",
     files = '\.rs$|^Cargo\.(toml|lock)$',
-    pass_filenames = false
+    pass_filenames = false,
   },
   {
     id = "cargo-clippy",
@@ -66,7 +75,7 @@ hooks = [
     entry = "cargo clippy --all-targets -- -D warnings",
     language = "system",
     files = '\.rs$|^Cargo\.(toml|lock)$',
-    pass_filenames = false
+    pass_filenames = false,
   },
   {
     id = "tsc",
@@ -74,6 +83,6 @@ hooks = [
     entry = "npx tsc -p jsconfig.json",
     language = "system",
     files = '^js/.*\.(js|mjs|ts)$|^jsconfig\.json$',
-    pass_filenames = false
+    pass_filenames = false,
   },
 ]

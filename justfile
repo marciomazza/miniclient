@@ -17,6 +17,13 @@ test: test-rust test-py
 test-wpt: develop
     uv run python tests/wpt/run.py
 
+# Regenerate patches/ from vendor/jsdom, then reinstall so node_modules matches.
+# Each patch's header names the fork change it came from.
+sync-jsdom:
+    python3 scripts/patch-jsdom.py
+    npm ci
+    npx patch-package --error-on-fail
+
 # Type-check the JS under js/ (files opt in with // @ts-check).
 check-js:
     npx tsc -p jsconfig.json

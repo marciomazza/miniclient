@@ -1,20 +1,9 @@
-diff --git a/node_modules/jsdom/lib/generated/idl/HTMLElement.js b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
---- a/node_modules/jsdom/lib/generated/idl/HTMLElement.js
-+++ b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
-@@ -240,7 +240,7 @@
- 
-       ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
-       try {
--        return $impl._reflectGetTheContentAttribute("hidden") !== null;
-+        return utils.tryWrapperForImpl($impl["hidden"]);
-       } finally {
-         ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
-       }
+# fork: knsnovpymlnm 05430e3d4e08
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
-@@ -23,6 +23,11 @@
+@@ -23,6 +23,11 @@ function allowsOrigin(acao, origin, withCredentials) {
    6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080
  ]);
  
@@ -26,7 +15,7 @@ index facc519f4d..3c9fc24798 100644
  /**
   * JSDOMDispatcher - Full undici Dispatcher implementation for jsdom.
   *
-@@ -148,7 +153,7 @@
+@@ -148,7 +153,7 @@ dispatch(opts, handler) {
     * https://fetch.spec.whatwg.org/#concept-fetch also live here.
     */
    async #dispatchHTTP(urlRecord, handler, opts) {
@@ -35,7 +24,7 @@ index facc519f4d..3c9fc24798 100644
      const requestFragment = urlRecord.fragment;
      let currentURL = urlRecord;
      let currentMethod = opts.method || "GET";
-@@ -250,7 +255,7 @@
+@@ -250,7 +255,7 @@ function onControllerReady(controller) {
  
        // CORS validation on preflight response
        const acao = preflightResult.headers["access-control-allow-origin"];
@@ -44,7 +33,7 @@ index facc519f4d..3c9fc24798 100644
          handler.onResponseError?.(requestController, new Error("Cross origin " + origin + " forbidden"));
          return;
        }
-@@ -262,15 +267,25 @@
+@@ -262,15 +267,25 @@ function onControllerReady(controller) {
          }
        }
  
@@ -78,7 +67,7 @@ index facc519f4d..3c9fc24798 100644
          }
        }
      }
-@@ -323,7 +338,14 @@
+@@ -323,7 +338,14 @@ function onControllerReady(controller) {
  
        // Handle redirect
        const { location } = result.headers;
@@ -94,7 +83,7 @@ index facc519f4d..3c9fc24798 100644
          const targetURL = parseURL(location, { baseURL: currentURL });
          if (!targetURL) {
            handler.onResponseError?.(requestController, new TypeError("Invalid redirect URL"));
-@@ -366,7 +388,7 @@
+@@ -366,7 +388,7 @@ function onControllerReady(controller) {
            // CORS validation on redirect response (if source was cross-origin)
            if (origin !== currentOrigin) {
              const acao = result.headers["access-control-allow-origin"];
@@ -103,7 +92,7 @@ index facc519f4d..3c9fc24798 100644
                handler.onResponseError?.(requestController, new Error("Cross origin " + origin + " forbidden"));
                return;
              }
-@@ -401,7 +423,7 @@
+@@ -401,7 +423,7 @@ function onControllerReady(controller) {
        // Final response - CORS validation (if destination is cross-origin or effective origin is "null")
        if (origin !== undefined && (origin !== currentOrigin || effectiveOrigin === "null")) {
          const acao = result.headers["access-control-allow-origin"];
@@ -116,7 +105,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resourc
 index 446e495518..a63d7dc772 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
-@@ -111,7 +111,10 @@
+@@ -111,7 +111,10 @@ then: (onFulfilled, onRejected) => fetchPromise.then(onFulfilled, onRejected),
      if (element.localName === "script" && element.hasAttributeNS(null, "async")) {
        this._asyncQueue.push(request, onLoadWrapped, onErrorWrapped, this._queue.getLastScript());
      } else if (
@@ -131,7 +120,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 index 26a1aec94c..c16a15ce1e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-@@ -282,14 +282,23 @@
+@@ -282,14 +282,23 @@ removeProperty(property) {
          "NoModificationAllowedError"
        ]);
      }
@@ -163,11 +152,59 @@ index 26a1aec94c..c16a15ce1e 100644
      return prevValue;
    }
  
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js
+index 274ebb25f7..c3d59f85e6 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js
+@@ -3,16 +3,40 @@ class CSSStyleRuleImpl extends CSSGroupingRuleImpl {
+ const CSSGroupingRuleImpl = require("./CSSGroupingRule-impl.js").implementation;
+ const CSSStyleProperties = require("../../../generated/idl/CSSStyleProperties.js");
+ const csstree = require("./helpers/patched-csstree.js");
++const cssParser = require("./helpers/css-parser.js");
+ 
+ class CSSStyleRuleImpl extends CSSGroupingRuleImpl {
+   #selectorText;
++  #style = null;
++  // `null` once flushed into `#style`, so a late `_addDeclaration` throws instead of losing data.
++  #pendingDeclarations = [];
+ 
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+     this.#selectorText = privateData.selectorText;
+-    this.style = CSSStyleProperties.createImpl(globalObject, [], {
+-      parentRule: this
+-    });
++  }
++
++  // Most rules never match an element, so their declarations are only applied once something reads
++  // the style.
++  get style() {
++    if (this.#style === null) {
++      this.#style = CSSStyleProperties.createImpl(this._globalObject, [], {
++        parentRule: this
++      });
++      for (const decl of this.#pendingDeclarations) {
++        cssParser.applyDeclaration(this.#style, decl);
++      }
++      this.#pendingDeclarations = null;
++    }
++    return this.#style;
++  }
++
++  // Only called while the parser builds the rule, before anything can read `style`.
++  _addDeclaration(decl) {
++    if (this.#pendingDeclarations === null) {
++      throw new Error("Cannot add a declaration after the rule's style was read");
++    }
++    this.#pendingDeclarations.push(decl);
+   }
+ 
+   get selectorText() {
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
 index 48e10ffc1f..6d4f0e4068 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
-@@ -10,6 +10,8 @@
+@@ -10,6 +10,8 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
  class CSSStyleSheetImpl extends StyleSheetImpl {
    #constructed;
    #disallowModification;
@@ -176,7 +213,7 @@ index 48e10ffc1f..6d4f0e4068 100644
  
    constructor(globalObject, args, privateData = {}) {
      super(globalObject, args, privateData);
-@@ -17,7 +19,22 @@
+@@ -17,7 +19,22 @@ constructor(globalObject, args, privateData = {}) {
      this.#constructed = "constructed" in privateData ? privateData.constructed : true;
      this.#disallowModification = false;
      this.ownerRule = privateData.ownerRule || null;
@@ -200,7 +237,7 @@ index 48e10ffc1f..6d4f0e4068 100644
    }
  
    // Legacy alias for cssRules
-@@ -80,6 +97,7 @@
+@@ -80,6 +97,7 @@ replaceSync(text) {
      }
  
      // Clear existing rules
@@ -208,7 +245,7 @@ index 48e10ffc1f..6d4f0e4068 100644
      this.cssRules._clear();
  
      // Parse and populate
-@@ -109,6 +127,7 @@
+@@ -109,6 +127,7 @@ replace(text) {
      // promise settling.
      return new Promise(resolve => {
        queueMicrotask(() => {
@@ -217,10 +254,10 @@ index 48e10ffc1f..6d4f0e4068 100644
          cssParser.parseIntoStyleSheet(text, this._globalObject, this);
          this.#disallowModification = false;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
-index 6bd7b86035..676c5d6c3e 100644
+index 6bd7b86035..122e17dd34 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
-@@ -98,7 +98,7 @@
+@@ -98,7 +98,7 @@ function parseIntoStyleSheet(cssText, globalObject, sheetImpl, onError) {
   * @param {Function} [options.onError] - Error callback.
   * @returns {object} CSSStyleSheet impl.
   */
@@ -229,7 +266,7 @@ index 6bd7b86035..676c5d6c3e 100644
    const sheetImpl = CSSStyleSheet.createImpl(globalObject, [], {
      href: href ?? null,
      title: title ?? null,
-@@ -108,7 +108,11 @@
+@@ -108,7 +108,11 @@ function parseStyleSheet(cssText, globalObject, { href, title, ownerNode, ownerR
      constructed: false
    });
  
@@ -242,11 +279,37 @@ index 6bd7b86035..676c5d6c3e 100644
  
    return sheetImpl;
  }
+@@ -352,7 +356,7 @@ function splitMisinterpretedRule(property, rawValue, globalObject, parentSheet, 
+   if (ruleNode.block) {
+     for (const decl of ruleNode.block.children) {
+       if (decl.type === "Declaration") {
+-        applyDeclaration(ruleImpl.style, decl);
++        ruleImpl._addDeclaration(decl);
+       }
+     }
+   }
+@@ -916,7 +920,7 @@ function populateDeclarationsAndNestedRules(block, ruleImpl, globalObject, paren
+       if (hasSeenNestedRule) {
+         pendingDeclarations.push(child);
+       } else {
+-        applyDeclaration(ruleImpl.style, child);
++        ruleImpl._addDeclaration(child);
+       }
+     } else {
+       // Translate nested rules and reparsed Raw children while preserving the
+@@ -1030,6 +1034,7 @@ function parseDeclarationsAsNestedRule(text, globalObject) {
+   return nestedDeclImpl.style.length > 0 ? nestedDeclImpl : null;
+ }
+ 
++exports.applyDeclaration = applyDeclaration;
+ exports.parseStyleSheet = parseStyleSheet;
+ exports.parseIntoStyleSheet = parseIntoStyleSheet;
+ exports.parseRule = parseRule;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 index 270a6209f5..dfff87ed5a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-@@ -71,7 +71,11 @@
+@@ -71,7 +71,11 @@ function onStyleSheetLoad(data, response) {
    const globalObject = elementImpl._globalObject;
    const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
  
@@ -258,7 +321,7 @@ index 270a6209f5..dfff87ed5a 100644
      href,
      ownerNode: elementImpl,
      mediaText: elementImpl.getAttributeNS(null, "media") || "",
-@@ -85,7 +89,9 @@
+@@ -85,7 +89,9 @@ onError(err) {
      }
    });
  
@@ -273,7 +336,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b
 index 5f7b2ab850..ca3ae26290 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
-@@ -118,9 +118,9 @@
+@@ -118,9 +118,9 @@ function queueMutationRecord(
          appendMutationRecord(observer, recordData);
        }
      }
@@ -289,7 +352,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_m
 index 1a4ff3d5a7..7a9667b098 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
-@@ -270,7 +270,8 @@
+@@ -270,7 +270,8 @@ _getDOMSelector() {
    _getDOMSelector() {
      if (!this.#domSelector) {
        this.#domSelector = new DOMSelector(this._globalObject, this._ownerDocument, {
@@ -299,7 +362,7 @@ index 1a4ff3d5a7..7a9667b098 100644
        });
      }
      return this.#domSelector;
-@@ -1102,6 +1103,14 @@
+@@ -1102,6 +1103,14 @@ _adoptNode(node) {
            inclusiveDescendant._adoptingSteps(oldDocument);
          }
        }
@@ -318,7 +381,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/nod
 index ace803c6bb..5949ae2d48 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
-@@ -63,6 +63,24 @@
+@@ -63,6 +63,24 @@ set translate(value) {
      }
    }
  
@@ -347,7 +410,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b
 index 8d9b994e20..fd14208c4f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
-@@ -107,7 +107,20 @@
+@@ -107,7 +107,20 @@ requestSubmit(submitter = null) {
        return;
      }
  
@@ -373,7 +436,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
 index 36633a1af9..8eef540e1c 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
-@@ -171,8 +171,7 @@
+@@ -171,8 +171,7 @@ _eval() {
      const scriptBlocksTypeString = this._getTypeString();
      const type = getType(scriptBlocksTypeString);
  
@@ -383,7 +446,7 @@ index 36633a1af9..8eef540e1c 100644
        return;
      }
  
-@@ -204,7 +203,8 @@
+@@ -204,7 +203,8 @@ _innerEval(text, filename) {
        return;
      }
      this._ownerDocument._writeAfterElement = this;
@@ -393,7 +456,7 @@ index 36633a1af9..8eef540e1c 100644
      delete this._ownerDocument._writeAfterElement;
    }
  
-@@ -249,7 +249,7 @@
+@@ -249,7 +249,7 @@ _cloningSteps(copy) {
    }
  }
  
@@ -402,7 +465,7 @@ index 36633a1af9..8eef540e1c 100644
    const document = element.ownerDocument;
    const window = document._defaultView;
  
-@@ -270,6 +270,16 @@
+@@ -270,6 +270,16 @@ function processJavaScript(element, code, filename, isModule = false) {
        }
      }
  
@@ -423,7 +486,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_m
 index 0084dc004a..fba816ef06 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
-@@ -25,7 +25,12 @@
+@@ -25,7 +25,12 @@ get length() {
    get length() {
      this._guardAgainstInactiveDocuments();
  
@@ -437,7 +500,7 @@ index 0084dc004a..fba816ef06 100644
    }
  
    get state() {
-@@ -43,7 +48,17 @@
+@@ -43,7 +48,17 @@ go(delta) {
        this._actAsIfLocationReloadCalled();
      } else {
        // Otherwise, the user agent must traverse the history by a delta whose value is delta
@@ -469,7 +532,7 @@ index 0037250412..aedfcb0ab7 100644
  };
  
  // https://html.spec.whatwg.org/#scroll-to-fragid
-@@ -66,15 +66,21 @@
+@@ -66,15 +66,21 @@ function navigateToFragment(window, newURL, flags) {
      // see https://github.com/whatwg/html/issues/2796 for spec bug
      window._sessionHistory.removeAllEntriesAfterCurrentEntry();
    }
