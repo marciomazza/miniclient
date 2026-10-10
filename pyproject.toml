@@ -87,6 +87,9 @@ fix = true
 show-fixes = true
 preview = true  # required until the E402 fix stabilizes
 
+[tool.ruff.format]
+exclude = ["*.md"]  # keep hand-aligned comments in doc code blocks
+
 [tool.ruff.lint]
 select = [
   "I",  # https://docs.astral.sh/ruff/rules/#isort-i
