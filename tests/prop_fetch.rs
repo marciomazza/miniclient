@@ -182,11 +182,19 @@ proptest! {
             "fetch({url:?}, {{headers: {headers_js}}}).then(r => r.text())"
         ));
         let request = mock.last_request();
-        for (key, value) in &headers {
+        for key in headers.keys() {
             // A few header names (content-length, etc.) are recomputed by the fetch layer
             // rather than passed through as given, so only check ones that made it through.
             if let Some(actual) = request.header(key) {
-                prop_assert_eq!(actual, trim_http_whitespace(value));
+                // Names differing only by case are one header: values join with ", " in
+                // send order, which is the order serde_json serialized the map.
+                let expected = headers
+                    .iter()
+                    .filter(|(k, _)| k.eq_ignore_ascii_case(key))
+                    .map(|(_, v)| trim_http_whitespace(v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                prop_assert_eq!(actual, expected);
             }
         }
     }
