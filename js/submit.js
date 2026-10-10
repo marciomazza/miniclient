@@ -17,7 +17,7 @@ export async function awaitSettle(handle, doAction) {
     await doAction(el);
 }
 
-// Patched into jsdom's HTMLFormElement#requestSubmit (see patches/jsdom+30.0.1+001+initial.patch):
+// Patched into jsdom's HTMLFormElement#requestSubmit (see patches/jsdom+30.1.2+001+fork.patch):
 // jsdom already validates the form (novalidate/reportValidity()) and dispatches the
 // `submit` event, respecting preventDefault() -- it just has no navigation of its own
 // past that point. This runs for both __mini.submit below (explicit

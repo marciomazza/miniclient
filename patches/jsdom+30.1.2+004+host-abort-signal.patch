@@ -1,21 +1,21 @@
 diff --git a/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js b/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js
-index 18a4a67..d42156d 100644
 --- a/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js
 +++ b/node_modules/jsdom/lib/generated/idl/AddEventListenerOptions.js
-@@ -35,7 +35,15 @@ exports._convertInherit = (globalObject, obj, ret, { context = "The provided val
+@@ -35,7 +35,16 @@
      const key = "signal";
      let value = obj === undefined || obj === null ? undefined : obj[key];
      if (value !== undefined) {
 -      value = AbortSignal.convert(globalObject, value, { context: context + " has member 'signal' that" });
 +      // The host's AbortSignal (mini's pages use deno's, the only kind its fetch accepts).
-+      // EventTarget reads just `aborted` and adds an abort algorithm, which its event can run.
++      // EventTarget reads just `aborted`, and adds and removes abort algorithms, which its event can run.
 +      const host = value;
 +      value = host instanceof globalThis.AbortSignal && !AbortSignal.is(host)
 +        ? {
 +            aborted: host.aborted,
-+            _addAlgorithm: algorithm => host.addEventListener("abort", algorithm, { once: true })
++            _addAlgorithm: algorithm => host.addEventListener("abort", algorithm, { once: true }),
++            _removeAlgorithm: algorithm => host.removeEventListener("abort", algorithm)
 +          }
 +        : AbortSignal.convert(globalObject, host, { context: context + " has member 'signal' that" });
-
+ 
        ret[key] = value;
      }

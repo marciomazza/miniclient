@@ -18,7 +18,9 @@
 // jsdom has no PropertySymbol-style per-Window attribute hook: the one choke point every
 // attribute write goes through -- public setAttribute(NS)/setAttributeNode(NS)/
 // toggleAttribute, the parse5-backed HTML parser, and cloneNode -- is
-// ElementImpl.prototype._attrModified(name, value, oldValue) (value === null on removal).
+// ElementImpl.prototype._attributeChangeSteps(localName, oldValue, value, namespace)
+// (value === null on removal). An HTML attribute has no namespace, so its local name is the
+// whole name, colons included.
 // This impl class is a CommonJS singleton shared by every Window in the process, so the
 // patch is applied once at import time instead of per-navigation.
 import { implementation as ElementImpl } from "jsdom/lib/jsdom/living/nodes/Element-impl.js";
@@ -45,10 +47,10 @@ function interesting(name) {
     );
 }
 
-const origAttrModified = ElementImpl.prototype._attrModified;
-ElementImpl.prototype._attrModified = function (name, value, oldValue) {
-    if (value !== null && name && interesting(name)) {
+const origAttributeChangeSteps = ElementImpl.prototype._attributeChangeSteps;
+ElementImpl.prototype._attributeChangeSteps = function (localName, oldValue, value, namespace) {
+    if (value !== null && localName && interesting(localName)) {
         (globalThis[HXON_INDEX_KEY] ??= new Set()).add(this);
     }
-    return origAttrModified.call(this, name, value, oldValue);
+    return origAttributeChangeSteps.call(this, localName, oldValue, value, namespace);
 };

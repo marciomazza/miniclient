@@ -187,6 +187,7 @@ fn module_script_scope_and_strictness() {
         catch (e) { window.__mod.err = e.name; }
         </script>`);
         document.close();
+        undefined; // close() returns a completion promise that `run` cannot marshal
     "#,
     );
     assert_eq!(

@@ -14,11 +14,7 @@ globalThis.Headers = denoFetch.Headers;
 // string ("[object Blob]"), so the page's jsdom ones are converted to deno's. This must stay
 // synchronous (constructors are), hence the bytes are read from jsdom's Blob impl directly.
 const bytesOf = (/** @type {any} */ blob) =>
-    blob[
-        /** @type {symbol} */ (
-            Object.getOwnPropertySymbols(blob).find((s) => s.description === "impl")
-        )
-    ]._bytes;
+    /** @type {any} */ (globalThis).__jsdomImplForWrapper(blob)._bytes;
 /** @param {any} body */
 function denoBody(body) {
     if (body instanceof globalThis.FormData) {
@@ -511,7 +507,7 @@ export const makeFetch = (win) =>
         });
         try {
             const result = await Promise.race([
-                collect(/** @type {any} */ (win)._dispatcher, opts),
+                collect(/** @type {any} */ (win)._settings.dispatcher, opts),
                 aborted,
             ]);
             return buildResponse(req, result, hops, clientOrigin);

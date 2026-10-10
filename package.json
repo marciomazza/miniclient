@@ -6,7 +6,7 @@
   "dependencies": {
     "@testing-library/user-event": "14.6.7",
     "entities": "^8.1.0",
-    "jsdom": "30.0.1",
+    "jsdom": "30.1.2",
     "styleless-innertext": "1.1.5"
   },
   "devDependencies": {

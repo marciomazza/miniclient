@@ -175,7 +175,7 @@ globalThis.clearImmediate ??= () => {};
 
 // AbortController/AbortSignal — deno_web's, so the signal a page hands to fetch() passes
 // deno_fetch's Request brand check. jsdom's EventTarget#addEventListener accepts this class
-// for its `{ signal }` option through patches/jsdom+30.0.1+004+host-abort-signal.patch.
+// for its `{ signal }` option through patches/jsdom+30.1.2+004+host-abort-signal.patch.
 {
     const abort = Deno.core.loadExtScript("ext:deno_web/03_abort_signal.js");
     Object.assign(globalThis, {

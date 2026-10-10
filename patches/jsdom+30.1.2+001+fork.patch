@@ -1,56 +1,17 @@
 diff --git a/node_modules/jsdom/lib/generated/idl/HTMLElement.js b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
 --- a/node_modules/jsdom/lib/generated/idl/HTMLElement.js
 +++ b/node_modules/jsdom/lib/generated/idl/HTMLElement.js
-@@ -301,7 +301,7 @@
+@@ -240,7 +240,7 @@
  
        ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
        try {
--        return esValue[implSymbol]._reflectGetTheContentAttribute("hidden") !== null;
-+        return utils.tryWrapperForImpl(esValue[implSymbol]["hidden"]);
-       } finally {
-         ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
-       }
-@@ -316,18 +316,30 @@
-         );
-       }
- 
--      V = conversions["boolean"](V, {
--        context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
--        globals: globalObject
--      });
-+      if (V === null || V === undefined) {
-+        V = null;
-+      } else {
-+        if (typeof V === "boolean") {
-+          V = conversions["boolean"](V, {
-+            context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
-+            globals: globalObject
-+          });
-+        } else if (typeof V === "number") {
-+          V = conversions["unrestricted double"](V, {
-+            context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
-+            globals: globalObject
-+          });
-+        } else {
-+          V = conversions["DOMString"](V, {
-+            context: "Failed to set the 'hidden' property on 'HTMLElement': The provided value",
-+            globals: globalObject
-+          });
-+        }
-+      }
- 
-       ceReactionsPreSteps_jsdom_living_helpers_custom_elements(globalObject);
-       try {
--        if (V) {
--          esValue[implSymbol]._reflectSetTheContentAttribute("hidden", "");
--        } else {
--          esValue[implSymbol]._reflectDeleteTheContentAttribute("hidden");
--        }
-+        esValue[implSymbol]["hidden"] = V;
+-        return $impl._reflectGetTheContentAttribute("hidden") !== null;
++        return utils.tryWrapperForImpl($impl["hidden"]);
        } finally {
          ceReactionsPostSteps_jsdom_living_helpers_custom_elements(globalObject);
        }
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
+index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 @@ -23,6 +23,11 @@
@@ -74,16 +35,16 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js 
      const requestFragment = urlRecord.fragment;
      let currentURL = urlRecord;
      let currentMethod = opts.method || "GET";
-@@ -239,7 +244,7 @@
+@@ -250,7 +255,7 @@
  
        // CORS validation on preflight response
        const acao = preflightResult.headers["access-control-allow-origin"];
 -      if (acao !== "*" && acao !== origin) {
 +      if (!allowsOrigin(acao, origin, withCredentials)) {
-         handler.onResponseError?.(null, new Error("Cross origin " + origin + " forbidden"));
+         handler.onResponseError?.(requestController, new Error("Cross origin " + origin + " forbidden"));
          return;
        }
-@@ -251,15 +256,25 @@
+@@ -262,15 +267,25 @@
          }
        }
  
@@ -93,7 +54,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js 
 +      const acam = new Set(acamStr ? acamStr.split(/\s*,\s*/) : []);
 +      if (!["GET", "HEAD", "POST"].includes(currentMethod) && !acam.has(currentMethod) &&
 +          !(acam.has("*") && !withCredentials)) {
-+        handler.onResponseError?.(null, new Error("Method " + currentMethod + " forbidden"));
++        handler.onResponseError?.(requestController, new Error("Method " + currentMethod + " forbidden"));
 +        return;
 +      }
 +
@@ -104,7 +65,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js 
 -      if (!acah.has("*")) {
 -        for (const unsafeHeader of preflight.unsafeHeaders || []) {
 -          if (!acah.has(unsafeHeader.toLowerCase())) {
--            handler.onResponseError?.(null, new Error("Header " + unsafeHeader + " forbidden"));
+-            handler.onResponseError?.(requestController, new Error("Header " + unsafeHeader + " forbidden"));
 -            return;
 -          }
 +      const acah = new Set(acahStr ? acahStr.toLowerCase().split(/\s*,\s*/) : []);
@@ -112,12 +73,12 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js 
 +      for (const unsafeHeader of preflight.unsafeHeaders || []) {
 +        const lower = unsafeHeader.toLowerCase();
 +        if (!acah.has(lower) && !(acahWildcard && lower !== "authorization")) {
-+          handler.onResponseError?.(null, new Error("Header " + unsafeHeader + " forbidden"));
++          handler.onResponseError?.(requestController, new Error("Header " + unsafeHeader + " forbidden"));
 +          return;
          }
        }
      }
-@@ -311,7 +326,14 @@
+@@ -323,7 +338,14 @@
  
        // Handle redirect
        const { location } = result.headers;
@@ -132,29 +93,30 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js 
 +        }
          const targetURL = parseURL(location, { baseURL: currentURL });
          if (!targetURL) {
-           handler.onResponseError?.(null, new TypeError("Invalid redirect URL"));
-@@ -354,7 +376,7 @@
+           handler.onResponseError?.(requestController, new TypeError("Invalid redirect URL"));
+@@ -366,7 +388,7 @@
            // CORS validation on redirect response (if source was cross-origin)
            if (origin !== currentOrigin) {
              const acao = result.headers["access-control-allow-origin"];
 -            if (acao !== "*" && acao !== origin) {
 +            if (!allowsOrigin(acao, origin, withCredentials)) {
-               handler.onResponseError?.(null, new Error("Cross origin " + origin + " forbidden"));
+               handler.onResponseError?.(requestController, new Error("Cross origin " + origin + " forbidden"));
                return;
              }
-@@ -389,7 +411,7 @@
+@@ -401,7 +423,7 @@
        // Final response - CORS validation (if destination is cross-origin or effective origin is "null")
        if (origin !== undefined && (origin !== currentOrigin || effectiveOrigin === "null")) {
          const acao = result.headers["access-control-allow-origin"];
 -        if (acao !== "*" && acao !== effectiveOrigin) {
 +        if (!allowsOrigin(acao, effectiveOrigin, withCredentials)) {
-           handler.onResponseError?.(null, new Error("Cross origin " + effectiveOrigin + " forbidden"));
+           handler.onResponseError?.(requestController, new Error("Cross origin " + effectiveOrigin + " forbidden"));
            return;
          }
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
+index 446e495518..a63d7dc772 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
-@@ -103,7 +103,10 @@
+@@ -111,7 +111,10 @@
      if (element.localName === "script" && element.hasAttributeNS(null, "async")) {
        this._asyncQueue.push(request, onLoadWrapped, onErrorWrapped, this._queue.getLastScript());
      } else if (
@@ -166,22 +128,29 @@ diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resourc
          this._document.readyState !== "interactive") {
        this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
+index 26a1aec94c..c16a15ce1e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-@@ -234,12 +234,20 @@
+@@ -282,14 +282,23 @@
          "NoModificationAllowedError"
        ]);
      }
 -    if (!this.#values.has(property)) {
 -      return "";
-+    const prevValue = this.#values.get(property) ?? "";
-+    if (this.#values.has(property)) {
-+      this.#values.delete(property);
-+      this._priorities.delete(property);
-     }
+-    }
 -    const prevValue = this.#values.get(property);
+-    this.#cachedCssText = null;
 -    this.#values.delete(property);
 -    this._priorities.delete(property);
+-    this.#notifyChange();
++    const had = this.#values.has(property);
++    const prevValue = this.#values.get(property) ?? "";
++    if (had) {
++      this.#cachedCssText = null;
++      this.#values.delete(property);
++      this._priorities.delete(property);
++      this.#notifyChange();
++    }
 +    // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-removeproperty
 +    // removing a shorthand must also remove the longhands it represents.
 +    // TODO: consider upstreaming this fix as a PR to jsdom/jsdom (no existing issue/PR found for it).
@@ -191,10 +160,11 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 +        this.removeProperty(longhand);
 +      }
 +    }
-     this.#updateStyleAttribute();
      return prevValue;
    }
+ 
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
+index 48e10ffc1f..6d4f0e4068 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
 @@ -10,6 +10,8 @@
@@ -206,14 +176,14 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/nod
  
    constructor(globalObject, args, privateData = {}) {
      super(globalObject, args, privateData);
-@@ -17,9 +19,24 @@
+@@ -17,7 +19,22 @@
      this.#constructed = "constructed" in privateData ? privateData.constructed : true;
      this.#disallowModification = false;
      this.ownerRule = privateData.ownerRule || null;
 -    this.cssRules = CSSRuleList.createImpl(globalObject);
 +    this.#cssRules = CSSRuleList.createImpl(globalObject);
-   }
- 
++  }
++
 +  // Sheets created with _deferParse() are only parsed on first access: most linked sheets are
 +  // never read, and parsing dominates their cost. Parse errors are reported at that point.
 +  get cssRules() {
@@ -227,11 +197,9 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/nod
 +
 +  _deferParse(text, onError) {
 +    this.#pendingParse = { text, onError };
-+  }
-+
+   }
+ 
    // Legacy alias for cssRules
-   get rules() {
-     return this.cssRules;
 @@ -80,6 +97,7 @@
      }
  
@@ -249,9 +217,10 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/nod
          cssParser.parseIntoStyleSheet(text, this._globalObject, this);
          this.#disallowModification = false;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
+index 6bd7b86035..676c5d6c3e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
-@@ -94,7 +94,7 @@
+@@ -98,7 +98,7 @@
   * @param {Function} [options.onError] - Error callback.
   * @returns {object} CSSStyleSheet impl.
   */
@@ -260,7 +229,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/nod
    const sheetImpl = CSSStyleSheet.createImpl(globalObject, [], {
      href: href ?? null,
      title: title ?? null,
-@@ -104,7 +104,11 @@
+@@ -108,7 +108,11 @@
      constructed: false
    });
  
@@ -274,9 +243,10 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/nod
    return sheetImpl;
  }
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
+index 270a6209f5..dfff87ed5a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-@@ -70,7 +70,11 @@
+@@ -71,7 +71,11 @@
    const globalObject = elementImpl._globalObject;
    const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
  
@@ -288,7 +258,7 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/no
      href,
      ownerNode: elementImpl,
      mediaText: elementImpl.getAttributeNS(null, "media") || "",
-@@ -84,7 +88,9 @@
+@@ -85,7 +89,9 @@
      }
    });
  
@@ -300,38 +270,41 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/no
    return sheetImpl;
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
+index 5f7b2ab850..ca3ae26290 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
-@@ -88,7 +88,9 @@
-     activeMutationObservers.add(observer);
-   }
- 
--  queueMutationObserverMicrotask();
-+  if (interestedObservers.size > 0) {
+@@ -118,9 +118,9 @@
+         appendMutationRecord(observer, recordData);
+       }
+     }
++
 +    queueMutationObserverMicrotask();
-+  }
+   }
+-
+-  queueMutationObserverMicrotask();
  }
  
  // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
+index 1a4ff3d5a7..7a9667b098 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
-@@ -221,7 +221,8 @@
+@@ -270,7 +270,8 @@
+   _getDOMSelector() {
      if (!this.#domSelector) {
        this.#domSelector = new DOMSelector(this._globalObject, this._ownerDocument, {
-         domSymbolTree,
 -        idlUtils
 +        idlUtils,
 +        cacheSize: 256
        });
      }
      return this.#domSelector;
-@@ -922,6 +923,14 @@
+@@ -1102,6 +1103,14 @@
            inclusiveDescendant._adoptingSteps(oldDocument);
          }
        }
 +
-+      for (const inclusiveDescendant of shadowIncludingInclusiveDescendantsIterator(node)) {
++      for (const inclusiveDescendant of node._shadowIncludingInclusiveDescendants()) {
 +        for (const attribute of inclusiveDescendant._attributeList ?? []) {
 +          if (attribute._qualifiedName.startsWith("on")) {
 +            inclusiveDescendant._globalEventChanged?.(attribute._qualifiedName.substring(2));
@@ -342,9 +315,10 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_m
    }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
+index ace803c6bb..5949ae2d48 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
-@@ -66,6 +66,24 @@
+@@ -63,6 +63,24 @@
      }
    }
  
@@ -370,9 +344,10 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/nod
      // https://html.spec.whatwg.org/multipage/interaction.html#dom-click
      // https://html.spec.whatwg.org/multipage/webappapis.html#fire-a-synthetic-pointer-event
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
+index 8d9b994e20..fd14208c4f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js
-@@ -127,7 +127,20 @@
+@@ -107,7 +107,20 @@
        return;
      }
  
@@ -395,9 +370,10 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLFormElement-impl.js b
  
    _doReset() {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
+index 36633a1af9..8eef540e1c 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
-@@ -143,8 +143,7 @@
+@@ -171,8 +171,7 @@
      const scriptBlocksTypeString = this._getTypeString();
      const type = getType(scriptBlocksTypeString);
  
@@ -407,9 +383,9 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
        return;
      }
  
-@@ -163,7 +162,8 @@
- 
-   _innerEval(text, filename) {
+@@ -204,7 +203,8 @@
+       return;
+     }
      this._ownerDocument._writeAfterElement = this;
 -    processJavaScript(this, text, filename);
 +    const isModule = getType(this._getTypeString()) === "module";
@@ -417,21 +393,19 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
      delete this._ownerDocument._writeAfterElement;
    }
  
-@@ -208,7 +208,7 @@
+@@ -249,7 +249,7 @@
    }
  }
  
 -function processJavaScript(element, code, filename) {
 +function processJavaScript(element, code, filename, isModule = false) {
    const document = element.ownerDocument;
-   const window = document && document._global;
+   const window = document._defaultView;
  
-@@ -225,6 +225,16 @@
-           break;
-         }
+@@ -270,6 +270,16 @@
        }
-+    }
-+
+     }
+ 
 +    // Module scripts are always strict-mode, per spec. This isn't a real ESM loader (no
 +    // import/export resolution) -- it only covers already-bundled module scripts (e.g. Vite
 +    // output) that have no remaining static imports to resolve. A function wrapper (not a
@@ -440,10 +414,13 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
 +    // No newline after the opener keeps line numbers unchanged.
 +    if (isModule) {
 +      code = `(function(){"use strict";${code}\n}).call(undefined)`;
-     }
- 
++    }
++
      try {
+       vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
+     } catch (e) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
+index 0084dc004a..fba816ef06 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 @@ -25,7 +25,12 @@
@@ -480,10 +457,11 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_m
    }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
+index 0037250412..aedfcb0ab7 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 +++ b/node_modules/jsdom/lib/jsdom/living/window/navigation.js
 @@ -54,7 +54,7 @@
-     }, 0);
+     });
      return;
    }
 -  navigateFetch(window);
@@ -491,15 +469,15 @@ diff --git a/node_modules/jsdom/lib/jsdom/living/window/navigation.js b/node_mod
  };
  
  // https://html.spec.whatwg.org/#scroll-to-fragid
-@@ -68,15 +68,21 @@
+@@ -66,15 +66,21 @@
      // see https://github.com/whatwg/html/issues/2796 for spec bug
      window._sessionHistory.removeAllEntriesAfterCurrentEntry();
    }
--  const newEntry = { document, url: newURL };
+-  const newEntry = { document: window._document, url: newURL };
 +  // The classic history API state must be explicitly null on fragment navigation, per
 +  // https://html.spec.whatwg.org/#url-and-history-update-steps; left unset, `history.state`
 +  // reads back as `undefined` instead of `null`.
-+  const newEntry = { document, url: newURL, stateObject: null };
++  const newEntry = { document: window._document, url: newURL, stateObject: null };
    window._sessionHistory.addEntryAfterCurrentEntry(newEntry);
    window._sessionHistory.traverseHistory(newEntry, { nonBlockingEvents: true, replacement: flags.replacement });
  }

@@ -40,7 +40,7 @@ fn hxon_index_short_circuit_sees_attributes_set_after_parse() {
     let js = r#"
         document.body.innerHTML =
           '<div id="root"><b id="plain"></b><i id="other"></i></div>';
-        // Not present at parse time -- only the _attrModified hook (not a one-time parse
+        // Not present at parse time -- only the _attributeChangeSteps hook (not a one-time parse
         // walk) can have added #dynamic to the index.
         document.getElementById('plain').setAttribute('hx-on:click', 'x');
         const expr = document.createExpression(
