@@ -2,6 +2,7 @@
 
     uv run python tests/wpt/run.py            # fail on regressions
     uv run python tests/wpt/run.py --update   # record what passes in 3 runs as the new baseline
+    uv run python tests/wpt/run.py --extended # the larger file set (files-extended.txt)
 
 Needs vendor/jsdom with its test/web-platform-tests submodule checked out, and a built extension
 (`just develop`).
@@ -107,9 +108,10 @@ def passing(result):
 
 def main():
     update = "--update" in sys.argv
-    expected_file = HERE / "expected.json"
+    suffix = "-extended" if "--extended" in sys.argv else ""
+    expected_file = HERE / f"expected{suffix}.json"
     expected = {} if update else json.loads(expected_file.read_text())
-    paths = HERE.joinpath("files.txt").read_text().split()
+    paths = HERE.joinpath(f"files{suffix}.txt").read_text().split()
     server = serve()
     try:
         # The baseline keeps only what passes in every one of three runs, so flaky subtests

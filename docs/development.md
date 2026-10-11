@@ -61,8 +61,12 @@ Tests can run in parallel by adding the `pytest` option `-n auto`.
 
 ### WPT conformance
 
-`just test-wpt` runs 141 web-platform-tests files from `fetch/api` and `cors` inside miniclient
+`just test-wpt` runs 140 web-platform-tests files from `fetch/api` and `cors` inside miniclient
 (about 1.5 minutes) and fails when a subtest that passed in `tests/wpt/expected.json` no longer
 does. After a change that makes more subtests pass, record them with
 `uv run python tests/wpt/run.py --update`. The files excluded from `tests/wpt/files.txt` need
 XMLHttpRequest, iframes, workers or HTTP/2, which miniclient does not provide.
+
+`uv run python tests/wpt/run.py --extended` runs a larger set (`files-extended.txt`: the rest of
+`fetch/api`, `xhr`, form submission, DOM events, timers, `url` and `eventsource`) against
+`expected-extended.json`. A single run takes about 20 minutes, so it is not part of `just test-wpt`.
