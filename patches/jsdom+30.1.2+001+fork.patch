@@ -1,16 +1,16 @@
-# fork: xlnmkpntktln 4aafecefcc2b
+# fork: vyyktwyxwwuv 35bddae220b1
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-index 905b1c9d02..5cf2c22de0 100644
+index 905b1c9d02..77767189a7 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
-@@ -1,205 +1,191 @@ function formAncestor(contextElement) {
+@@ -1,205 +1,192 @@ function formAncestor(contextElement) {
  "use strict";
  
 -const parse5 = require("parse5");
 -
  const { createElement } = require("../../living/helpers/create-element");
  const { HTML_NS } = require("../../living/helpers/namespaces");
-+const { impl, materialize, wire } = require("../../living/helpers/dom-tree");
++const { impl, link, materialize, wire } = require("../../living/helpers/dom-tree");
 +const { updateRadioButtonGroupsForTreeChange } = require("../../living/helpers/form-controls");
 +const {
 +  customElementReactionsStack, invokeCEReactions, lookupCEDefinition
@@ -237,6 +237,7 @@ index 905b1c9d02..5cf2c22de0 100644
 +  const fragment = materialize(DocumentFragment.createImpl(_globalObject, [], { ownerDocument, host }), w);
 +  for (const record of op_dom_tree_records(w)) {
 +    const node = materialize(createNode(record, ownerDocument), record.id);
++    link(impl(record.parent), node);
 +    created.push(node);
 +    if (record.contents !== null) {
 +      const contentsDocument = node._templateContents._ownerDocument;
@@ -1256,10 +1257,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..365b39fb85 100644
+index 7eb8408fc8..b8affe8c5f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,302 @@ function bind(node, w) {
+@@ -6,31 +6,339 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -1270,7 +1271,7 @@ index 7eb8408fc8..365b39fb85 100644
 +/* eslint-disable camelcase -- the native op names */
 +
 +// The tree lives in miniclient's native arena, so the arena is the only structural store.
-+// Nodes cross the boundary as wire ids: `impls[wire]` is the impl, `node._wire` its slot.
++// Nodes cross the boundary as wire ids: `impls[wire]` weakly holds the impl, `node._wire` its slot.
 +// A slot is only allocated when a node joins a tree or gains children, so reading the tree
 +// never allocates one for an Attr or a new node. Mutations here only change links:
  // NodeImpl handles validation, adoption, ranges, observers, slots, and reactions.
@@ -1312,6 +1313,7 @@ index 7eb8408fc8..365b39fb85 100644
 +  op_dom_preceding,
 +  op_dom_prev_sibling,
 +  op_dom_query,
++  op_dom_release,
 +  op_dom_remove,
 +  op_dom_set_checked,
 +  op_dom_set_data,
@@ -1322,11 +1324,42 @@ index 7eb8408fc8..365b39fb85 100644
 +
 +let impls = [];
 +let materialized = 0;
++let bindsUntilSweep = 1024;
 +
 +function bind(node, w) {
 +  node._wire = w;
-+  impls[w] = node;
++  impls[w] = new WeakRef(node);
 +  materialized++;
++  if (--bindsUntilSweep === 0) {
++    sweep();
++  }
++}
++
++// Hands the slots of collected impls back in one call. Sweeping again only after half as many
++// binds as slots keeps the scan amortized constant per bind.
++function sweep() {
++  const dead = [];
++  for (let w = 0; w < impls.length; w++) {
++    if (impls[w] !== undefined && impls[w].deref() === undefined) {
++      impls[w] = undefined;
++      dead.push(w);
++    }
++  }
++  if (dead.length > 0) {
++    op_dom_release(new Uint32Array(dead));
++  }
++  bindsUntilSweep = Math.max(1024, impls.length >> 1);
++}
++
++function link(parentNode, child) {
++  unlink(child);
++  child._treeParent = parentNode;
++  (parentNode._treeChildren ??= new Set()).add(child);
++}
++
++function unlink(node) {
++  node._treeParent?._treeChildren.delete(node);
++  node._treeParent = null;
 +}
 +
 +// Created on the first insertion, not in the constructor: NodeImpl's subclasses only set
@@ -1412,7 +1445,7 @@ index 7eb8408fc8..365b39fb85 100644
 +}
 +
 +function impl(w) {
-+  return w < 0 ? null : impls[w];
++  return w < 0 ? null : impls[w]?.deref();
 +}
 +
 +// A node without a slot has no parent, siblings or children, so every read short-circuits.
@@ -1438,7 +1471,7 @@ index 7eb8408fc8..365b39fb85 100644
 +  }
 +  const out = new Array(n);
 +  for (let i = 0; i < n; i++) {
-+    out[i] = impls[scratch[i]];
++    out[i] = impls[scratch[i]]?.deref();
 +  }
 +  return out;
 +}
@@ -1534,7 +1567,7 @@ index 7eb8408fc8..365b39fb85 100644
 +  if (root._wire < 0) {
 +    return [];
 +  }
-+  return op_dom_named_keys(root._wire).map(([w, id, name]) => ({ element: impls[w], id, name }));
++  return op_dom_named_keys(root._wire).map(([w, id, name]) => ({ element: impl(w), id, name }));
 +}
 +
 +// The element the URL's fragment indicates: the raw fragment first, then percent-decoded.
@@ -1561,11 +1594,14 @@ index 7eb8408fc8..365b39fb85 100644
 +
 +function appendChild(node, child) {
 +  op_dom_insert(wire(node), wire(child), -1);
++  link(node, child);
 +  return child;
 +}
 +
 +function insertBefore(reference, child) {
-+  op_dom_insert(op_dom_parent_id(reference._wire), wire(child), reference._wire);
++  const parentWire = op_dom_parent_id(reference._wire);
++  op_dom_insert(parentWire, wire(child), reference._wire);
++  link(impl(parentWire), child);
 +  return child;
 +}
 +
@@ -1573,6 +1609,7 @@ index 7eb8408fc8..365b39fb85 100644
 +  if (node._wire >= 0) {
 +    op_dom_remove(node._wire);
 +  }
++  unlink(node);
 +  return node;
 +}
 +
@@ -1581,12 +1618,13 @@ index 7eb8408fc8..365b39fb85 100644
 +function clearBindings() {
 +  impls = [];
 +  materialized = 0;
++  bindsUntilSweep = 1024;
 +}
 +
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +311,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +348,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1623,7 +1661,7 @@ index 7eb8408fc8..365b39fb85 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +377,6 @@ next() {
+@@ -136,28 +414,6 @@ next() {
    }
  }
  
@@ -1652,7 +1690,7 @@ index 7eb8408fc8..365b39fb85 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +472,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +509,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1768,7 +1806,7 @@ index 7eb8408fc8..365b39fb85 100644
    nextInTree, nextAfterSubtree, previousInTree, lastInclusiveDescendant,
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
-+  treeIndex, appendChild, insertBefore, remove,
++  treeIndex, appendChild, insertBefore, remove, link,
 +  QUERY, query, impl, wire, materialize, materializedCount, setChecked, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
@@ -2174,7 +2212,7 @@ index 36633a1af9..8eef540e1c 100644
        vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
      } catch (e) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
-index 476421f2ef..2f612ede67 100644
+index 476421f2ef..919812de69 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
 @@ -25,6 +25,10 @@ function nodeEquals(a, b) {
@@ -2247,16 +2285,20 @@ index 476421f2ef..2f612ede67 100644
    }
  }
  
-@@ -178,7 +161,7 @@ constructor(globalObject, args, privateData) {
+@@ -178,7 +161,11 @@ constructor(globalObject, args, privateData) {
    constructor(globalObject, args, privateData) {
      super(globalObject, args, privateData);
  
 -    this._links = null;
 +    this._wire = -1;
++    // Strong mirrors of the arena's parent/child links: wire lookups are weak, so these keep a
++    // held node's whole tree alive and let an unreferenced detached tree be collected.
++    this._treeParent = null;
++    this._treeChildren = null;
  
      this._ownerDocument = privateData.ownerDocument;
  
-@@ -289,7 +272,7 @@ _getTheParent() {
+@@ -289,7 +276,7 @@ _getTheParent() {
    }
  
    get parentNode() {
@@ -2265,7 +2307,7 @@ index 476421f2ef..2f612ede67 100644
    }
  
    _treeIndex() {
-@@ -303,7 +286,7 @@ get _length() {
+@@ -303,7 +290,7 @@ get _length() {
    }
  
    get _childCount() {
@@ -2274,7 +2316,7 @@ index 476421f2ef..2f612ede67 100644
    }
  
    _children() {
-@@ -421,7 +404,7 @@ get nodeName() {
+@@ -421,7 +408,7 @@ get nodeName() {
    }
  
    get firstChild() {
@@ -2283,7 +2325,7 @@ index 476421f2ef..2f612ede67 100644
    }
  
    // https://dom.spec.whatwg.org/#connected
-@@ -436,7 +419,7 @@ get ownerDocument() {
+@@ -436,7 +423,7 @@ get ownerDocument() {
    }
  
    get lastChild() {
@@ -2292,7 +2334,7 @@ index 476421f2ef..2f612ede67 100644
    }
  
    get childNodes() {
-@@ -453,11 +436,11 @@ query: () => this._childrenToArray()
+@@ -453,11 +440,11 @@ query: () => this._childrenToArray()
    }
  
    get nextSibling() {
@@ -2306,7 +2348,7 @@ index 476421f2ef..2f612ede67 100644
    }
  
    // Selector-visible state can affect styles anywhere in the document, without changing structural collections.
-@@ -771,6 +754,10 @@ get textContent() {
+@@ -771,6 +758,10 @@ get textContent() {
      switch (this.nodeType) {
        case NODE_TYPE.DOCUMENT_FRAGMENT_NODE:
        case NODE_TYPE.ELEMENT_NODE: {

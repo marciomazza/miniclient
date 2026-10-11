@@ -56,6 +56,7 @@ pub struct TreeRecord {
     pub node_type: u8,
     pub name: String,
     pub ns: String,
+    pub parent: u32,
     /// A `<template>`'s content fragment.
     pub contents: Option<u32>,
 }
@@ -525,6 +526,28 @@ impl DomState {
         }
     }
 
+    /// Drops the data of nodes whose impls the JS GC reclaimed. ego-tree cannot free a slot, so
+    /// the node stays, unreachable: everything linked to it was reclaimed too.
+    pub fn release(&mut self, wires: &[u32]) {
+        for &w in wires {
+            let Some(id) = self.resolve(w) else { continue };
+            if let Some(Node::Element(e)) = self.arena.get(id).map(|n| n.value()) {
+                let old = id_of(e);
+                self.reindex_id(id, old.as_deref(), None);
+            }
+            let Some(mut node) = self.arena.get_mut(id) else {
+                continue;
+            };
+            match node.value() {
+                Node::Element(e) => e.attrs = Vec::new(),
+                Node::Text(t) => t.text = String::new(),
+                Node::Comment(c) => c.comment = String::new(),
+                Node::ProcessingInstruction(p) => p.data = String::new(),
+                _ => {}
+            }
+        }
+    }
+
     /// Text / comment / processing-instruction `data` write. No-op for anything else.
     pub fn set_data(&mut self, wire: u32, data: &str) {
         let Some(id) = self.resolve(wire) else { return };
@@ -792,11 +815,13 @@ impl DomState {
             other => (classify(other).0, String::new(), String::new()),
         };
         let contents = self.template_contents(id);
+        let parent = self.arena.get(id).and_then(|n| n.parent()).map(|p| p.id());
         TreeRecord {
             id: self.wire(id),
             node_type,
             name,
             ns,
+            parent: parent.map_or(NO_WIRE, |p| self.wire(p)),
             contents: contents.map(|c| self.wire(c)),
         }
     }

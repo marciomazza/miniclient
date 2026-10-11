@@ -29,6 +29,7 @@ pub fn dom_extension() -> Extension {
             op_dom_create_document(),
             op_dom_insert(),
             op_dom_remove(),
+            op_dom_release(),
             op_dom_set_attr(),
             op_dom_remove_attr(),
             op_dom_set_data(),
@@ -226,6 +227,11 @@ pub fn op_dom_insert(state: &mut OpState, parent: u32, child: u32, before: i32) 
 #[op2(fast)]
 pub fn op_dom_remove(state: &mut OpState, id: u32) {
     dom(state).remove(id)
+}
+
+#[op2(fast)]
+pub fn op_dom_release(state: &mut OpState, #[buffer] wires: &[u32]) {
+    dom(state).release(wires)
 }
 
 #[op2(fast)]
