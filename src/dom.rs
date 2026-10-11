@@ -25,7 +25,7 @@ pub struct NodeRecord {
 
 /// One attribute with its full qualified name. `ns` and `prefix` are `None` for the common
 /// no-namespace attribute.
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct AttrRecord {
     pub ns: Option<String>,
     pub prefix: Option<String>,
@@ -482,16 +482,7 @@ impl DomState {
             return Vec::new();
         };
         match self.arena.get(id).map(|n| n.value()) {
-            Some(Node::Element(e)) => e
-                .attrs
-                .iter()
-                .map(|(k, v)| AttrRecord {
-                    ns: (!k.ns.is_empty()).then(|| k.ns.to_string()),
-                    prefix: k.prefix.as_ref().map(|p| p.to_string()),
-                    local: k.local.to_string(),
-                    value: v.to_string(),
-                })
-                .collect(),
+            Some(Node::Element(e)) => e.attrs.iter().map(|(k, v)| attr_record(k, v)).collect(),
             _ => Vec::new(),
         }
     }
@@ -504,6 +495,31 @@ impl DomState {
                 .iter()
                 .find(|(k, _)| same_attr(k, &ns, local))
                 .map(|(_, v)| v.to_string()),
+            _ => None,
+        }
+    }
+
+    /// The attribute with namespace `ns` and local name `local`.
+    pub fn attr(&self, wire: u32, ns: Option<&str>, local: &str) -> Option<AttrRecord> {
+        let ns = Namespace::from(ns.unwrap_or_default());
+        self.find_attr(wire, |k| same_attr(k, &ns, local))
+    }
+
+    /// The first attribute whose qualified name (`prefix:local`, or just `local`) is `name`.
+    pub fn attr_by_name(&self, wire: u32, name: &str) -> Option<AttrRecord> {
+        self.find_attr(wire, |k| match &k.prefix {
+            Some(p) => name.strip_prefix(&**p).and_then(|r| r.strip_prefix(':')) == Some(&*k.local),
+            None => *k.local == *name,
+        })
+    }
+
+    fn find_attr(&self, wire: u32, matches: impl Fn(&QualName) -> bool) -> Option<AttrRecord> {
+        match self.arena.get(self.resolve(wire)?)?.value() {
+            Node::Element(e) => e
+                .attrs
+                .iter()
+                .find(|(k, _)| matches(k))
+                .map(|(k, v)| attr_record(k, v)),
             _ => None,
         }
     }
@@ -571,6 +587,15 @@ impl Default for DomState {
 }
 
 /// Attribute identity per the DOM spec: namespace plus local name, prefix ignored.
+fn attr_record(name: &QualName, value: &str) -> AttrRecord {
+    AttrRecord {
+        ns: (!name.ns.is_empty()).then(|| name.ns.to_string()),
+        prefix: name.prefix.as_ref().map(|p| p.to_string()),
+        local: name.local.to_string(),
+        value: value.to_string(),
+    }
+}
+
 fn same_attr(name: &QualName, ns: &Namespace, local: &str) -> bool {
     name.ns == *ns && &*name.local == local
 }
@@ -937,8 +962,15 @@ mod tests {
         };
         assert_eq!(
             dom.attrs(a),
-            vec![other_href, plain("id", "p"), plain("href", "plain")]
+            vec![other_href.clone(), plain("id", "p"), plain("href", "plain")]
         );
+
+        // lookups by qualified name see the prefix; by namespace they do not
+        assert_eq!(dom.attr_by_name(a, "other:href"), Some(other_href.clone()));
+        assert_eq!(dom.attr_by_name(a, "href"), Some(plain("href", "plain")));
+        assert_eq!(dom.attr_by_name(a, "xlink:href"), None);
+        assert_eq!(dom.attr(a, Some(XLINK), "href"), Some(other_href));
+        assert_eq!(dom.attr(a, None, "nope"), None);
 
         // a namespaced `id` is not the element's id
         let html = dom.create(1, Some("div"), Some("html"), None);

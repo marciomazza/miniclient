@@ -105,6 +105,41 @@ fn prefixes_and_namespaces_round_trip() {
 }
 
 #[test]
+fn attr_nodes_exist_only_once_asked_for() {
+    let rt = runtime();
+    let out = rt.eval_json(&format!(
+        r##"{ARENA}
+        const XLINK = "http://www.w3.org/1999/xlink";
+        const el = document.createElement("a");
+        const nodes = () => __jsdomImplForWrapper(el)._attrNodes?.size ?? 0;
+        el.setAttribute("Data-X", "1");
+        el.setAttributeNS(XLINK, "xlink:href", "#a");
+        el.toggleAttribute("hidden");
+        el.id = "i";
+        el.setAttribute("xlink:href", "#b");
+        const reads = [el.getAttribute("DATA-x"), el.getAttribute("xlink:href"),
+            el.getAttributeNS(XLINK, "href"), el.hasAttribute("hidden"), el.id,
+            el.getAttributeNames(), el.hasAttributes(), el.getAttribute("missing")];
+        const before = nodes();
+        const node = el.getAttributeNode("xlink:href");
+        const same = node === el.getAttributeNodeNS(XLINK, "href");
+        const one = nodes();
+        const listed = node === el.attributes[1];
+        const all = nodes();
+        el.removeAttribute("data-x");
+        [reads, before, same, one, listed, all, nodes(), arenaAttrs(el)]"##
+    ));
+    assert_eq!(
+        out.as_deref(),
+        Some(concat!(
+            r##"[["1","#b","#b",true,"i",["data-x","xlink:href","hidden","id"],true,null],"##,
+            r##"0,true,1,true,4,3,[["http://www.w3.org/1999/xlink","xlink","href","#b"],"##,
+            r##"[null,null,"hidden",""],[null,null,"id","i"]]]"##,
+        ))
+    );
+}
+
+#[test]
 fn character_data_edits_land_in_the_arena() {
     let rt = runtime();
     let out = rt.eval_json(&format!(

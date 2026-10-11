@@ -15,6 +15,8 @@ pub fn dom_extension() -> Extension {
             op_dom_data(),
             op_dom_attrs(),
             op_dom_attr_value(),
+            op_dom_attr(),
+            op_dom_attr_by_name(),
             op_dom_create(),
             op_dom_create_document(),
             op_dom_insert(),
@@ -94,6 +96,29 @@ pub fn op_dom_attr_value(
     #[string] local: &str,
 ) -> Option<String> {
     state.borrow::<DomState>().attr_value(id, opt(ns), local)
+}
+
+/// One attribute by namespace (empty for none) and local name.
+#[op2]
+#[serde]
+pub fn op_dom_attr(
+    state: &mut OpState,
+    id: u32,
+    #[string] ns: &str,
+    #[string] local: &str,
+) -> Option<AttrRecord> {
+    state.borrow::<DomState>().attr(id, opt(ns), local)
+}
+
+/// The first attribute whose qualified name is `name`.
+#[op2]
+#[serde]
+pub fn op_dom_attr_by_name(
+    state: &mut OpState,
+    id: u32,
+    #[string] name: &str,
+) -> Option<AttrRecord> {
+    state.borrow::<DomState>().attr_by_name(id, name)
 }
 
 /// `name` carries the local name for elements, the data for text/comment nodes, the PI

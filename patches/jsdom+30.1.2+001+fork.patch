@@ -1,4 +1,4 @@
-# fork: yqzmzyltzlzp 960a39a495ea
+# fork: mnuomlzwsqqq d8646a302b0a
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -168,46 +168,59 @@ index e5d4daa20d..15e1d62588 100644
      return this._element;
    }
 diff --git a/node_modules/jsdom/lib/jsdom/living/attributes.js b/node_modules/jsdom/lib/jsdom/living/attributes.js
-index 65486849e6..ab0694b879 100644
+index 65486849e6..169d080e37 100644
 --- a/node_modules/jsdom/lib/jsdom/living/attributes.js
 +++ b/node_modules/jsdom/lib/jsdom/living/attributes.js
-@@ -6,6 +6,63 @@ function invalidate(element) {
+@@ -6,188 +6,181 @@ function attrKey(namespace, localName) {
  const { queueAttributeMutationRecord } = require("./helpers/mutation-observers");
  const { enqueueCECallbackReaction } = require("./helpers/custom-elements");
  
+-// The following three are for https://dom.spec.whatwg.org/#concept-element-attribute-has. We don't just have a
+-// predicate tester since removing that kind of flexibility gives us the potential for better future optimizations.
+-
++const { wire } = require("./helpers/dom-tree");
++
 +/* global Deno */
 +/* eslint-disable camelcase -- the native op names */
-+const { op_dom_attrs, op_dom_remove_attr } = Deno.core.ops;
++const { op_dom_attr, op_dom_attr_by_name, op_dom_attrs, op_dom_remove_attr, op_dom_set_attr } = Deno.core.ops;
 +
-+// The native arena holds attribute values and order. `_attrNodes` maps each attached attribute's
-+// namespace and local name to its `Attr`, so the arena order maps onto existing identities.
++// The native arena holds every attribute's name, value and position. An `Attr` is only created
++// when its identity is asked for, then kept in `_attrNodes` under its namespace and local name.
 +// jsdom normalizes the empty namespace to null, so "" cannot collide with a real one.
-+const attrKey = (namespace, localName) => (namespace ?? "") + "\0" + localName;
++function attrKey(namespace, localName) {
++  return (namespace ?? "") + "\0" + localName;
++}
++
++// An arena record ({ ns, prefix, local, value }) or null.
++function record(element, namespace, localName) {
++  return element._wire < 0 ? null : op_dom_attr(element._wire, namespace ?? "", localName);
++}
++
++function recordByName(element, name) {
++  if (element._wire < 0) {
++    return null;
++  }
++  if (element._namespaceURI === HTML_NS && element._ownerDocument._parsingMode === "html") {
++    name = asciiLowercase(name);
++  }
++  return op_dom_attr_by_name(element._wire, name);
++}
++
++function attrFor(element, { ns, prefix, local }) {
++  const key = attrKey(ns, local);
++  let attribute = element._attrNodes?.get(key);
++  if (attribute === undefined) {
++    attribute = element._ownerDocument._createAttribute({ namespace: ns, namespacePrefix: prefix, localName: local });
++    attribute._element = element;
++    attribute._ownValue = undefined;
++    (element._attrNodes ??= new Map()).set(key, attribute);
++  }
++  return attribute;
++}
 +
 +exports.attributeList = function (element) {
-+  if (element._attrNodes === null) {
-+    return [];
-+  }
-+  return op_dom_attrs(element._wire).map(a => element._attrNodes.get(attrKey(a.ns, a.local)));
++  return element._wire < 0 ? [] : op_dom_attrs(element._wire).map(r => attrFor(element, r));
 +};
-+
-+exports.attributesByName = function (element) {
-+  const names = new Map();
-+  for (const attribute of element._attributeList) {
-+    const entry = names.get(attribute._qualifiedName);
-+    if (entry === undefined) {
-+      names.set(attribute._qualifiedName, [attribute]);
-+    } else {
-+      entry.push(attribute);
-+    }
-+  }
-+  return names;
-+};
-+
-+function invalidate(element) {
-+  element._attrView = null;
-+  element._attrNames = null;
-+}
 +
 +function attach(element, attribute) {
 +  const value = attribute._value;
@@ -216,7 +229,7 @@ index 65486849e6..ab0694b879 100644
 +  attribute._ownValue = undefined;
 +  attribute._value = value;
 +  (element._attrNodes ??= new Map()).set(attrKey(attribute._namespace, attribute._localName), attribute);
-+  invalidate(element);
++  element._attrView = null;
 +}
 +
 +// A detached `Attr` keeps the value it had, outside the arena.
@@ -225,17 +238,74 @@ index 65486849e6..ab0694b879 100644
 +  element._attrNodes.delete(attrKey(attribute._namespace, attribute._localName));
 +  attribute._element = null;
 +  attribute._ownValue = value;
-+  invalidate(element);
++  element._attrView = null;
 +}
 +
-+function isAttached(element, attribute) {
-+  return element._attrNodes?.get(attrKey(attribute._namespace, attribute._localName)) === attribute;
-+}
-+
- // The following three are for https://dom.spec.whatwg.org/#concept-element-attribute-has. We don't just have a
- // predicate tester since removing that kind of flexibility gives us the potential for better future optimizations.
++// https://dom.spec.whatwg.org/#concept-element-attribute-has
+ /* eslint-disable no-restricted-properties */
  
-@@ -51,86 +108,31 @@ function handleAttributeChanges(element, attribute, oldValue, value) {
+ exports.hasAttribute = function (element, A) {
+-  return element._attributeList.includes(A);
++  return A._element === element;
+ };
+ 
+ exports.hasAttributeByName = function (element, name) {
+-  return element._attributesByNameMap.has(name);
++  return recordByName(element, name) !== null;
+ };
+ 
+ exports.hasAttributeByNameNS = function (element, namespace, localName) {
+-  return element._attributeList.some(attribute => {
+-    return attribute._localName === localName && attribute._namespace === namespace;
+-  });
++  return record(element, namespace, localName) !== null;
+ };
+ 
+ // https://dom.spec.whatwg.org/#handle-attribute-changes
+-function handleAttributeChanges(element, attribute, oldValue, value) {
+-  const { _localName, _namespace } = attribute;
+-  queueAttributeMutationRecord(element, _localName, _namespace, oldValue);
++function handleAttributeChanges(element, localName, namespace, oldValue, value) {
++  queueAttributeMutationRecord(element, localName, namespace, oldValue);
+ 
+   if (element._ceState === "custom") {
+     enqueueCECallbackReaction(element, "attributeChangedCallback", [
+-      _localName,
++      localName,
+       oldValue,
+       value,
+-      _namespace
++      namespace
+     ]);
+   }
+ 
+-  element._attributeChangeSteps(_localName, oldValue, value, _namespace);
++  element._attributeChangeSteps(localName, oldValue, value, namespace);
++}
++
++// Sets an attribute's value without creating its `Attr`. `existing` is its arena record, or null
++// to append a new attribute; a changed attribute keeps its prefix.
++function writeAttribute(element, existing, namespace, prefix, localName, value) {
++  const attribute = element._attrNodes?.get(attrKey(namespace, localName));
++  if (attribute !== undefined) {
++    exports.changeAttribute(element, attribute, value);
++    return;
++  }
++  const kept = existing === null ? prefix : existing.prefix;
++  op_dom_set_attr(wire(element), namespace ?? "", kept ?? "", localName, value);
++  if (existing === null) {
++    element._attrView = null;
++  }
++  handleAttributeChanges(element, localName, namespace, existing === null ? null : existing.value, value);
+ }
+ 
+ // https://dom.spec.whatwg.org/#concept-element-attributes-change
+ exports.changeAttribute = (element, attribute, value) => {
+   const oldValue = attribute._value;
+   attribute._value = value;
+-  handleAttributeChanges(element, attribute, oldValue, value);
++  handleAttributeChanges(element, attribute._localName, attribute._namespace, oldValue, value);
+ };
  
  // https://dom.spec.whatwg.org/#concept-element-attributes-append
  exports.appendAttribute = function (element, attribute) {
@@ -257,8 +327,9 @@ index 65486849e6..ab0694b879 100644
 -    entry.push(attribute);
 -  }
 -
+-  handleAttributeChanges(element, attribute, null, attribute._value);
 +  attach(element, attribute);
-   handleAttributeChanges(element, attribute, null, attribute._value);
++  handleAttributeChanges(element, attribute._localName, attribute._namespace, null, attribute._value);
  };
  
 +// https://dom.spec.whatwg.org/#concept-element-attributes-remove
@@ -285,13 +356,13 @@ index 65486849e6..ab0694b879 100644
 -
 -      return;
 -    }
-+  if (!isAttached(element, attribute)) {
++  if (attribute._element !== element) {
 +    return;
    }
 +  const value = attribute._value;
 +  op_dom_remove_attr(element._wire, attribute._namespace ?? "", attribute._localName);
 +  detach(element, attribute);
-+  handleAttributeChanges(element, attribute, value, null);
++  handleAttributeChanges(element, attribute._localName, attribute._namespace, value, null);
  };
  
 +// https://dom.spec.whatwg.org/#concept-element-attributes-replace
@@ -328,16 +399,159 @@ index 65486849e6..ab0694b879 100644
 -
 -      return;
 -    }
-+  if (!isAttached(element, oldAttr)) {
++  if (oldAttr._element !== element) {
 +    return;
    }
 +  const oldValue = oldAttr._value;
 +  detach(element, oldAttr);
 +  attach(element, newAttr);
-+  handleAttributeChanges(element, oldAttr, oldValue, newAttr._value);
++  handleAttributeChanges(element, oldAttr._localName, oldAttr._namespace, oldValue, newAttr._value);
  };
  
++// https://dom.spec.whatwg.org/#concept-element-attributes-get-by-name
  exports.getAttributeByName = function (element, name) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-get-by-name
+-
+-  if (element._namespaceURI === HTML_NS &&
+-      element._ownerDocument._parsingMode === "html") {
+-    name = asciiLowercase(name);
+-  }
+-
+-  const cache = element._attributesByNameMap;
+-  const entry = cache.get(name);
+-  if (!entry) {
+-    return null;
+-  }
+-
+-  return entry[0];
++  const found = recordByName(element, name);
++  return found === null ? null : attrFor(element, found);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-get-by-namespace
+ exports.getAttributeByNameNS = function (element, namespace, localName) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-get-by-namespace
+-
+-  if (namespace === "") {
+-    namespace = null;
+-  }
+-
+-  const attributeList = element._attributeList;
+-  for (let i = 0; i < attributeList.length; ++i) {
+-    const attr = attributeList[i];
+-    if (attr._namespace === namespace && attr._localName === localName) {
+-      return attr;
+-    }
+-  }
+-
+-  return null;
+-};
+-
+-// Both of the following functions implement https://dom.spec.whatwg.org/#concept-element-attributes-get-value.
+-// Separated them into two to keep symmetry with other functions.
++  const found = record(element, namespace === "" ? null : namespace, localName);
++  return found === null ? null : attrFor(element, found);
++};
++
++// The value of the attribute that getAttributeByName() would return, or null.
++exports.getAttributeValueByName = function (element, name) {
++  return recordByName(element, name)?.value ?? null;
++};
++
++// The value of the attribute that getAttributeByNameNS() would return, or null.
++exports.getAttributeValueByNameNS = function (element, namespace, localName) {
++  return record(element, namespace === "" ? null : namespace, localName)?.value ?? null;
++};
++
++// https://dom.spec.whatwg.org/#concept-element-attributes-get-value
+ exports.getAttributeValue = function (element, localName) {
+-  const attr = exports.getAttributeByNameNS(element, null, localName);
+-
+-  if (!attr) {
+-    return "";
+-  }
+-
+-  return attr._value;
++  return record(element, null, localName)?.value ?? "";
+ };
+ 
+ exports.getAttributeValueNS = function (element, namespace, localName) {
+-  const attr = exports.getAttributeByNameNS(element, namespace, localName);
+-
+-  if (!attr) {
+-    return "";
+-  }
+-
+-  return attr._value;
++  return record(element, namespace, localName)?.value ?? "";
+ };
+ 
+ exports.setAttribute = function (element, attr) {
+@@ -211,30 +204,20 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
+   return oldAttr;
+ };
+ 
+-exports.setAttributeValue = function (element, localName, value, prefix, namespace) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-set-value
+-
+-  if (prefix === undefined) {
+-    prefix = null;
+-  }
+-  if (namespace === undefined) {
+-    namespace = null;
+-  }
+-
+-  const attribute = exports.getAttributeByNameNS(element, namespace, localName);
+-  if (attribute === null) {
+-    const newAttribute = element._ownerDocument._createAttribute({
+-      namespace,
+-      namespacePrefix: prefix,
+-      localName,
+-      value
+-    });
+-    exports.appendAttribute(element, newAttribute);
+-
+-    return;
+-  }
+-
+-  exports.changeAttribute(element, attribute, value);
++// https://dom.spec.whatwg.org/#concept-element-attributes-set-value
++exports.setAttributeValue = function (element, localName, value, prefix = null, namespace = null) {
++  writeAttribute(element, record(element, namespace, localName), namespace, prefix, localName, value);
++};
++
++// Element's setAttribute() and toggleAttribute(): an existing attribute is found by its qualified
++// name, a new one gets it as its local name. `name` is already lowercased where that applies.
++exports.setAttributeValueByName = function (element, name, value) {
++  const found = recordByName(element, name);
++  if (found === null) {
++    writeAttribute(element, null, null, null, name, value);
++  } else {
++    writeAttribute(element, found, found.ns, found.prefix, found.local, value);
++  }
+ };
+ 
+ // https://dom.spec.whatwg.org/#set-an-existing-attribute-value
+@@ -273,12 +256,15 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
+ 
+ exports.attributeNames = function (element) {
+   // Needed by https://dom.spec.whatwg.org/#dom-element-getattributenames
+-
+-  return element._attributeList.map(a => a._qualifiedName);
++  if (element._wire < 0) {
++    return [];
++  }
++  return op_dom_attrs(element._wire).map(r => {
++    return r.prefix === null ? r.local : r.prefix + ":" + r.local;
++  });
+ };
+ 
+ exports.hasAttributes = function (element) {
+   // Needed by https://dom.spec.whatwg.org/#dom-element-hasattributes
+-
+-  return element._attributeList.length > 0;
++  return element._wire >= 0 && op_dom_attrs(element._wire).length > 0;
+ };
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 index 26a1aec94c..c16a15ce1e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
@@ -1038,10 +1252,10 @@ index 1a4ff3d5a7..7a9667b098 100644
    }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
-index 86e0f40b48..eff36f9a06 100644
+index 86e0f40b48..07ba83eea7 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
-@@ -44,12 +44,21 @@ constructor(globalObject, args, privateData) {
+@@ -44,12 +44,16 @@ constructor(globalObject, args, privateData) {
      this.scrollTop = 0;
      this.scrollLeft = 0;
  
@@ -1049,9 +1263,8 @@ index 86e0f40b48..eff36f9a06 100644
 -    // Used for caching.
 -    this._attributesByNameMap = new Map();
 +    this._attrNodes = null;
-+    // Views over the arena's attributes, dropped whenever one is added or removed.
++    // A view over the arena's attributes, dropped whenever one is added or removed.
 +    this._attrView = null;
-+    this._attrNames = null;
      this._attributes = null;
    }
  
@@ -1059,13 +1272,69 @@ index 86e0f40b48..eff36f9a06 100644
 +    return (this._attrView ??= attributes.attributeList(this));
 +  }
 +
-+  get _attributesByNameMap() {
-+    return (this._attrNames ??= attributes.attributesByName(this));
-+  }
-+
    // Overrides call `super` first so document-dependent caches are cleared before further adoption work.
    _adoptingSteps() {
      // `tagName` depends on whether the node document is HTML, even before the element is inserted again.
+@@ -175,19 +179,11 @@ getAttributeNames() {
+   }
+ 
+   getAttribute(name) {
+-    const attr = attributes.getAttributeByName(this, name);
+-    if (!attr) {
+-      return null;
+-    }
+-    return attr._value;
++    return attributes.getAttributeValueByName(this, name);
+   }
+ 
+   getAttributeNS(namespace, localName) {
+-    const attr = attributes.getAttributeByNameNS(this, namespace, localName);
+-    if (!attr) {
+-      return null;
+-    }
+-    return attr._value;
++    return attributes.getAttributeValueByNameNS(this, namespace, localName);
+   }
+ 
+   setAttribute(name, value) {
+@@ -197,18 +193,7 @@ setAttribute(name, value) {
+       name = asciiLowercase(name);
+     }
+ 
+-    const attribute = attributes.getAttributeByName(this, name);
+-
+-    if (attribute === null) {
+-      const newAttr = this._ownerDocument._createAttribute({
+-        localName: name,
+-        value
+-      });
+-      attributes.appendAttribute(this, newAttr);
+-      return;
+-    }
+-
+-    attributes.changeAttribute(this, attribute, value);
++    attributes.setAttributeValueByName(this, name, value);
+   }
+ 
+   setAttributeNS(namespace, name, value) {
+@@ -236,15 +221,9 @@ toggleAttribute(qualifiedName, force) {
+       qualifiedName = asciiLowercase(qualifiedName);
+     }
+ 
+-    const attribute = attributes.getAttributeByName(this, qualifiedName);
+-
+-    if (attribute === null) {
++    if (!attributes.hasAttributeByName(this, qualifiedName)) {
+       if (force === undefined || force === true) {
+-        const newAttr = this._ownerDocument._createAttribute({
+-          localName: qualifiedName,
+-          value: ""
+-        });
+-        attributes.appendAttribute(this, newAttr);
++        attributes.setAttributeValueByName(this, qualifiedName, "");
+         return true;
+       }
+       return false;
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 index ace803c6bb..5949ae2d48 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
