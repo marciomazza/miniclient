@@ -519,7 +519,8 @@
  ],
  "/fetch/api/cors/cors-cookies-redirect.any.html": [
   "Clean cookies",
-  "Set cookies"
+  "Set cookies",
+  "Testing credentials after cross-origin redirection with CORS and preflight"
  ],
  "/fetch/api/cors/cors-cookies.any.html": [
   "Include mode: 1 cookie",
@@ -782,7 +783,6 @@
   "Redirect 307: cors to same cors",
   "Redirect 307: same origin to cors",
   "Redirect 308: cors to same cors",
-  "Redirect 308: cors to same origin",
   "Redirect 308: same origin to cors"
  ],
  "/fetch/api/credentials/authentication-basic.any.html": [
@@ -1079,7 +1079,6 @@
   "[GET] Redirect 307 Same origin to other origin",
   "[GET] Redirect 307 Same origin to same origin",
   "[GET] Redirect 308 Other origin to other origin",
-  "[GET] Redirect 308 Other origin to same origin",
   "[GET] Redirect 308 Same origin to other origin",
   "[GET] Redirect 308 Same origin to same origin",
   "[POST] Redirect 301 Other origin to other origin",
@@ -1087,6 +1086,7 @@
   "[POST] Redirect 302 Other origin to other origin",
   "[POST] Redirect 302 Same origin to other origin",
   "[POST] Redirect 303 Other origin to other origin",
+  "[POST] Redirect 303 Other origin to same origin",
   "[POST] Redirect 303 Same origin to other origin",
   "[POST] Redirect 307 Other origin to other origin",
   "[POST] Redirect 307 Same origin to other origin",
