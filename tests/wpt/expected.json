@@ -281,7 +281,6 @@
   "about:client referrer",
   "url referrer"
  ],
- "/fetch/api/basic/request-upload-421.any.html": [],
  "/fetch/api/basic/request-upload.any.html": [
   "Fetch with POST with ArrayBuffer body",
   "Fetch with POST with Blob body",

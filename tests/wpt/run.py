@@ -3,7 +3,8 @@
     uv run python tests/wpt/run.py            # fail on regressions
     uv run python tests/wpt/run.py --update   # record what passes in 3 runs as the new baseline
 
-Needs vendor/wpt (scripts/setup-vendor-wpt.sh) and a built extension (`just develop`).
+Needs vendor/jsdom with its test/web-platform-tests submodule checked out, and a built extension
+(`just develop`).
 """
 
 import asyncio
@@ -21,7 +22,7 @@ import httpx2 as httpx
 from miniclient.browser import AsyncPage, Browser
 
 HERE = Path(__file__).parent
-WPT = HERE.parent.parent / "vendor" / "wpt"
+WPT = HERE.parent.parent / "vendor" / "jsdom" / "test" / "web-platform-tests" / "tests"
 FILE_TIMEOUT = 90
 
 # Replaces WPT's reporter so the page leaves its results in `window.__wpt`.

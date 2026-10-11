@@ -21,7 +21,6 @@
 /fetch/api/basic/request-headers-nonascii.any.html
 /fetch/api/basic/request-headers.any.html
 /fetch/api/basic/request-referrer.any.html
-/fetch/api/basic/request-upload-421.any.html
 /fetch/api/basic/request-upload.any.html
 /fetch/api/basic/response-null-body.any.html
 /fetch/api/basic/response-url.sub.any.html
