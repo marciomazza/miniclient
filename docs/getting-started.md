@@ -49,9 +49,6 @@ with Page(Browser()) as page:
     print(page.find("#greeting").text)
 ```
 
-Note: `Page` doesn't expose a `.runtime` property the way `AsyncPage` does — use `eval()`
-instead.
-
 ## Async usage
 
 An `AsyncPage` equivalent is available for async codebases:

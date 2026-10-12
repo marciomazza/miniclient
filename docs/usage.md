@@ -170,7 +170,7 @@ badges = row.find_all(".badge", text="new")
 
 ```python
 el.html          # outerHTML — the element's tag plus its content
-el.innerHTML     # innerHTML — the element's content, without its own tag
+el.inner_html    # innerHTML — the element's content, without its own tag
 el.text          # textContent — all text inside, with tags stripped
 el.attr("href")  # value of the "href" attribute, or None if absent
 el.parent        # the parent Element, or None if there is no parent
@@ -203,8 +203,7 @@ plain `fetch()`, or another framework's async work).
 
 ## Submitting forms
 
-`page.find(...)` returns a `FormElement` when the match is a `<form>`, which adds
-`request_submit()`:
+`request_submit()` submits a `<form>` element:
 
 ```python
 form = page.find("form")
@@ -232,18 +231,12 @@ title = page.eval("document.title")
 height = page.find("#panel").eval("this.scrollHeight")
 ```
 
-On an `AsyncPage`, elements also have `eval_async()`:
+On an `AsyncPage`, `eval()` (on the page and on elements) is a coroutine: `await` it. It also
+awaits the result when the JavaScript returns a promise:
 
 ```python
 async with AsyncPage(browser) as page:
-    data = await page.find("#panel").eval_async("this.loadData()")  # this.loadData() returns a promise
-```
-
-`AsyncPage` also has `eval_async()`, which awaits the result when the JavaScript returns a
-promise:
-
-```python
-async with AsyncPage(browser) as page:
-    title = page.eval("document.title")
-    status = await page.eval_async("fetch('/api/status').then(r => r.json())")
+    title = await page.eval("document.title")
+    status = await page.eval("fetch('/api/status').then(r => r.json())")
+    data = await page.find("#panel").eval("this.loadData()")  # returns a promise
 ```
