@@ -17,6 +17,14 @@ test: test-rust test-py
 test-wpt: develop
     uv run python tests/wpt/run.py
 
+# Larger WPT set (~20 min); fails on regressions from tests/wpt/expected-extended.json.
+test-wpt-extended: develop
+    uv run python tests/wpt/run.py --extended
+
+# Re-record the WPT baseline (3 runs); pass --extended for the larger set.
+update-wpt *args: develop
+    uv run python tests/wpt/run.py --update {{args}}
+
 # Regenerate patches/ from vendor/jsdom, then reinstall so node_modules matches.
 # Each patch's header names the fork change it came from.
 sync-jsdom:
