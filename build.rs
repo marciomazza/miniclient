@@ -117,6 +117,9 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
         ("warmup".into(), read(&js.join("snapshot_warmup.js"))),
     ];
 
+    // Eager compile bakes function bytecode into the snapshot, so no isolate recompiles jsdom
+    // after restore. Build-script process only: runtime isolates set their own flags.
+    deno_core::v8::V8::set_flags_from_string("--no-lazy");
     let snapshot = deno_core::snapshot::create_snapshot(
         deno_core::snapshot::CreateSnapshotOptions {
             cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),

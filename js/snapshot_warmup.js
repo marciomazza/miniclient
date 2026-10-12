@@ -1,7 +1,8 @@
 // @ts-check
 // Second pass of deno_core's two-pass snapshot: this runs against the cold snapshot, and the
-// context it exercises is what ships, so whatever it compiles is already compiled at Page
-// load. It warms what every Page pays for first -- window construction, jsdom's HTML parser,
+// context it exercises is what ships. The snapshot is built with eager compilation, so this
+// is not about compiling code; it builds the lazily initialised state (css-tree grammar,
+// regexps, caches) that every Page would otherwise pay for first -- window construction, jsdom's HTML parser,
 // DOM manipulation and traversal, FormData, and the CSS stack (stylesheet parse, selectors,
 // computed style). It ships in production, so it must never
 // touch anything from tests/.
