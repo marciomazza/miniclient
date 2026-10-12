@@ -204,11 +204,11 @@ plain `fetch()`, or another framework's async work).
 ## Submitting forms
 
 `page.find(...)` returns a `FormElement` when the match is a `<form>`, which adds
-`requestSubmit()`:
+`request_submit()`:
 
 ```python
 form = page.find("form")
-form.requestSubmit()
+form.request_submit()
 ```
 
 If a script (e.g. htmx via `hx-post`, `hx-get`, ...) intercepts the submit, this waits for the

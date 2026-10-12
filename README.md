@@ -29,7 +29,7 @@ from miniclient.browser import Browser, Page
 with Page(Browser()) as page:
     page.goto("http://localhost:8000/")
     page.find("input[name=q]").fill("htmx")
-    page.find("form").requestSubmit()
+    page.find("form").request_submit()
     page.find("#load-more").click()
     print(len(page.find_all("#results li")), "results")
     print(page.find("#results li:first-child").text)

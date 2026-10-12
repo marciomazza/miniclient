@@ -23,7 +23,7 @@ with Page(Browser()) as page:
     print(page.find("#results").text)
 ```
 
-Filling in a form and submitting it works the same way, through `fill()` and `requestSubmit()`:
+Filling in a form and submitting it works the same way, through `fill()` and `request_submit()`:
 
 ```python
 from miniclient.browser import Browser, Page
@@ -32,7 +32,7 @@ with Page(Browser()) as page:
     page.goto("http://localhost:8000/signup")
     page.find("input[name=name]").fill("Ada")
     page.find("input[name=email]").fill("ada@example.com")
-    page.find("form").requestSubmit()
+    page.find("form").request_submit()
     print(page.find("#result").text)
 ```
 
