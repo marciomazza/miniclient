@@ -1,0 +1,62 @@
+diff --git a/node_modules/tough-cookie/dist/index.cjs b/node_modules/tough-cookie/dist/index.cjs
+index 4d2b958..d0b430a 100644
+--- a/node_modules/tough-cookie/dist/index.cjs
++++ b/node_modules/tough-cookie/dist/index.cjs
+@@ -462,7 +462,7 @@ function canonicalDomain(domainName) {
+     return void 0;
+   }
+   let str = domainName.trim().replace(/^\./, "");
+-  if (IP_V6_REGEX_OBJECT.test(str)) {
++  if (str.includes(":") && IP_V6_REGEX_OBJECT.test(str)) {
+     if (!str.startsWith("[")) {
+       str = "[" + str;
+     }
+@@ -1357,7 +1357,7 @@ function isPotentiallyTrustworthy(inputUrl, allowSecureOnLocal = true) {
+   if (IP_V4_REGEX_OBJECT.test(hostname)) {
+     return isLoopbackV4(hostname);
+   }
+-  if (IP_V6_REGEX_OBJECT.test(hostname)) {
++  if (hostname.includes(":") && IP_V6_REGEX_OBJECT.test(hostname)) {
+     return isLoopbackV6(hostname);
+   }
+   return isLocalHostname(hostname);
+@@ -1536,7 +1536,7 @@ var CookieJar = class _CookieJar {
+           allowSpecialUseDomain: this.allowSpecialUseDomain,
+           ignoreError: options?.ignoreError
+         }) : null;
+-        if (suffix == null && !IP_V6_REGEX_OBJECT.test(cookie.domain)) {
++        if (suffix == null && !(cookie.domain.includes(":") && IP_V6_REGEX_OBJECT.test(cookie.domain))) {
+           const err = new Error("Cookie has domain set to a public suffix");
+           return options?.ignoreError ? promiseCallback.resolve(void 0) : promiseCallback.reject(err);
+         }
+diff --git a/node_modules/tough-cookie/dist/index.js b/node_modules/tough-cookie/dist/index.js
+index 1316d41..aade6ec 100644
+--- a/node_modules/tough-cookie/dist/index.js
++++ b/node_modules/tough-cookie/dist/index.js
+@@ -418,7 +418,7 @@ function canonicalDomain(domainName) {
+     return void 0;
+   }
+   let str = domainName.trim().replace(/^\./, "");
+-  if (IP_V6_REGEX_OBJECT.test(str)) {
++  if (str.includes(":") && IP_V6_REGEX_OBJECT.test(str)) {
+     if (!str.startsWith("[")) {
+       str = "[" + str;
+     }
+@@ -1313,7 +1313,7 @@ function isPotentiallyTrustworthy(inputUrl, allowSecureOnLocal = true) {
+   if (IP_V4_REGEX_OBJECT.test(hostname)) {
+     return isLoopbackV4(hostname);
+   }
+-  if (IP_V6_REGEX_OBJECT.test(hostname)) {
++  if (hostname.includes(":") && IP_V6_REGEX_OBJECT.test(hostname)) {
+     return isLoopbackV6(hostname);
+   }
+   return isLocalHostname(hostname);
+@@ -1492,7 +1492,7 @@ var CookieJar = class _CookieJar {
+           allowSpecialUseDomain: this.allowSpecialUseDomain,
+           ignoreError: options?.ignoreError
+         }) : null;
+-        if (suffix == null && !IP_V6_REGEX_OBJECT.test(cookie.domain)) {
++        if (suffix == null && !(cookie.domain.includes(":") && IP_V6_REGEX_OBJECT.test(cookie.domain))) {
+           const err = new Error("Cookie has domain set to a public suffix");
+           return options?.ignoreError ? promiseCallback.resolve(void 0) : promiseCallback.reject(err);
+         }

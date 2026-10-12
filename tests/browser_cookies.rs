@@ -93,3 +93,24 @@ async fn cookie_set_on_a_followed_redirect_reaches_the_jar() {
 // `_redirect_headers`) -- behavior specific to that concrete `FetchBackend` implementation, not
 // to `bootstrap.js`/jsdom or to the generic `FetchBackend` trait `MockFetchBackend` stands in
 // for here. `MockFetchBackend` has no redirect-following HTTP client of its own to reseed.
+
+/// Host forms that take the IPv6/IP paths in tough-cookie (literals, loopback, a plain domain)
+/// must keep accepting host-only and `Domain` cookies.
+#[tokio::test]
+async fn document_cookie_works_on_ip_literal_and_domain_hosts() {
+    for (url, cookie) in [
+        ("http://localhost/", "a=1; Secure"),
+        ("http://[::1]/", "a=1"),
+        ("http://127.0.0.1/", "a=1"),
+        ("http://sub.example.com/", "a=1; Domain=example.com"),
+    ] {
+        let page = Browser::new("{}", false).new_page();
+        let mock = MockFetchBackend::new();
+        mock.text(url, "<p></p>");
+        page.install_fetch_backend(Arc::new(mock)).await;
+        page.goto(url).await.unwrap();
+        common::arun_async(&page.runtime(), &format!("document.cookie = '{cookie}'")).await;
+        let document_cookie: String = aeval_async(&page.runtime(), "document.cookie").await;
+        assert_eq!(document_cookie, "a=1", "{url}");
+    }
+}

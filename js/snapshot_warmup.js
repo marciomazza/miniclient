@@ -278,5 +278,27 @@
     dom.window.close();
 })();
 
+// Cookies: tough-cookie's first parse/match/serialise in a fresh isolate otherwise compiles cold
+// (~1.5 ms for the first `document.cookie` set). Covers the paths a Page takes: document.cookie
+// set and get, Set-Cookie with Expires and Max-Age, the dispatcher's per-hop string read, and the
+// serialise/deserialise that carries the jar across a navigation.
+(() => {
+    const Jar = globalThis.__JSDOMCookieJar;
+    const jar = new Jar();
+    const dom = new JSDOM("", { url: "http://localhost/a/b", cookieJar: jar });
+    const doc = dom.window.document;
+    doc.cookie = "sessionid=abcdef0123456789; path=/";
+    doc.cookie = "w=1; Max-Age=3600; SameSite=Lax; Secure";
+    jar.setCookieSync(
+        "csrftoken=abc; expires=Wed, 08 Oct 2037 10:00:00 GMT; Max-Age=31449600; Path=/; HttpOnly",
+        "http://localhost/a/b",
+        { ignoreError: true },
+    );
+    doc.cookie;
+    jar.getCookieStringSync("http://localhost/x");
+    Jar.deserializeSync(/** @type {any} */ (jar.serializeSync()), new Jar().store);
+    dom.window.close();
+})();
+
 globalThis.__clearDomBindings();
 delete (/** @type {any} */ (globalThis).__clearDomBindings);
