@@ -203,6 +203,61 @@ async fn request_submit_multipart_sends_the_selected_file_bytes() {
     assert!(has(br#"name="we%22ird""#));
 }
 
+/// Loads a form with a selected file `a.txt`, submits it and returns the mocked backend.
+async fn submit_form_with_file(form_attrs: &str, url: &str) -> MockFetchBackend {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    mock.text(url, "<body><p>done</p></body>");
+    page.install_fetch_backend(Arc::new(mock.clone())).await;
+    page.load(&format!(
+        r#"<form {form_attrs}><input type="file" name="f"></form>"#
+    ))
+    .await
+    .unwrap();
+    arun_async(
+        &page.runtime(),
+        r#"const input = document.querySelector("input[type=file]");
+           const dt = new DataTransfer();
+           dt.items.add(new File(["x"], "a.txt"));
+           input.files = dt.files;
+           void 0;"#,
+    )
+    .await;
+    let form = page.find("form", None).await.unwrap().unwrap();
+    form.request_submit().await.unwrap();
+    mock
+}
+
+#[tokio::test]
+async fn request_submit_urlencoded_sends_the_selected_filename() {
+    let mock = submit_form_with_file(
+        r#"method="post" action="/upload""#,
+        "http://localhost/upload",
+    )
+    .await;
+    assert_eq!(mock.last_request().body, b"f=a.txt");
+}
+
+#[tokio::test]
+async fn request_submit_get_sends_the_selected_filename() {
+    let mock = submit_form_with_file(
+        r#"method="get" action="/upload""#,
+        "http://localhost/upload?f=a.txt",
+    )
+    .await;
+    assert_eq!(mock.last_request().url, "http://localhost/upload?f=a.txt");
+}
+
+#[tokio::test]
+async fn request_submit_text_plain_sends_the_selected_filename() {
+    let mock = submit_form_with_file(
+        r#"method="post" enctype="text/plain" action="/upload""#,
+        "http://localhost/upload",
+    )
+    .await;
+    assert_eq!(mock.last_request().body, b"f=a.txt\r\n");
+}
+
 /// `click()`/`trigger()`/`fill()` wait for the page to settle, even for a plain (non-htmx)
 /// `fetch()`-driven handler.
 #[tokio::test]

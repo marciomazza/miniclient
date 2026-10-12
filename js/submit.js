@@ -34,11 +34,13 @@ export function formSubmitFetch(form, submitter) {
     const method = form.method; // already normalized/defaulted by jsdom: "get" or "post"
     const enctype = form.enctype; // already normalized/defaulted to urlencoded
     const formData = new FormData(form, submitter); // includes submitter's name/value
+    // Non-multipart encodings send a file entry as its filename, never as "[object File]".
+    const pairs = [...formData].map(([k, v]) => [k, v instanceof File ? v.name : v]);
 
     async function navigate() {
         if (method === "get") {
             const url = new URL(form.action);
-            url.search = new URLSearchParams(/** @type {any} */ (formData)).toString();
+            url.search = new URLSearchParams(/** @type {any} */ (pairs)).toString();
             Deno.core.ops.op_request_navigation(url.href, "push");
             return;
         }
@@ -50,13 +52,11 @@ export function formSubmitFetch(form, submitter) {
             body = new Uint8Array(await res.arrayBuffer());
             headers = { "content-type": /** @type {string} */ (res.headers.get("content-type")) };
         } else if (enctype === "text/plain") {
-            body = new TextEncoder().encode(
-                [...formData].map(([k, v]) => `${k}=${v}\r\n`).join(""),
-            );
+            body = new TextEncoder().encode(pairs.map(([k, v]) => `${k}=${v}\r\n`).join(""));
             headers = { "content-type": "text/plain" };
         } else {
             body = new TextEncoder().encode(
-                new URLSearchParams(/** @type {any} */ (formData)).toString(),
+                new URLSearchParams(/** @type {any} */ (pairs)).toString(),
             );
             // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8"; real
             // browsers send the bare mime type for form submissions.
