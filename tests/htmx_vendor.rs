@@ -54,11 +54,23 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
 ];
 
 /// Tests whose `htmx.timeout()` waits need slack beyond the timers they exercise.
-const TIMER_SLACK_TESTS: &[(&str, &str, &str)] = &[(
-    "hx-ws",
-    "Error Handling and Reconnection",
-    "reconnects after every default close code",
-)];
+const TIMER_SLACK_TESTS: &[(&str, &str, &str)] = &[
+    (
+        "hx-ws",
+        "Error Handling and Reconnection",
+        "reconnects after every default close code",
+    ),
+    (
+        "hx-ws",
+        "Message Sending",
+        "queues messages during reconnect and sends them in order",
+    ),
+    (
+        "hx-ws",
+        "Message Sending",
+        "rejects messages when the outgoing queue is full",
+    ),
+];
 
 /// (file stem, suite, test name) rewritten to `it.skip(...)` before the file runs -- not just
 /// filtered from results, since some failures are fatal to the whole `eval_promise` call and
