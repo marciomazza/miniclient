@@ -160,6 +160,50 @@ async fn request_submit_post_sends_the_forms_encoded_body() {
     assert_eq!(el.text().await.unwrap(), "done");
 }
 
+#[tokio::test]
+async fn request_submit_multipart_sends_the_selected_file_bytes() {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/upload", "<body><p>done</p></body>");
+    page.install_fetch_backend(Arc::new(mock.clone())).await;
+    page.load(
+        r#"<form method="post" enctype="multipart/form-data" action="/upload">
+           <input type="file" name="f"><input name='we"ird' value="v"></form>"#,
+    )
+    .await
+    .unwrap();
+    // 0xff 0xfe is not valid UTF-8: a string round trip would mangle it.
+    arun_async(
+        &page.runtime(),
+        r#"const input = document.querySelector("input[type=file]");
+           const file = new File([new Uint8Array([0x61, 0xff, 0xfe, 0x62])], "a.bin",
+                                 { type: "application/x-test" });
+           const dt = new DataTransfer();
+           dt.items.add(file);
+           input.files = dt.files;
+           void 0;"#,
+    )
+    .await;
+
+    let form = page.find("form", None).await.unwrap().unwrap();
+    form.request_submit().await.unwrap();
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "POST");
+    assert!(
+        request
+            .header("content-type")
+            .unwrap()
+            .starts_with("multipart/form-data; boundary=")
+    );
+    let body = &request.body;
+    let has = |needle: &[u8]| body.windows(needle.len()).any(|w| w == needle);
+    assert!(has(br#"name="f"; filename="a.bin""#));
+    assert!(has(b"Content-Type: application/x-test"));
+    assert!(has(b"\r\n\r\na\xff\xfeb\r\n"));
+    assert!(has(br#"name="we%22ird""#));
+}
+
 /// `click()`/`trigger()`/`fill()` wait for the page to settle, even for a plain (non-htmx)
 /// `fetch()`-driven handler.
 #[tokio::test]

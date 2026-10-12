@@ -12,18 +12,6 @@ export function contentTypeFor(path) {
     return "application/octet-stream";
 }
 
-// Shared by fetch()'s own FormData handling (bootstrap.js) and submit.js's POST branch.
-/** @param {FormData} formData */
-export function serializeMultipart(formData) {
-    const boundary = "----HxClientBoundary" + Math.random().toString(36).slice(2, 18);
-    let body = "";
-    for (const [name, value] of formData) {
-        body += `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
-    }
-    body += `--${boundary}--`;
-    return { boundary, body };
-}
-
 // Per-Window jsdom polyfills, installed by bootstrap.js's registerWindowGlobals on every
 // navigation. Each takes the new `win` as a parameter rather than closing over one, so
 // they're reusable across every Window instance instead of being redefined per restore.

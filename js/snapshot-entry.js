@@ -11,7 +11,6 @@ import {
     installInnerHtmlRadioFix,
     installInnerText,
     installXPathShortCircuit,
-    serializeMultipart,
 } from "./mini_helpers.js";
 
 // The Python<->JS bridge surface. bootstrap.js adds the navigation members once per boot.
@@ -25,7 +24,6 @@ globalThis.__mini = /** @type {Mini} */ (
         baseDispatcher,
         makeFetch,
         contentTypeFor,
-        serializeMultipart,
         installInnerHtmlRadioFix,
         installInnerText,
         installXPathShortCircuit,

@@ -234,7 +234,7 @@ pub struct PendingNavigation {
     pub url: String,
     pub mode: NavigationMode,
     pub method: String,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
     pub headers: HashMap<String, String>,
 }
 
@@ -256,14 +256,14 @@ pub fn op_request_navigation(
     #[string] url: String,
     #[serde] mode: NavigationMode,
     #[string] method: Option<String>,
-    #[string] body: Option<String>,
+    #[buffer] body: Option<JsBuffer>,
     #[serde] headers: Option<HashMap<String, String>>,
 ) {
     state.put(PendingNavigation {
         url,
         mode,
         method: method.unwrap_or_else(|| "GET".to_string()),
-        body,
+        body: body.map(|b| b.to_vec()),
         headers: headers.unwrap_or_default(),
     });
 }

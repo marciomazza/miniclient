@@ -132,7 +132,7 @@ fn navigation_trigger_carries_a_post_body_and_headers_across_the_navigation() {
 
     rt.run(
         "Deno.core.ops.op_request_navigation(\
-           'http://localhost/next', 'push', 'post', 'a=1', \
+           'http://localhost/next', 'push', 'post', new TextEncoder().encode('a=1'), \
            {'content-type': 'application/x-www-form-urlencoded'}\
          ); void 0",
     );

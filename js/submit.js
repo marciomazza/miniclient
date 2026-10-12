@@ -1,6 +1,5 @@
 // @ts-check
 import { deref } from "./element_registry.js";
-import { serializeMultipart } from "./mini_helpers.js";
 
 // Form submission. Navigation primitives live in bootstrap.js.
 
@@ -46,16 +45,19 @@ export function formSubmitFetch(form, submitter) {
 
         let body, headers;
         if (enctype === "multipart/form-data") {
-            const serialized = serializeMultipart(formData);
-            body = serialized.body;
-            headers = {
-                "content-type": `multipart/form-data; boundary=${serialized.boundary}`,
-            };
+            // Same encoder as fetch(), so files keep their filename, type and bytes.
+            const res = new Response(formData);
+            body = new Uint8Array(await res.arrayBuffer());
+            headers = { "content-type": /** @type {string} */ (res.headers.get("content-type")) };
         } else if (enctype === "text/plain") {
-            body = [...formData].map(([k, v]) => `${k}=${v}\r\n`).join("");
+            body = new TextEncoder().encode(
+                [...formData].map(([k, v]) => `${k}=${v}\r\n`).join(""),
+            );
             headers = { "content-type": "text/plain" };
         } else {
-            body = new URLSearchParams(/** @type {any} */ (formData)).toString();
+            body = new TextEncoder().encode(
+                new URLSearchParams(/** @type {any} */ (formData)).toString(),
+            );
             // Fetch's own URLSearchParams-body handling appends ";charset=UTF-8"; real
             // browsers send the bare mime type for form submissions.
             headers = { "content-type": "application/x-www-form-urlencoded" };

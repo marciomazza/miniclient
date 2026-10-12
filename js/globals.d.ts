@@ -14,7 +14,6 @@ interface Mini {
   formSubmitFetch(form: HTMLFormElement, submitter?: HTMLElement | null): void;
   submit(handle: number): Promise<void>;
   contentTypeFor(path: string): string;
-  serializeMultipart(formData: FormData): { boundary: string; body: string };
   installXPathShortCircuit(win: JSDOMWindow): void;
   installInnerHtmlRadioFix(win: JSDOMWindow): void;
   installInnerText(win: JSDOMWindow): void;
@@ -80,7 +79,7 @@ declare namespace Deno {
         url: string,
         mode: NavigationMode,
         method?: string,
-        body?: string,
+        body?: Uint8Array,
         headers?: Record<string, string>,
       ): void;
       op_fetch_hop(...args: any[]): any;

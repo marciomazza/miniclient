@@ -46,6 +46,6 @@ globalThis.__createDataTransfer = createDataTransfer;
 globalThis.__createRealFileList = function (win, fileWrappers) {
     const wrapper = createFileListWrapper(win, [], {});
     const impl = implForWrapper(wrapper);
-    for (const f of fileWrappers) impl.push(f);
+    for (const f of fileWrappers) impl.push(implForWrapper(f));
     return wrapper;
 };

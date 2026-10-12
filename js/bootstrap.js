@@ -328,7 +328,9 @@
     async function fetchAndWrite(url, request) {
         let html;
         try {
-            const res = await fetch(url, request);
+            // The body crosses from Rust as a JSON array of byte values (JSON has no bytes).
+            const body = Array.isArray(request.body) ? Uint8Array.from(request.body) : request.body;
+            const res = await fetch(url, { ...request, body });
             html = await res.text();
         } catch (err) {
             // Never revert to the old document -- it's already gone. Commit an error-state
