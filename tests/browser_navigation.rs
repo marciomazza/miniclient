@@ -1,7 +1,6 @@
 //! `browser::Page`/`browser::Element`'s mutation and navigation surface (goto/load/click/fill/
 //! trigger/requestSubmit), driven directly by `tokio::test` -- same `MockFetchBackend` the
-//! runtime-level navigation suites (`tests/navigation_fetch.rs`, `tests/navigation_trigger.rs`)
-//! use, no pyo3/Python involved.
+//! runtime-level navigation suite (`tests/navigation_trigger.rs`) uses, no pyo3/Python involved.
 
 mod common;
 
@@ -249,9 +248,7 @@ async fn goto_loads_head_and_body() {
 
 /// A failed fetch must not error out of `goto()` -- the new realm is already committed and the
 /// old document is gone, so `goto()` surfaces the failure as an error-state document, same as a
-/// real browser's top-level navigation. The error document's own shape is covered by
-/// `tests/navigation_fetch.rs`; this only checks `browser::Page::goto` doesn't propagate an
-/// `Err` for it.
+/// real browser's top-level navigation.
 #[tokio::test]
 async fn goto_commits_an_error_document_on_failed_navigation() {
     let page = Browser::new("{}", false).new_page();
@@ -611,4 +608,47 @@ async fn goto_swaps_in_a_prebooted_runtime_carrying_state_over() {
         eval_str(&page.runtime(), "location.href").await,
         "http://localhost/dir/b"
     );
+}
+
+/// A completed fetch commits its body whatever the status, as a browser's top-level navigation
+/// does -- only a failed fetch gets the error document.
+#[tokio::test]
+async fn goto_commits_the_body_of_a_non_2xx_response() {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    mock.reply("http://localhost/next", 301, &[], b"<body>moved</body>");
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/next").await.unwrap();
+
+    assert_eq!(
+        eval_str(&page.runtime(), "document.body.textContent").await,
+        "moved"
+    );
+    assert!(
+        page.find("[data-mini-navigation-error]", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// `history.state` of an entry pushed before a later `goto` is still readable after it.
+#[tokio::test]
+async fn goto_carries_history_state_over() {
+    let page = Browser::new("{}", true).new_page();
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/a", "<p>a</p>");
+    mock.text("http://localhost/b", "<p>b</p>");
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/a").await.unwrap();
+    arun_async(&page.runtime(), "history.pushState({n: 1}, '', '/next')").await;
+    page.goto("http://localhost/b").await.unwrap();
+
+    let length: i64 = aeval_async(&page.runtime(), "history.length").await;
+    assert_eq!(length, 3);
+    arun_async(&page.runtime(), "history.back()").await;
+    let n: i64 = aeval_async(&page.runtime(), "history.state.n").await;
+    assert_eq!(n, 1);
 }

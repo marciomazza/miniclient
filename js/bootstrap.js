@@ -313,8 +313,7 @@
     globalThis.fetch = globalThis.__mini.makeFetch(win);
 
     // Set by boot_jsruntime (src/runtime.rs): true only for the navigation op_request_navigation
-    // drives (Page.goto()/link click/form submit), never the first boot or an externally-triggered
-    // Command::Navigate (Page::navigate already brings its own document). This realm's createDom
+    // drives (Page.goto()/link click/form submit), never the first boot. This realm's createDom
     // above was built empty -- it must fetch its own content, since the old realm (and its
     // document) is already gone.
     // __NAVIGATION_REQUEST__ (also set by boot_jsruntime) carries the method/body/headers to reissue.

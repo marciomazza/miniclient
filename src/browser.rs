@@ -1,6 +1,6 @@
 //! Pyo3-agnostic async core for the ergonomic DOM-query surface, mirroring the
 //! `runtime::Runtime`/pyclass `Page` split in `src/lib.rs`: `browser::Page` wraps
-//! `runtime::Page`, driven directly by `cargo test`/`tokio::test`, no pyo3/GIL involved.
+//! `runtime::Runtime`, driven directly by `cargo test`/`tokio::test`, no pyo3/GIL involved.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
