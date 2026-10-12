@@ -39,70 +39,41 @@
     // `{entries: [{url, state}, ...], current: N}` or `null` -- destructured once, read from two
     // places below (seeding _historyBefore/_historyAfter, then applying the current entry's state).
     const _hostHistory = _hostState.history ?? null;
-    const cookieJar = _hostState.cookies
-        ? globalThis.__JSDOMCookieJar.deserializeSync(_hostState.cookies)
-        : new globalThis.__JSDOMCookieJar();
+    // Built into the snapshot by snapshot_bake.js; only a boot at its URL can use it.
+    const _baked = /** @type {any} */ (globalThis).__BAKED__;
+    delete (/** @type {any} */ (globalThis).__BAKED__);
+    const _useBaked = _baked?.url === globalThis.__BASE_URL__;
+    const cookieJar = _useBaked
+        ? _baked.cookieJar
+        : _hostState.cookies
+          ? globalThis.__JSDOMCookieJar.deserializeSync(_hostState.cookies)
+          : new globalThis.__JSDOMCookieJar();
+    // The jar is already captured by the baked window and its dispatcher: fill it in place.
+    if (_useBaked && _hostState.cookies) {
+        globalThis.__JSDOMCookieJar.deserializeSync(_hostState.cookies, cookieJar.store);
+    }
 
     // Real navigation has no jsdom equivalent (location only does hash, HTMLFormElement's submit
     // is notImplementedMethod) -- a nav boots a brand new isolate instead, replaying this same
     // createDom call. Built empty: a navigation boot only has a URL, fetching and writing its HTML
     // itself once this isolate is up (see __NAVIGATION_BOOT__ below); a first boot has no content
     // at all until a caller navigates or calls Page.load().
-    /** @param {string} url */
-    function createDom(url) {
-        const d = new JSDOM("", {
-            url,
-            runScripts: "dangerously",
-            pretendToBeVisual: true,
-            // Every http(s) request -- subresource, XHR or fetch() -- ends at mini's own op_fetch_hop
-            // transport, which the Python side controls; jsdom's default would open real sockets.
-            resources: { dispatcher: globalThis.__mini.baseDispatcher },
-            cookieJar,
-        });
-        // IntersectionObserver: jsdom doesn't implement it, polyfill as a no-op.
-        d.window.IntersectionObserver ??= class {
-            constructor(/** @type {any} */ cb, /** @type {any} */ options) {}
-            observe() {}
-            unobserve() {}
-            disconnect() {}
-        };
-        // DataTransfer: jsdom doesn't implement it either. `createDataTransfer` (from
-        // @testing-library/user-event, ported rather than reimplemented) already returns a
-        // spec-shaped object with items/files/getData/setData; a constructor may return an
-        // object in place of `this`, so this is the whole polyfill. `createDataTransfer` itself
-        // checks `typeof window.DataTransfer === 'undefined'` to pick real-vs-stub -- it must not
-        // see itself here, or `new window.DataTransfer()` recurses forever, so it's hidden for the
-        // duration of that one synchronous call.
-        d.window.DataTransfer ??= class DataTransfer {
-            constructor() {
-                const self = d.window.DataTransfer;
-                d.window.DataTransfer = undefined;
-                let dt;
-                try {
-                    dt = globalThis.__createDataTransfer(d.window);
-                } finally {
-                    d.window.DataTransfer = self;
-                }
-                // Overrides the ported `.files` getter (fixed at construction, never reflects
-                // later items.add() calls) with one derived live from `.items`, built through
-                // jsdom's own FileList factory so a plain `input.files = dt.files` assignment
-                // passes jsdom's webidl2js conversion.
-                Object.defineProperty(dt, "files", {
-                    get: () =>
-                        globalThis.__createRealFileList(
-                            d.window,
-                            dt.items
-                                .filter((/** @type {any} */ i) => i.kind === "file")
-                                .map((/** @type {any} */ i) => i.getAsFile()),
-                        ),
-                    configurable: true,
-                });
-                return dt;
-            }
-        };
-        return d;
+    let dom = _useBaked
+        ? _baked.dom
+        : globalThis.__mini.createDom(globalThis.__BASE_URL__, cookieJar);
+    if (_useBaked) {
+        dom.finishParse();
+        // Clocks the Window read at construction describe the snapshot build, not this isolate.
+        const now = performance.now();
+        const perf = globalThis.__jsdomImplForWrapper(dom.window.performance);
+        perf.timeOrigin = performance.timeOrigin + now;
+        perf._nowAtTimeOrigin = now;
+        const pad = (/** @type {number} */ n) => String(n).padStart(2, "0");
+        const d = new Date();
+        globalThis.__jsdomImplForWrapper(dom.window.document)._lastModified =
+            `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()} ` +
+            `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     }
-    let dom = createDom(globalThis.__BASE_URL__);
     const win = dom.window;
 
     // Make window behave like the global object: copy every own property (and symbol) of

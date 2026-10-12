@@ -1,4 +1,59 @@
-# fork: vyyktwyxwwuv 35bddae220b1
+# fork: kzorznqnuwyp d7d019e4ef4d
+diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
+index fa242dd07c..e858f758f7 100644
+--- a/node_modules/jsdom/lib/api.js
++++ b/node_modules/jsdom/lib/api.js
+@@ -29,6 +29,7 @@ constructor(store, options) {
+ }
+ 
+ const window = Symbol("window");
++const deferredHTML = Symbol("deferredHTML");
+ let sharedFragmentDocument = null;
+ 
+ class JSDOM {
+@@ -44,11 +45,27 @@ constructor(input = "", options = {}) {
+ 
+     normalized.beforeParse(this[window]._globalProxy);
+ 
++    // A parsed document binds nodes to mini's native arena through WeakRefs, which a V8 snapshot
++    // cannot hold: `deferParse` leaves the window unparsed so it can be snapshotted, and
++    // `finishParse()` completes it in the restored runtime.
++    if (options.deferParse) {
++      this[deferredHTML] = html;
++      return;
++    }
++
+     parseIntoDocument(html, documentImpl);
+ 
+     documentImpl.close();
+   }
+ 
++  finishParse() {
++    const documentImpl = this[window]._document;
++
++    parseIntoDocument(this[deferredHTML], documentImpl);
++
++    documentImpl.close();
++  }
++
+   get window() {
+     // It's important to grab the global proxy, instead of just the result of `createWindow(...)`, since otherwise
+     // things like `window.eval` don't exist.
+diff --git a/node_modules/jsdom/lib/jsdom/browser/Window.js b/node_modules/jsdom/lib/jsdom/browser/Window.js
+index 296d6e7f2b..79b7e3af42 100644
+--- a/node_modules/jsdom/lib/jsdom/browser/Window.js
++++ b/node_modules/jsdom/lib/jsdom/browser/Window.js
+@@ -602,7 +602,9 @@ function task() {
+       ++numberOfOngoingAnimationFrameCallbacks;
+       if (numberOfOngoingAnimationFrameCallbacks === 1) {
+         animationFrameNodejsInterval = setInterval(() => {
+-          runAnimationFrameCallbacks(performance.now() - windowInitialized);
++          // Read live, not from `windowInitialized`: a window built into a snapshot gets its time
++          // origin reset after restore.
++          runAnimationFrameCallbacks(performance.now() - idlUtils.implForWrapper(performanceImpl)._nowAtTimeOrigin);
+         }, 1000 / 60);
+       }
+ 
 diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
 index 905b1c9d02..77767189a7 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js

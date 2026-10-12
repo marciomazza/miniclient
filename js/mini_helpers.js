@@ -137,3 +137,63 @@ export function installInnerText(win) {
         configurable: true,
     });
 }
+
+// One blank jsdom Window, built the same way for the snapshot (deferParse) and for boots that
+// cannot use that one (a navigation boot at another URL).
+/** @param {string} url
+ * @param {any} cookieJar
+ * @param {boolean} [deferParse] */
+export function createDom(url, cookieJar, deferParse = false) {
+    const d = new /** @type {any} */ (globalThis).JSDOM("", {
+        url,
+        deferParse,
+        runScripts: "dangerously",
+        pretendToBeVisual: true,
+        // Every http(s) request -- subresource, XHR or fetch() -- ends at mini's own op_fetch_hop
+        // transport, which the Python side controls; jsdom's default would open real sockets.
+        resources: { dispatcher: globalThis.__mini.baseDispatcher },
+        cookieJar,
+    });
+    // IntersectionObserver: jsdom doesn't implement it, polyfill as a no-op.
+    d.window.IntersectionObserver ??= class {
+        constructor(/** @type {any} */ cb, /** @type {any} */ options) {}
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+    };
+    // DataTransfer: jsdom doesn't implement it either. `createDataTransfer` (from
+    // @testing-library/user-event, ported rather than reimplemented) already returns a
+    // spec-shaped object with items/files/getData/setData; a constructor may return an
+    // object in place of `this`, so this is the whole polyfill. `createDataTransfer` itself
+    // checks `typeof window.DataTransfer === 'undefined'` to pick real-vs-stub -- it must not
+    // see itself here, or `new window.DataTransfer()` recurses forever, so it's hidden for the
+    // duration of that one synchronous call.
+    d.window.DataTransfer ??= class DataTransfer {
+        constructor() {
+            const self = d.window.DataTransfer;
+            d.window.DataTransfer = undefined;
+            let dt;
+            try {
+                dt = globalThis.__createDataTransfer(d.window);
+            } finally {
+                d.window.DataTransfer = self;
+            }
+            // Overrides the ported `.files` getter (fixed at construction, never reflects
+            // later items.add() calls) with one derived live from `.items`, built through
+            // jsdom's own FileList factory so a plain `input.files = dt.files` assignment
+            // passes jsdom's webidl2js conversion.
+            Object.defineProperty(dt, "files", {
+                get: () =>
+                    globalThis.__createRealFileList(
+                        d.window,
+                        dt.items
+                            .filter((/** @type {any} */ i) => i.kind === "file")
+                            .map((/** @type {any} */ i) => i.getAsFile()),
+                    ),
+                configurable: true,
+            });
+            return dt;
+        }
+    };
+    return d;
+}

@@ -115,6 +115,7 @@ fn build_default_snapshot(js: &Path, out_dir: &Path) {
             read(&js.join("_generated/jsdom-bundle.js")),
         ),
         ("warmup".into(), read(&js.join("snapshot_warmup.js"))),
+        ("baked-window".into(), read(&js.join("snapshot_bake.js"))),
     ];
 
     // Eager compile bakes function bytecode into the snapshot, so no isolate recompiles jsdom

@@ -8,6 +8,7 @@ import { awaitSettle, formSubmitFetch, submit } from "./submit.js";
 import { baseDispatcher, makeFetch } from "./fetch.js";
 import {
     contentTypeFor,
+    createDom,
     installInnerHtmlRadioFix,
     installInnerText,
     installXPathShortCircuit,
@@ -24,6 +25,7 @@ globalThis.__mini = /** @type {Mini} */ (
         baseDispatcher,
         makeFetch,
         contentTypeFor,
+        createDom,
         installInnerHtmlRadioFix,
         installInnerText,
         installXPathShortCircuit,

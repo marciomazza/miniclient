@@ -14,6 +14,7 @@ interface Mini {
   formSubmitFetch(form: HTMLFormElement, submitter?: HTMLElement | null): void;
   submit(handle: number): Promise<void>;
   contentTypeFor(path: string): string;
+  createDom(url: string, cookieJar: any, deferParse?: boolean): import("jsdom").JSDOM;
   installXPathShortCircuit(win: JSDOMWindow): void;
   installInnerHtmlRadioFix(win: JSDOMWindow): void;
   installInnerText(win: JSDOMWindow): void;
