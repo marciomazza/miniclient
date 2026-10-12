@@ -313,10 +313,21 @@ fn capture_navigation_host_state(
     marshal: &v8::Global<v8::Value>,
     nav: &ops::PendingNavigation,
 ) -> String {
-    let cookies = capture_json(js, marshal, "cookieJar.serializeSync()");
-    let history = capture_json(js, marshal, "sessionEntries()");
+    let (cookies, history) =
+        split_going_from(capture_json(js, marshal, "__mini.goingFrom()").as_deref());
     let history = history.as_deref().map(|h| apply_navigation_mode(h, nav));
     host_state_json(cookies.as_deref(), history.as_deref())
+}
+
+/// Pulls the JSON text of `cookies` and `history` out of `__mini.goingFrom()`'s result.
+fn split_going_from(going_from: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(going_from) = going_from else {
+        return (None, None);
+    };
+    let parts: serde_json::Value =
+        serde_json::from_str(going_from).expect("goingFrom() must return valid JSON");
+    let take = |key: &str| parts.get(key).map(|v| v.to_string());
+    (take("cookies"), take("history"))
 }
 
 /// The `{cookies, history}` shell `__HOST_STATE__` expects, shared by every capture site
@@ -1003,8 +1014,8 @@ impl Page {
     /// new one via `Runtime::send_navigate`, rebooted with this `Page`'s fixed mount table.
     /// `FetchBackend`/`RustFunctions` replay is `Runtime`'s own job now, not `Page`'s.
     pub fn navigate(&mut self, url: &str) {
-        let cookies = eval_or_panic(&self.runtime, "cookieJar.serializeSync()");
-        let history = eval_or_panic(&self.runtime, "sessionEntries()");
+        let (cookies, history) =
+            split_going_from(eval_or_panic(&self.runtime, "__mini.goingFrom()").as_deref());
         let host_state_json = host_state_json(cookies.as_deref(), history.as_deref());
         self.runtime
             .send_navigate(url, &host_state_json)

@@ -46,6 +46,7 @@ declare var __NAVIGATION_REQUEST__:
 declare var __NAVIGATION_BOOT__: boolean;
 
 // Set by jsdom-entry.js (the esbuild bundle baked into the snapshot).
+declare var JSDOM: typeof import("jsdom").JSDOM;
 declare var __JSDOMCookieJar: typeof import("jsdom").CookieJar;
 declare var __serializeURL: (url: any) => string;
 declare var __clearDomBindings: () => void;
