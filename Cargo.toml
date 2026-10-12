@@ -32,6 +32,16 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
+# Rust-backed DOM tree: an `ego-tree` arena filled by `html5ever` and matched with `selectors`.
+# selectors pulls a second cssparser (0.37) alongside deno_web's 0.36 -- a harmless duplicate
+# compile.
+ego-tree = "0.11"
+html5ever = "0.39"
+selectors = "0.38"
+precomputed-hash = "0.1"
+# Needed to drive `SelectorList::parse` directly for the native query engine; resolves to the
+# same 0.37 `selectors` already pulls in.
+cssparser = "0.37"
 
 [dev-dependencies]
 glob = "0.3"
@@ -56,6 +66,14 @@ deno_webidl = "0.259.0"
 # Pinned to match pyo3 0.29 -- add_libpython_rpath_link_args() bakes LC_RPATH into the
 # test binary so `cargo test` finds libpython on macOS (mise-installed Python).
 pyo3-build-config = "=0.29.2"
+# build.rs compiles src/dom.rs, src/dom_ops.rs and src/dom_query.rs to register the DOM ops
+# in the snapshot. Keep these in lockstep with [dependencies] too.
+cssparser = "0.37"
+ego-tree = "0.11"
+html5ever = "0.39"
+selectors = "0.38"
+precomputed-hash = "0.1"
+serde = { version = "1.0.229", features = ["derive"] }
 
 [lints.clippy]
 todo = "warn"

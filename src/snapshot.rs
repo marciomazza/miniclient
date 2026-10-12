@@ -34,4 +34,15 @@ mod tests {
             "function,function,function"
         );
     }
+
+    #[test]
+    fn default_snapshot_restores_with_the_dom_ops() {
+        assert_eq!(
+            eval_in_snapshot(
+                crate::snapshot::DEFAULT_SNAPSHOT,
+                "String(Deno.core.ops.op_dom_create(1, 'div', 'html', ''))"
+            ),
+            "0"
+        );
+    }
 }

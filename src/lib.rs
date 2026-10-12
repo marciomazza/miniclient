@@ -8,6 +8,10 @@ use pyo3::prelude::*;
 use crate::runtime::{EvalError, EvalOutcome, Wait};
 
 pub mod browser;
+pub mod dom;
+pub mod dom_ops;
+pub mod dom_query;
+pub mod node;
 pub mod ops;
 pub mod runtime;
 pub mod snapshot;

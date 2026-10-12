@@ -1,4 +1,386 @@
-# fork: knsnovpymlnm 05430e3d4e08
+# fork: vyyktwyxwwuv 35bddae220b1
+diff --git a/node_modules/jsdom/lib/jsdom/browser/parser/html.js b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
+index 905b1c9d02..77767189a7 100644
+--- a/node_modules/jsdom/lib/jsdom/browser/parser/html.js
++++ b/node_modules/jsdom/lib/jsdom/browser/parser/html.js
+@@ -1,205 +1,192 @@ function formAncestor(contextElement) {
+ "use strict";
+ 
+-const parse5 = require("parse5");
+-
+ const { createElement } = require("../../living/helpers/create-element");
+ const { HTML_NS } = require("../../living/helpers/namespaces");
++const { impl, link, materialize, wire } = require("../../living/helpers/dom-tree");
++const { updateRadioButtonGroupsForTreeChange } = require("../../living/helpers/form-controls");
++const {
++  customElementReactionsStack, invokeCEReactions, lookupCEDefinition
++} = require("../../living/helpers/custom-elements");
+ 
+ const DocumentType = require("../../../generated/idl/DocumentType");
+ const DocumentFragment = require("../../../generated/idl/DocumentFragment");
+ const Text = require("../../../generated/idl/Text");
+ const Comment = require("../../../generated/idl/Comment");
+ 
+-const attributes = require("../../living/attributes");
++const { handleAttributeChanges, setAttributeValue } = require("../../living/attributes");
+ const nodeTypes = require("../../living/node-type");
+ 
+-const serializationAdapter = require("../../living/domparsing/parse5-adapter-serialization");
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
+ const {
+-  customElementReactionsStack, invokeCEReactions, lookupCEDefinition
+-} = require("../../living/helpers/custom-elements");
+-
+-
+-class JSDOMParse5Adapter {
+-  constructor(documentImpl, options = {}) {
+-    this._documentImpl = documentImpl;
+-    this._globalObject = documentImpl._globalObject;
+-    this._fragment = options.fragment || false;
+-
+-    // Since the createElement hook doesn't provide the parent element, we keep track of this using _currentElement:
+-    // https://github.com/inikulin/parse5/issues/285.
+-    this._currentElement = undefined;
+-  }
+-
+-  _ownerDocument() {
+-    const { _currentElement } = this;
+-
+-    // The _currentElement is undefined when parsing elements at the root of the document.
+-    if (_currentElement) {
+-      return _currentElement.localName === "template" && _currentElement.namespaceURI === HTML_NS ?
+-        _currentElement.content._ownerDocument :
+-        _currentElement._ownerDocument;
+-    }
+-
+-    return this._documentImpl;
+-  }
+-
+-  createDocument() {
+-    // parse5's model assumes that parse(html) will call into here to create the new Document, then return it. However,
+-    // jsdom's model assumes we can create a Window (and through that create an empty Document), do some other setup
+-    // stuff, and then parse, stuffing nodes into that Document as we go. So to adapt between these two models, we just
+-    // return the already-created Document when asked by parse5 to "create" a Document.
+-    return this._documentImpl;
+-  }
+-
+-  createDocumentFragment() {
+-    const ownerDocument = this._ownerDocument();
+-    return DocumentFragment.createImpl(this._globalObject, [], { ownerDocument });
+-  }
+-
+-  // https://html.spec.whatwg.org/#create-an-element-for-the-token
+-  createElement(localName, namespace, attrs) {
+-    const ownerDocument = this._ownerDocument();
+-
+-    const isAttribute = attrs.find(attr => attr.name === "is");
+-    const isValue = isAttribute ? isAttribute.value : null;
+-
+-    const definition = lookupCEDefinition(ownerDocument, namespace, localName);
+-
+-    let willExecuteScript = false;
+-    if (definition !== null && !this._fragment) {
+-      willExecuteScript = true;
+-    }
+-
+-    if (willExecuteScript) {
+-      ownerDocument._throwOnDynamicMarkupInsertionCounter++;
+-      customElementReactionsStack.push([]);
+-    }
+-
+-    const element = createElement(ownerDocument, localName, namespace, null, isValue, willExecuteScript);
+-    this.adoptAttributes(element, attrs);
+-
+-    if (willExecuteScript) {
+-      const queue = customElementReactionsStack.pop();
+-      invokeCEReactions(queue);
+-      ownerDocument._throwOnDynamicMarkupInsertionCounter--;
+-    }
+-
+-    if ("_parserInserted" in element) {
+-      element._parserInserted = true;
+-    }
+-
+-    return element;
+-  }
+-
+-  createCommentNode(data) {
+-    const ownerDocument = this._ownerDocument();
+-    return Comment.createImpl(this._globalObject, [], { data, ownerDocument });
+-  }
+-
+-  appendChild(parentNode, newNode) {
+-    parentNode._append(newNode);
+-  }
+-
+-  insertBefore(parentNode, newNode, referenceNode) {
+-    parentNode._insert(newNode, referenceNode);
+-  }
+-
+-  setTemplateContent(templateElement, contentFragment) {
+-    // This code makes the glue between jsdom and parse5 HTMLTemplateElement parsing:
+-    //
+-    // * jsdom during the construction of the HTMLTemplateElement (for example when create via
+-    //   `document.createElement("template")`), creates a DocumentFragment and set it into _templateContents.
+-    // * parse5 when parsing a <template> tag creates an HTMLTemplateElement (`createElement` adapter hook) and also
+-    //   create a DocumentFragment (`createDocumentFragment` adapter hook).
+-    //
+-    // At this point we now have to replace the one created in jsdom with one created by parse5.
+-    const { _ownerDocument, _host } = templateElement._templateContents;
+-    contentFragment._ownerDocument = _ownerDocument;
+-    contentFragment._host = _host;
+-
+-    templateElement._templateContents = contentFragment;
+-  }
+-
+-  setDocumentType(document, name, publicId, systemId) {
+-    const ownerDocument = this._ownerDocument();
+-    const documentType = DocumentType.createImpl(this._globalObject, [], { name, publicId, systemId, ownerDocument });
+-
+-    document._append(documentType);
+-  }
+-
+-  setDocumentMode(document, mode) {
+-    // TODO: the rest of jsdom ignores this
+-    document._mode = mode;
+-  }
+-
+-  detachNode(node) {
+-    node.remove();
+-  }
+-
+-  insertText(parentNode, text) {
+-    const { lastChild } = parentNode;
+-    if (lastChild && lastChild.nodeType === nodeTypes.TEXT_NODE) {
+-      lastChild.data += text;
+-    } else {
+-      const ownerDocument = this._ownerDocument();
+-      const textNode = Text.createImpl(this._globalObject, [], { data: text, ownerDocument });
+-      parentNode._append(textNode);
+-    }
+-  }
+-
+-  insertTextBefore(parentNode, text, referenceNode) {
+-    const { previousSibling } = referenceNode;
+-    if (previousSibling && previousSibling.nodeType === nodeTypes.TEXT_NODE) {
+-      previousSibling.data += text;
+-    } else {
+-      const ownerDocument = this._ownerDocument();
+-      const textNode = Text.createImpl(this._globalObject, [], { data: text, ownerDocument });
+-      parentNode._insert(textNode, referenceNode);
+-    }
+-  }
+-
+-  adoptAttributes(element, attrs) {
+-    for (const attr of attrs) {
+-      const prefix = attr.prefix === "" ? null : attr.prefix;
+-      attributes.setAttributeValue(element, attr.name, attr.value, prefix, attr.namespace);
+-    }
+-  }
+-
+-  onItemPush(after) {
+-    this._currentElement = after;
+-    after._pushedOnStackOfOpenElements?.();
+-  }
+-
+-  onItemPop(before, newTop) {
+-    this._currentElement = newTop;
+-    before._poppedOffStackOfOpenElements?.();
+-  }
+-}
+-
+-// Assign shared adapters with serializer.
+-Object.assign(JSDOMParse5Adapter.prototype, serializationAdapter);
+-
++  op_dom_attr_value, op_dom_attrs, op_dom_parse_document, op_dom_parse_fragment, op_dom_parse_step,
++  op_dom_tree_records
++} = Deno.core.ops;
++
++// A `<form>` among the context's inclusive ancestors keeps a nested `<form>` tag from opening
++// one, as parse5 checks it: by qualified name, in any namespace.
++function formAncestor(contextElement) {
++  for (let node = contextElement; node; node = node.parentNode) {
++    if (node._qualifiedName === "form") {
++      return node;
++    }
++  }
++  return null;
++}
++
++// `synchronous` runs a defined custom element's constructor right away, as the document parser
++// does.
++function createNode(record, ownerDocument, synchronous = false) {
++  const { _globalObject } = ownerDocument;
++  switch (record.type) {
++    case nodeTypes.ELEMENT_NODE: {
++      const isValue = op_dom_attr_value(record.id, "", "is") ?? null;
++      const element = createElement(ownerDocument, record.name, record.ns, null, isValue, synchronous);
++      if ("_parserInserted" in element) {
++        element._parserInserted = true;
++      }
++      return element;
++    }
++    case nodeTypes.TEXT_NODE:
++      return Text.createImpl(_globalObject, [], { ownerDocument });
++    case nodeTypes.COMMENT_NODE:
++      return Comment.createImpl(_globalObject, [], { ownerDocument });
++    default:
++      throw new Error(`Unexpected node type ${record.type} in a parsed fragment`);
++  }
++}
++
++// Impls for the arena fragment `w` and its subtree, template contents included, created in tree
++// order as parse5 would; `created` collects them.
++function materializeFragment(w, ownerDocument, host, created) {
++  const { _globalObject } = ownerDocument;
++  const fragment = materialize(DocumentFragment.createImpl(_globalObject, [], { ownerDocument, host }), w);
++  for (const record of op_dom_tree_records(w)) {
++    const node = materialize(createNode(record, ownerDocument), record.id);
++    link(impl(record.parent), node);
++    created.push(node);
++    if (record.contents !== null) {
++      const contentsDocument = node._templateContents._ownerDocument;
++      node._templateContents = materializeFragment(record.contents, contentsDocument, node, created);
++    }
++  }
++  return fragment;
++}
++
++// What appending each attribute the parser already wrote to the arena would have run.
++function runAttributeSteps(element) {
++  for (const { ns, local, value } of op_dom_attrs(element._wire)) {
++    handleAttributeChanges(element, local, ns, null, value);
++  }
++}
++
++// What the parse5 adapter's attribute writes and appends change on brand-new nodes of a
++// detached fragment; nothing is connected or observed yet.
++function runParserSteps(nodes) {
++  for (const node of nodes) {
++    if (node.nodeType === nodeTypes.ELEMENT_NODE) {
++      runAttributeSteps(node);
++    }
++    const parent = node.parentNode;
++    parent._invalidateCaches();
++    updateRadioButtonGroupsForTreeChange(node, parent);
++    node._insertionSteps?.();
++    parent._childrenInsertedSteps();
++  }
++}
++
++// html5ever parses straight into the native arena; the impls are then created from it.
+ function parseFragment(markup, contextElement) {
+   const ownerDocument = contextElement.localName === "template" && contextElement.namespaceURI === HTML_NS ?
+     contextElement.content._ownerDocument :
+     contextElement._ownerDocument;
+-
+-  const config = {
+-    ...ownerDocument._parseOptions,
+-    sourceCodeLocationInfo: false,
+-    treeAdapter: new JSDOMParse5Adapter(ownerDocument, { fragment: true })
+-  };
+-
+-  return parse5.parseFragment(contextElement, markup, config);
+-}
+-
+-function parseIntoDocument(markup, ownerDocument) {
+-  const config = {
+-    ...ownerDocument._parseOptions,
+-    treeAdapter: new JSDOMParse5Adapter(ownerDocument)
+-  };
+-
+-  return parse5.parse(markup, config);
++  const scripting = ownerDocument._parseOptions.scriptingEnabled !== false;
++  const form = formAncestor(contextElement);
++  const w = op_dom_parse_fragment(markup, wire(contextElement), form ? wire(form) : -1, scripting);
++  const created = [];
++  const fragment = materializeFragment(w, ownerDocument, null, created);
++  runParserSteps(created);
++  return fragment;
++}
++
++// Creates a node's impl the way the document parser does: a defined custom element is
++// constructed synchronously, in its own reactions scope, with no markup insertion meanwhile.
++function createParsedNode(record, doctype, document) {
++  if (doctype) {
++    const { name } = record;
++    const { public_id: publicId, system_id: systemId } = doctype;
++    const ownerDocument = document;
++    const node = DocumentType.createImpl(document._globalObject, [], { name, publicId, systemId, ownerDocument });
++    return materialize(node, record.id);
++  }
++  if (record.type !== nodeTypes.ELEMENT_NODE) {
++    return materialize(createNode(record, document), record.id);
++  }
++  const synchronous = lookupCEDefinition(document, record.ns, record.name) !== null;
++  if (synchronous) {
++    document._throwOnDynamicMarkupInsertionCounter++;
++    customElementReactionsStack.push([]);
++  }
++  const element = materialize(createNode(record, document, synchronous), record.id);
++  runAttributeSteps(element);
++  if (synchronous) {
++    invokeCEReactions(customElementReactionsStack.pop());
++    document._throwOnDynamicMarkupInsertionCounter--;
++  }
++  return element;
++}
++
++// Inserts what one parser step added through `_insert`, node by node in tree order and each still
++// childless, as a tree builder inserts. An element's end-of-element steps (a script running, a
++// style sheet being built) follow its last descendant.
++function insertParsed(records, document) {
++  const open = [];
++  function close(until) {
++    while (open.length && open.at(-1).node._wire !== until) {
++      const { node, popped } = open.pop();
++      if (popped) {
++        node._poppedOffStackOfOpenElements?.();
++      }
++    }
++  }
++  for (const { node: record, parent, before, popped, doctype } of records) {
++    close(parent);
++    const node = createParsedNode(record, doctype, document);
++    if (record.contents !== null) {
++      const created = [];
++      const contentsDocument = node._templateContents._ownerDocument;
++      node._templateContents = materializeFragment(record.contents, contentsDocument, node, created);
++      runParserSteps(created);
++    }
++    impl(parent)._insert(node, impl(before ?? -1));
++    node._pushedOnStackOfOpenElements?.();
++    open.push({ node, popped });
++  }
++  close(-1);
++}
++
++// html5ever parses into the arena and pauses after each script, which runs once what came before
++// it is inserted. Without a browsing context no script runs, so there is nothing to pause for.
++function parseIntoDocument(markup, document) {
++  const scripting = document._parseOptions.scriptingEnabled !== false;
++  const w = wire(document);
++  op_dom_parse_document(w, markup, scripting, Boolean(document._defaultView));
++  for (let step; (step = op_dom_parse_step(w));) {
++    if (step.quirks) {
++      document._mode = step.quirks;
++    }
++    for (const [element, { ns, prefix, local, value }] of step.attrs) {
++      setAttributeValue(impl(element), local, value, prefix, ns);
++    }
++    for (const [text, data] of step.text) {
++      impl(text).appendData(data);
++    }
++    insertParsed(step.records, document);
++    if (step.done) {
++      break;
++    }
++  }
++  return document;
+ }
+ 
+ module.exports = {
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js b/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
 index facc519f4d..3c9fc24798 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/jsdom-dispatcher.js
@@ -116,6 +498,443 @@ index 446e495518..a63d7dc772 100644
          element.hasAttributeNS(null, "defer") &&
          this._document.readyState !== "interactive") {
        this._deferQueue.push(request, onLoadWrapped, onErrorWrapped, false, element);
+diff --git a/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js b/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js
+index e5d4daa20d..15e1d62588 100644
+--- a/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/attributes/Attr-impl.js
+@@ -3,6 +3,11 @@ constructor(globalObject, args, privateData) {
+ const { setAnExistingAttributeValue } = require("../attributes.js");
+ const NodeImpl = require("../nodes/Node-impl.js").implementation;
+ const { ATTRIBUTE_NODE } = require("../node-type.js");
++const { wire } = require("../helpers/dom-tree.js");
++
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_attr_value, op_dom_set_attr } = Deno.core.ops;
+ 
+ exports.implementation = class AttrImpl extends NodeImpl {
+   constructor(globalObject, args, privateData) {
+@@ -11,8 +16,8 @@ constructor(globalObject, args, privateData) {
+     this._namespace = privateData.namespace !== undefined ? privateData.namespace : null;
+     this._namespacePrefix = privateData.namespacePrefix !== undefined ? privateData.namespacePrefix : null;
+     this._localName = privateData.localName;
+-    this._value = privateData.value !== undefined ? privateData.value : "";
+     this._element = privateData.element !== undefined ? privateData.element : null;
++    this._ownValue = privateData.value !== undefined ? privateData.value : "";
+ 
+     this.nodeType = ATTRIBUTE_NODE;
+     this.specified = true;
+@@ -45,6 +50,24 @@ set value(value) {
+     setAnExistingAttributeValue(this, value);
+   }
+ 
++  // An attached attribute's value lives in the native arena; a detached one keeps its own.
++  get _value() {
++    const element = this._element;
++    if (element === null) {
++      return this._ownValue;
++    }
++    return op_dom_attr_value(element._wire, this._namespace ?? "", this._localName) ?? "";
++  }
++  set _value(value) {
++    const element = this._element;
++    if (element === null) {
++      this._ownValue = value;
++      return;
++    }
++    const prefix = this._namespacePrefix ?? "";
++    op_dom_set_attr(wire(element), this._namespace ?? "", prefix, this._localName, value);
++  }
++
+   get ownerElement() {
+     return this._element;
+   }
+diff --git a/node_modules/jsdom/lib/jsdom/living/attributes.js b/node_modules/jsdom/lib/jsdom/living/attributes.js
+index 65486849e6..4e23a14e62 100644
+--- a/node_modules/jsdom/lib/jsdom/living/attributes.js
++++ b/node_modules/jsdom/lib/jsdom/living/attributes.js
+@@ -6,188 +6,182 @@ function attrKey(namespace, localName) {
+ const { queueAttributeMutationRecord } = require("./helpers/mutation-observers");
+ const { enqueueCECallbackReaction } = require("./helpers/custom-elements");
+ 
+-// The following three are for https://dom.spec.whatwg.org/#concept-element-attribute-has. We don't just have a
+-// predicate tester since removing that kind of flexibility gives us the potential for better future optimizations.
+-
++const { wire } = require("./helpers/dom-tree");
++
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_attr, op_dom_attr_by_name, op_dom_attrs, op_dom_remove_attr, op_dom_set_attr } = Deno.core.ops;
++
++// The native arena holds every attribute's name, value and position. An `Attr` is only created
++// when its identity is asked for, then kept in `_attrNodes` under its namespace and local name.
++// jsdom normalizes the empty namespace to null, so "" cannot collide with a real one.
++function attrKey(namespace, localName) {
++  return (namespace ?? "") + "\0" + localName;
++}
++
++// An arena record ({ ns, prefix, local, value }) or null.
++function record(element, namespace, localName) {
++  return element._wire < 0 ? null : op_dom_attr(element._wire, namespace ?? "", localName);
++}
++
++function recordByName(element, name) {
++  if (element._wire < 0) {
++    return null;
++  }
++  if (element._namespaceURI === HTML_NS && element._ownerDocument._parsingMode === "html") {
++    name = asciiLowercase(name);
++  }
++  return op_dom_attr_by_name(element._wire, name);
++}
++
++function attrFor(element, { ns, prefix, local }) {
++  const key = attrKey(ns, local);
++  let attribute = element._attrNodes?.get(key);
++  if (attribute === undefined) {
++    attribute = element._ownerDocument._createAttribute({ namespace: ns, namespacePrefix: prefix, localName: local });
++    attribute._element = element;
++    attribute._ownValue = undefined;
++    (element._attrNodes ??= new Map()).set(key, attribute);
++  }
++  return attribute;
++}
++
++exports.attributeList = function (element) {
++  return element._wire < 0 ? [] : op_dom_attrs(element._wire).map(r => attrFor(element, r));
++};
++
++function attach(element, attribute) {
++  const value = attribute._value;
++  attribute._element = element;
++  attribute._ownerDocument = element._ownerDocument;
++  attribute._ownValue = undefined;
++  attribute._value = value;
++  (element._attrNodes ??= new Map()).set(attrKey(attribute._namespace, attribute._localName), attribute);
++  element._attrView = null;
++}
++
++// A detached `Attr` keeps the value it had, outside the arena.
++function detach(element, attribute) {
++  const value = attribute._value;
++  element._attrNodes.delete(attrKey(attribute._namespace, attribute._localName));
++  attribute._element = null;
++  attribute._ownValue = value;
++  element._attrView = null;
++}
++
++// https://dom.spec.whatwg.org/#concept-element-attribute-has
+ /* eslint-disable no-restricted-properties */
+ 
+ exports.hasAttribute = function (element, A) {
+-  return element._attributeList.includes(A);
++  return A._element === element;
+ };
+ 
+ exports.hasAttributeByName = function (element, name) {
+-  return element._attributesByNameMap.has(name);
++  return recordByName(element, name) !== null;
+ };
+ 
+ exports.hasAttributeByNameNS = function (element, namespace, localName) {
+-  return element._attributeList.some(attribute => {
+-    return attribute._localName === localName && attribute._namespace === namespace;
+-  });
++  return record(element, namespace, localName) !== null;
+ };
+ 
+ // https://dom.spec.whatwg.org/#handle-attribute-changes
+-function handleAttributeChanges(element, attribute, oldValue, value) {
+-  const { _localName, _namespace } = attribute;
+-  queueAttributeMutationRecord(element, _localName, _namespace, oldValue);
++function handleAttributeChanges(element, localName, namespace, oldValue, value) {
++  queueAttributeMutationRecord(element, localName, namespace, oldValue);
+ 
+   if (element._ceState === "custom") {
+     enqueueCECallbackReaction(element, "attributeChangedCallback", [
+-      _localName,
++      localName,
+       oldValue,
+       value,
+-      _namespace
++      namespace
+     ]);
+   }
+ 
+-  element._attributeChangeSteps(_localName, oldValue, value, _namespace);
++  element._attributeChangeSteps(localName, oldValue, value, namespace);
++}
++exports.handleAttributeChanges = handleAttributeChanges;
++
++// Sets an attribute's value without creating its `Attr`. `existing` is its arena record, or null
++// to append a new attribute; a changed attribute keeps its prefix.
++function writeAttribute(element, existing, namespace, prefix, localName, value) {
++  const attribute = element._attrNodes?.get(attrKey(namespace, localName));
++  if (attribute !== undefined) {
++    exports.changeAttribute(element, attribute, value);
++    return;
++  }
++  const kept = existing === null ? prefix : existing.prefix;
++  op_dom_set_attr(wire(element), namespace ?? "", kept ?? "", localName, value);
++  if (existing === null) {
++    element._attrView = null;
++  }
++  handleAttributeChanges(element, localName, namespace, existing === null ? null : existing.value, value);
+ }
+ 
+ // https://dom.spec.whatwg.org/#concept-element-attributes-change
+ exports.changeAttribute = (element, attribute, value) => {
+   const oldValue = attribute._value;
+   attribute._value = value;
+-  handleAttributeChanges(element, attribute, oldValue, value);
++  handleAttributeChanges(element, attribute._localName, attribute._namespace, oldValue, value);
+ };
+ 
+ // https://dom.spec.whatwg.org/#concept-element-attributes-append
+ exports.appendAttribute = function (element, attribute) {
+-  const attributeList = element._attributeList;
+-
+-  attributeList.push(attribute);
+-  attribute._element = element;
+-  attribute._ownerDocument = element._ownerDocument;
+-
+-  // Sync name cache
+-  const name = attribute._qualifiedName;
+-  const cache = element._attributesByNameMap;
+-  // This is a hot path, and measurements show that branching to avoid `push()` in the common case is worthwhile:
+-  // https://github.com/jsdom/jsdom/pull/4266
+-  const entry = cache.get(name);
+-  if (entry === undefined) {
+-    cache.set(name, [attribute]);
+-  } else {
+-    entry.push(attribute);
+-  }
+-
+-  handleAttributeChanges(element, attribute, null, attribute._value);
++  attach(element, attribute);
++  handleAttributeChanges(element, attribute._localName, attribute._namespace, null, attribute._value);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-remove
+ exports.removeAttribute = function (element, attribute) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-remove
+-
+-  const attributeList = element._attributeList;
+-
+-  for (let i = 0; i < attributeList.length; ++i) {
+-    if (attributeList[i] === attribute) {
+-      attributeList.splice(i, 1);
+-      attribute._element = null;
+-
+-      // Sync name cache
+-      const name = attribute._qualifiedName;
+-      const cache = element._attributesByNameMap;
+-      const entry = cache.get(name);
+-      entry.splice(entry.indexOf(attribute), 1);
+-      if (entry.length === 0) {
+-        cache.delete(name);
+-      }
+-
+-      handleAttributeChanges(element, attribute, attribute._value, null);
+-
+-      return;
+-    }
++  if (attribute._element !== element) {
++    return;
+   }
++  const value = attribute._value;
++  op_dom_remove_attr(element._wire, attribute._namespace ?? "", attribute._localName);
++  detach(element, attribute);
++  handleAttributeChanges(element, attribute._localName, attribute._namespace, value, null);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-replace
++// Both share namespace and local name, so the arena swaps the new one in at the same position.
+ exports.replaceAttribute = function (element, oldAttr, newAttr) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-replace
+-
+-  const attributeList = element._attributeList;
+-
+-  for (let i = 0; i < attributeList.length; ++i) {
+-    if (attributeList[i] === oldAttr) {
+-      attributeList.splice(i, 1, newAttr);
+-      oldAttr._element = null;
+-      newAttr._element = element;
+-      newAttr._ownerDocument = element._ownerDocument;
+-
+-      // Sync name cache
+-      const oldName = oldAttr._qualifiedName;
+-      const name = newAttr._qualifiedName;
+-      const cache = element._attributesByNameMap;
+-      const entry = cache.get(oldName);
+-      if (oldName === name) {
+-        entry.splice(entry.indexOf(oldAttr), 1, newAttr);
+-      } else {
+-        entry.splice(entry.indexOf(oldAttr), 1);
+-        if (entry.length === 0) {
+-          cache.delete(oldName);
+-        }
+-        // The replacement keeps its position in the attribute list, including among same-name attributes.
+-        cache.set(name, attributeList.filter(attr => attr._qualifiedName === name));
+-      }
+-
+-      handleAttributeChanges(element, oldAttr, oldAttr._value, newAttr._value);
+-
+-      return;
+-    }
++  if (oldAttr._element !== element) {
++    return;
+   }
++  const oldValue = oldAttr._value;
++  detach(element, oldAttr);
++  attach(element, newAttr);
++  handleAttributeChanges(element, oldAttr._localName, oldAttr._namespace, oldValue, newAttr._value);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-get-by-name
+ exports.getAttributeByName = function (element, name) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-get-by-name
+-
+-  if (element._namespaceURI === HTML_NS &&
+-      element._ownerDocument._parsingMode === "html") {
+-    name = asciiLowercase(name);
+-  }
+-
+-  const cache = element._attributesByNameMap;
+-  const entry = cache.get(name);
+-  if (!entry) {
+-    return null;
+-  }
+-
+-  return entry[0];
++  const found = recordByName(element, name);
++  return found === null ? null : attrFor(element, found);
+ };
+ 
++// https://dom.spec.whatwg.org/#concept-element-attributes-get-by-namespace
+ exports.getAttributeByNameNS = function (element, namespace, localName) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-get-by-namespace
+-
+-  if (namespace === "") {
+-    namespace = null;
+-  }
+-
+-  const attributeList = element._attributeList;
+-  for (let i = 0; i < attributeList.length; ++i) {
+-    const attr = attributeList[i];
+-    if (attr._namespace === namespace && attr._localName === localName) {
+-      return attr;
+-    }
+-  }
+-
+-  return null;
+-};
+-
+-// Both of the following functions implement https://dom.spec.whatwg.org/#concept-element-attributes-get-value.
+-// Separated them into two to keep symmetry with other functions.
++  const found = record(element, namespace === "" ? null : namespace, localName);
++  return found === null ? null : attrFor(element, found);
++};
++
++// The value of the attribute that getAttributeByName() would return, or null.
++exports.getAttributeValueByName = function (element, name) {
++  return recordByName(element, name)?.value ?? null;
++};
++
++// The value of the attribute that getAttributeByNameNS() would return, or null.
++exports.getAttributeValueByNameNS = function (element, namespace, localName) {
++  return record(element, namespace === "" ? null : namespace, localName)?.value ?? null;
++};
++
++// https://dom.spec.whatwg.org/#concept-element-attributes-get-value
+ exports.getAttributeValue = function (element, localName) {
+-  const attr = exports.getAttributeByNameNS(element, null, localName);
+-
+-  if (!attr) {
+-    return "";
+-  }
+-
+-  return attr._value;
++  return record(element, null, localName)?.value ?? "";
+ };
+ 
+ exports.getAttributeValueNS = function (element, namespace, localName) {
+-  const attr = exports.getAttributeByNameNS(element, namespace, localName);
+-
+-  if (!attr) {
+-    return "";
+-  }
+-
+-  return attr._value;
++  return record(element, namespace, localName)?.value ?? "";
+ };
+ 
+ exports.setAttribute = function (element, attr) {
+@@ -211,30 +205,20 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
+   return oldAttr;
+ };
+ 
+-exports.setAttributeValue = function (element, localName, value, prefix, namespace) {
+-  // https://dom.spec.whatwg.org/#concept-element-attributes-set-value
+-
+-  if (prefix === undefined) {
+-    prefix = null;
+-  }
+-  if (namespace === undefined) {
+-    namespace = null;
+-  }
+-
+-  const attribute = exports.getAttributeByNameNS(element, namespace, localName);
+-  if (attribute === null) {
+-    const newAttribute = element._ownerDocument._createAttribute({
+-      namespace,
+-      namespacePrefix: prefix,
+-      localName,
+-      value
+-    });
+-    exports.appendAttribute(element, newAttribute);
+-
+-    return;
+-  }
+-
+-  exports.changeAttribute(element, attribute, value);
++// https://dom.spec.whatwg.org/#concept-element-attributes-set-value
++exports.setAttributeValue = function (element, localName, value, prefix = null, namespace = null) {
++  writeAttribute(element, record(element, namespace, localName), namespace, prefix, localName, value);
++};
++
++// Element's setAttribute() and toggleAttribute(): an existing attribute is found by its qualified
++// name, a new one gets it as its local name. `name` is already lowercased where that applies.
++exports.setAttributeValueByName = function (element, name, value) {
++  const found = recordByName(element, name);
++  if (found === null) {
++    writeAttribute(element, null, null, null, name, value);
++  } else {
++    writeAttribute(element, found, found.ns, found.prefix, found.local, value);
++  }
+ };
+ 
+ // https://dom.spec.whatwg.org/#set-an-existing-attribute-value
+@@ -273,12 +257,15 @@ function writeAttribute(element, existing, namespace, prefix, localName, value) 
+ 
+ exports.attributeNames = function (element) {
+   // Needed by https://dom.spec.whatwg.org/#dom-element-getattributenames
+-
+-  return element._attributeList.map(a => a._qualifiedName);
++  if (element._wire < 0) {
++    return [];
++  }
++  return op_dom_attrs(element._wire).map(r => {
++    return r.prefix === null ? r.local : r.prefix + ":" + r.local;
++  });
+ };
+ 
+ exports.hasAttributes = function (element) {
+   // Needed by https://dom.spec.whatwg.org/#dom-element-hasattributes
+-
+-  return element._attributeList.length > 0;
++  return element._wire >= 0 && op_dom_attrs(element._wire).length > 0;
+ };
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 index 26a1aec94c..c16a15ce1e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
@@ -332,6 +1151,664 @@ index 270a6209f5..dfff87ed5a 100644
  
    return sheetImpl;
  };
+diff --git a/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js b/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js
+index 6d3cf61cd4..1bf2157546 100644
+--- a/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js
++++ b/node_modules/jsdom/lib/jsdom/living/domparsing/serialization.js
+@@ -1,21 +1,21 @@
+ "use strict";
+ 
+ const produceXMLSerialization = require("w3c-xmlserializer");
+-const parse5 = require("parse5");
+ const DOMException = require("../../../generated/idl/DOMException");
+ const utils = require("../../../generated/idl/utils");
+-const treeAdapter = require("./parse5-adapter-serialization");
++const { wire } = require("../helpers/dom-tree");
+ const NODE_TYPE = require("../node-type");
+ 
++/* global Deno */
++/* eslint-disable camelcase -- the native op name */
++const { op_dom_serialize } = Deno.core.ops;
++
+ module.exports.fragmentSerialization = (node, { outer, requireWellFormed, globalObject }) => {
+   const contextDocument =
+     node.nodeType === NODE_TYPE.DOCUMENT_NODE ? node : node._ownerDocument;
+   if (contextDocument._parsingMode === "html") {
+-    const config = {
+-      ...contextDocument._parseOptions,
+-      treeAdapter
+-    };
+-    return outer ? parse5.serializeOuter(node, config) : parse5.serialize(node, config);
++    // The native arena serializes like parse5 does through jsdom's tree adapter.
++    return op_dom_serialize(wire(node), Boolean(outer), contextDocument._parseOptions.scriptingEnabled !== false);
+   }
+ 
+   const childNodes = outer ? [node] : node._childrenToArray();
+diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/by-id-cache.js b/node_modules/jsdom/lib/jsdom/living/helpers/by-id-cache.js
+deleted file mode 100644
+index 6e9883feb3..0000000000
+--- a/node_modules/jsdom/lib/jsdom/living/helpers/by-id-cache.js
++++ /dev/null
+@@ -1,66 +0,0 @@ constructor(root) {
+-"use strict";
+-
+-const NODE_TYPE = require("../node-type");
+-
+-// For use in implementing getElementById(). Notably it ensures that when you get the result, you will always get the
+-// first in tree order, not the most- or least-recently-inserted. Somewhat modeled after
+-// https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/dom/tree_ordered_map.h.
+-
+-module.exports = class ByIdCache {
+-  constructor(root) {
+-    this._root = root;
+-
+-    // Keys are IDs (strings).
+-    // Values are `{ element, count }` tuples, where `element` can be `null` indicating we need to recompute.
+-    // `count` tracks the count of times `add()` was called for this ID. We need to track it because it lets us
+-    // determine what to do when calling `delete()`: a count of 0 means we can remove the entry, whereas any other
+-    // count means we need to set `element` to `null` for future recomputation.
+-    this._map = new Map();
+-  }
+-
+-  add(id, element) {
+-    const value = this._map.get(id);
+-    if (!value) {
+-      this._map.set(id, { element, count: 1 });
+-    } else {
+-      value.element = null;
+-      ++value.count;
+-    }
+-  }
+-
+-  delete(id, element) {
+-    const value = this._map.get(id);
+-    if (!value) {
+-      return;
+-    }
+-
+-    --value.count;
+-    if (value.count === 0) {
+-      this._map.delete(id);
+-    } else if (value.element === element) {
+-      value.element = null;
+-    }
+-  }
+-
+-  get(id) {
+-    const value = this._map.get(id);
+-    if (!value) {
+-      return null;
+-    }
+-
+-    if (value.element) {
+-      return value.element;
+-    }
+-
+-    for (const descendant of this._root._inclusiveDescendants()) {
+-      if (descendant.nodeType === NODE_TYPE.ELEMENT_NODE && descendant.getAttributeNS(null, "id") === id) {
+-        value.element = descendant;
+-        return descendant;
+-      }
+-    }
+-
+-    // If we didn't find any elements for this key, we can remove it.
+-    this._map.delete(id);
+-    return null;
+-  }
+-};
+diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
+index 7eb8408fc8..b8affe8c5f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
++++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
+@@ -6,31 +6,339 @@ function bind(node, w) {
+ 
+ const NODE_DOCUMENT_POSITION = require("../node-document-position");
+ 
+-// DOM links are allocated only when a node joins a tree or gains children. In
+-// particular, reading the tree must not allocate storage for Attr or new nodes.
+-// Insertion callers provide detached children. Mutations here only change links:
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++
++// The tree lives in miniclient's native arena, so the arena is the only structural store.
++// Nodes cross the boundary as wire ids: `impls[wire]` weakly holds the impl, `node._wire` its slot.
++// A slot is only allocated when a node joins a tree or gains children, so reading the tree
++// never allocates one for an Attr or a new node. Mutations here only change links:
+ // NodeImpl handles validation, adoption, ranges, observers, slots, and reactions.
+-class Links {
+-  parent = null;
+-  previousSibling = null;
+-  nextSibling = null;
+-  firstChild = null;
+-  lastChild = null;
+-  childCount = 0;
+-  // null: append-time indexes are valid; undefined: they need rebuilding;
+-  // array: a lazily indexed prefix of the children.
+-  cachedChildren = null;
+-  cachedIndex = -1;
+-}
+-
+-function ensureLinks(node) {
+-  const data = node._links;
+-  if (data) {
+-    return data;
+-  }
+-  node._links = new Links();
+-  return node._links;
+-}
++const {
++  op_dom_child_count,
++  op_dom_child_ids,
++  op_dom_create,
++  op_dom_create_document,
++  op_dom_first_child,
++  op_dom_following,
++  op_dom_get_by_id,
++  op_dom_index,
++  op_dom_insert,
++  op_dom_last_child,
++  op_dom_named_keys,
++  op_dom_next_sibling,
++  op_dom_parent_id,
++  op_dom_preceding,
++  op_dom_prev_sibling,
++  op_dom_query,
++  op_dom_release,
++  op_dom_remove,
++  op_dom_set_checked,
++  op_dom_set_data,
++  op_dom_set_is_value,
++  op_dom_set_template_contents,
++  op_dom_tree_ids
++} = Deno.core.ops;
++
++let impls = [];
++let materialized = 0;
++let bindsUntilSweep = 1024;
++
++function bind(node, w) {
++  node._wire = w;
++  impls[w] = new WeakRef(node);
++  materialized++;
++  if (--bindsUntilSweep === 0) {
++    sweep();
++  }
++}
++
++// Hands the slots of collected impls back in one call. Sweeping again only after half as many
++// binds as slots keeps the scan amortized constant per bind.
++function sweep() {
++  const dead = [];
++  for (let w = 0; w < impls.length; w++) {
++    if (impls[w] !== undefined && impls[w].deref() === undefined) {
++      impls[w] = undefined;
++      dead.push(w);
++    }
++  }
++  if (dead.length > 0) {
++    op_dom_release(new Uint32Array(dead));
++  }
++  bindsUntilSweep = Math.max(1024, impls.length >> 1);
++}
++
++function link(parentNode, child) {
++  unlink(child);
++  child._treeParent = parentNode;
++  (parentNode._treeChildren ??= new Set()).add(child);
++}
++
++function unlink(node) {
++  node._treeParent?._treeChildren.delete(node);
++  node._treeParent = null;
++}
++
++// Created on the first insertion, not in the constructor: NodeImpl's subclasses only set
++// `nodeType` and the local name after NodeImpl's constructor ran.
++function wire(node) {
++  if (node._wire < 0) {
++    bind(node, createSlot(node));
++  }
++  return node._wire;
++}
++
++// Binds a freshly constructed impl to the existing arena node `w`. Its constructor saw no slot,
++// so no attributes or children, as under parse5; `elementSlot` never runs, so `is` is set here.
++function materialize(node, w) {
++  bind(node, w);
++  if (node._isValue) {
++    op_dom_set_is_value(w, node._isValue);
++  }
++  return node;
++}
++
++function materializedCount() {
++  return materialized;
++}
++
++function createSlot(node) {
++  switch (node.nodeType) {
++    case 1:
++      return elementSlot(node);
++    case 3:
++    case 4:
++    case 8:
++      return adoptData(node, op_dom_create(node.nodeType, node._ownData, "", ""));
++    case 7: {
++      const slot = op_dom_create(7, node.target, "", "");
++      op_dom_set_data(slot, node._ownData);
++      return adoptData(node, slot);
++    }
++    case 9:
++      return op_dom_create_document(node._parsingMode === "html");
++    case 10:
++      return op_dom_create(10, node.name, "", "");
++    default:
++      return op_dom_create(node.nodeType, "", "", "");
++  }
++}
++
++// `is` and a template's contents are set before the slot exists; the serializer needs both.
++function elementSlot(node) {
++  const slot = op_dom_create(1, node._localName, node._namespaceURI ?? "", node._prefix ?? "");
++  if (node._isValue) {
++    op_dom_set_is_value(slot, node._isValue);
++  }
++  if (node._templateContents !== undefined) {
++    op_dom_set_template_contents(slot, wire(node._templateContents));
++  }
++  if (node._checkedness || node._selectedness) {
++    op_dom_set_checked(slot, true);
++  }
++  return slot;
++}
++
++// An input's checkedness or an option's selectedness, mirrored for `:checked`. A node without a
++// slot yet gets it from `elementSlot`.
++function setChecked(node, checked) {
++  if (node._wire >= 0) {
++    op_dom_set_checked(node._wire, checked);
++  }
++}
++
++// The HTML parser swaps in its own fragment, possibly after the template got its slot.
++function setTemplateContents(template, contents) {
++  template._templateContents = contents;
++  if (template._wire >= 0) {
++    op_dom_set_template_contents(template._wire, wire(contents));
++  }
++}
++
++// From here on the arena holds the data (CharacterData-impl.js).
++function adoptData(node, slot) {
++  node._ownData = undefined;
++  return slot;
++}
++
++function impl(w) {
++  return w < 0 ? null : impls[w]?.deref();
++}
++
++// A node without a slot has no parent, siblings or children, so every read short-circuits.
++function read(op, node) {
++  return node._wire < 0 ? null : impl(op(node._wire));
++}
++
++let scratch = new Uint32Array(1024);
++
++// One op call per batched read; the result is copied out, so nested reads can reuse `scratch`.
++// A negative count from `op` means it had no answer, so the result is null.
++function batch(op, node, ...args) {
++  if (node._wire < 0) {
++    return [node];
++  }
++  let n = op(node._wire, ...args, scratch);
++  if (n > scratch.length) {
++    scratch = new Uint32Array(Math.max(n, scratch.length * 2));
++    n = op(node._wire, ...args, scratch);
++  }
++  if (n < 0) {
++    return null;
++  }
++  const out = new Array(n);
++  for (let i = 0; i < n; i++) {
++    out[i] = impls[scratch[i]]?.deref();
++  }
++  return out;
++}
++
++function parent(node) {
++  return read(op_dom_parent_id, node);
++}
++
++function firstChild(node) {
++  return read(op_dom_first_child, node);
++}
++
++function lastChild(node) {
++  return read(op_dom_last_child, node);
++}
++
++function nextSibling(node) {
++  return read(op_dom_next_sibling, node);
++}
++
++function previousSibling(node) {
++  return read(op_dom_prev_sibling, node);
++}
++
++function childCount(node) {
++  return node._wire < 0 ? 0 : op_dom_child_count(node._wire);
++}
++
++function rootWire(root) {
++  return root === null ? -1 : root._wire;
++}
++
++function nextAfterSubtree(node, root) {
++  return node._wire < 0 ? null : impl(op_dom_following(node._wire, rootWire(root), true));
++}
++
++function nextInTree(node, root) {
++  return node._wire < 0 ? null : impl(op_dom_following(node._wire, rootWire(root), false));
++}
++
++function previousInTree(node, root) {
++  if (node === root || node._wire < 0) {
++    return null;
++  }
++  return impl(op_dom_preceding(node._wire, rootWire(root)));
++}
++
++// Collection refreshes read each list in one op call.
++function childrenToArray(node, filter) {
++  if (node._wire < 0) {
++    return [];
++  }
++  const children = batch(op_dom_child_ids, node);
++  return filter === undefined ? children : children.filter(filter);
++}
++
++// `node` is either `root` itself or its first child, choosing an inclusive or exclusive walk.
++function descendantsToArray(root, node, filter) {
++  if (node === null) {
++    return [];
++  }
++  const nodes = batch(op_dom_tree_ids, root);
++  if (node !== root) {
++    nodes.shift();
++  }
++  return filter === undefined ? nodes : nodes.filter(filter);
++}
++
++const QUERY = { first: 0, all: 1, closest: 2, matches: 3 };
++
++// The impls the native matcher selects from `node` in `mode`, or null for a selector it cannot
++// parse (namespace prefixes, `:lang`, most state pseudo-classes, invalid ones) or a node without
++// a slot.
++function query(node, selectors, mode) {
++  if (node._wire < 0) {
++    return null;
++  }
++  const doc = node._ownerDocument;
++  const html = doc._parsingMode === "html";
++  const quirks = html && doc.compatMode === "BackCompat";
++  const focus = doc._lastFocusedElement?._wire ?? -1;
++  return batch(op_dom_query, node, selectors, mode, html, quirks, focus, targetWire(doc));
++}
++
++// The first element in `document`'s tree, in tree order, whose `id` is `id`.
++function elementById(document, id) {
++  return impl(op_dom_get_by_id(wire(document), id));
++}
++
++// The elements of `root`'s inclusive subtree that name window properties, with the `id` and
++// `name` they answer to, read in one op call.
++function namedKeys(root) {
++  if (root._wire < 0) {
++    return [];
++  }
++  return op_dom_named_keys(root._wire).map(([w, id, name]) => ({ element: impl(w), id, name }));
++}
++
++// The element the URL's fragment indicates: the raw fragment first, then percent-decoded.
++// `a[name]` anchors are not indicated, as no browser test navigates to one.
++function targetWire(doc) {
++  const fragment = doc._URL.fragment;
++  if (!fragment) {
++    return -1;
++  }
++  let target = doc.getElementById(fragment);
++  if (target === null) {
++    try {
++      target = doc.getElementById(decodeURIComponent(fragment));
++    } catch {
++      // A malformed escape indicates nothing beyond the raw fragment.
++    }
++  }
++  return target?._wire ?? -1;
++}
++
++function treeIndex(node) {
++  return node._wire < 0 ? -1 : op_dom_index(node._wire);
++}
++
++function appendChild(node, child) {
++  op_dom_insert(wire(node), wire(child), -1);
++  link(node, child);
++  return child;
++}
++
++function insertBefore(reference, child) {
++  const parentWire = op_dom_parent_id(reference._wire);
++  op_dom_insert(parentWire, wire(child), reference._wire);
++  link(impl(parentWire), child);
++  return child;
++}
++
++function remove(node) {
++  if (node._wire >= 0) {
++    op_dom_remove(node._wire);
++  }
++  unlink(node);
++  return node;
++}
++
++// A snapshot binds wire ids in the build's arena; a restored runtime starts with a fresh,
++// empty arena that reuses those ids, so the bindings must not survive the snapshot.
++function clearBindings() {
++  impls = [];
++  materialized = 0;
++  bindsUntilSweep = 1024;
++}
++
+ 
+ function lastInclusiveDescendant(node) {
+   let child;
+@@ -40,36 +348,6 @@ function lastInclusiveDescendant(node) {
+   return node;
+ }
+ 
+-function nextAfterSubtree(node, root) {
+-  while (node !== root && node !== null) {
+-    const data = node._links;
+-    if (data === null) {
+-      return null;
+-    }
+-    if (data.nextSibling) {
+-      return data.nextSibling;
+-    }
+-    node = data.parent;
+-  }
+-  return null;
+-}
+-
+-function nextInTree(node, root) {
+-  const data = node._links;
+-  return data === null ? null : data.firstChild || nextAfterSubtree(node, root);
+-}
+-
+-function previousInTree(node, root) {
+-  if (node === root) {
+-    return null;
+-  }
+-  const data = node._links;
+-  if (data === null) {
+-    return null;
+-  }
+-  return data.previousSibling ? lastInclusiveDescendant(data.previousSibling) : data.parent;
+-}
+-
+ // Iterators capture the next light-tree node before yielding the current one.
+ // This matters when a consumer removes or moves the current/next node.
+ class ChildrenIterator extends Iterator {
+@@ -136,28 +414,6 @@ next() {
+   }
+ }
+ 
+-// Collection refreshes avoid iterator-result objects and intermediate filter iterators.
+-function childrenToArray(node, filter) {
+-  const array = [];
+-  for (let child = node.firstChild; child !== null; child = child.nextSibling) {
+-    if (filter === undefined || filter(child)) {
+-      array.push(child);
+-    }
+-  }
+-  return array;
+-}
+-
+-function descendantsToArray(root, node, filter) {
+-  const array = [];
+-  while (node !== null) {
+-    if (filter === undefined || filter(node)) {
+-      array.push(node);
+-    }
+-    node = nextInTree(node, root);
+-  }
+-  return array;
+-}
+-
+ function compareTreePosition(left, right) {
+   if (left === right) {
+     return 0;
+@@ -253,114 +509,12 @@ function commonAncestorInfo(left, right) {
+   return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
+ }
+ 
+-function treeIndex(node) {
+-  const data = node._links;
+-  if (data === null || data.parent === null) {
+-    return -1;
+-  }
+-  const parentData = data.parent._links;
+-  if (data.previousSibling === null) {
+-    return 0;
+-  }
+-  if (data.nextSibling === null) {
+-    return parentData.childCount - 1;
+-  }
+-  if (parentData.cachedChildren === null) {
+-    return data.cachedIndex;
+-  }
+-  const cached = parentData.cachedChildren ||= [];
+-  // A shifted node can retain an old index inside the rebuilt prefix. Check
+-  // identity as well as the index before using it.
+-  if (cached[data.cachedIndex] === node) {
+-    return data.cachedIndex;
+-  }
+-  let child = cached.length === 0 ? parentData.firstChild : cached.at(-1).nextSibling;
+-  while (child !== node) {
+-    child._links.cachedIndex = cached.length;
+-    cached.push(child);
+-    child = child.nextSibling;
+-  }
+-  data.cachedIndex = cached.length;
+-  cached.push(node);
+-  return data.cachedIndex;
+-}
+-
+-function appendChild(node, child) {
+-  const data = ensureLinks(node);
+-  const childData = ensureLinks(child);
+-  childData.parent = node;
+-  childData.previousSibling = data.lastChild;
+-  if (data.lastChild) {
+-    data.lastChild._links.nextSibling = child;
+-  } else {
+-    data.firstChild = child;
+-  }
+-  data.lastChild = child;
+-  // Appending preserves every existing child's index.
+-  childData.cachedIndex = data.childCount++;
+-  return child;
+-}
+-
+-function insertBefore(reference, child) {
+-  const referenceData = reference._links;
+-  const data = referenceData.parent._links;
+-  const childData = ensureLinks(child);
+-  childData.parent = referenceData.parent;
+-  childData.previousSibling = referenceData.previousSibling;
+-  childData.nextSibling = reference;
+-  if (referenceData.previousSibling) {
+-    referenceData.previousSibling._links.nextSibling = child;
+-  } else {
+-    data.firstChild = child;
+-  }
+-  referenceData.previousSibling = child;
+-  ++data.childCount;
+-  const cached = data.cachedChildren;
+-  if (cached === null) {
+-    data.cachedChildren = undefined;
+-  } else if (cached && cached[referenceData.cachedIndex] === reference) {
+-    // Only the inserted child and following siblings need new indexes.
+-    cached.length = referenceData.cachedIndex;
+-  }
+-  return child;
+-}
+-
+-function remove(node) {
+-  const data = node._links;
+-  if (data === null || data.parent === null) {
+-    return node;
+-  }
+-  const parentData = data.parent._links;
+-  if (data.previousSibling) {
+-    data.previousSibling._links.nextSibling = data.nextSibling;
+-  } else {
+-    parentData.firstChild = data.nextSibling;
+-  }
+-  if (data.nextSibling) {
+-    data.nextSibling._links.previousSibling = data.previousSibling;
+-  } else {
+-    // Removing the last child preserves the remaining indexes.
+-    parentData.lastChild = data.previousSibling;
+-  }
+-  const cached = parentData.cachedChildren;
+-  if (data.nextSibling !== null && cached === null) {
+-    parentData.cachedChildren = undefined;
+-  } else if (cached && cached[data.cachedIndex] === node) {
+-    // Truncating also releases cached references to the removed subtree.
+-    cached.length = data.cachedIndex;
+-  }
+-  --parentData.childCount;
+-  data.parent = null;
+-  data.previousSibling = null;
+-  data.nextSibling = null;
+-  data.cachedIndex = -1;
+-  return node;
+-}
+-
+ module.exports = {
+   ChildrenIterator, DescendantsIterator, ShadowIncludingIterator,
+-  childrenToArray, descendantsToArray,
++  childrenToArray, descendantsToArray, elementById, namedKeys,
++  parent, firstChild, lastChild, nextSibling, previousSibling, childCount,
+   nextInTree, nextAfterSubtree, previousInTree, lastInclusiveDescendant,
+   compareTreePosition, commonAncestorInfo,
+-  treeIndex, appendChild, insertBefore, remove
++  treeIndex, appendChild, insertBefore, remove, link,
++  QUERY, query, impl, wire, materialize, materializedCount, setChecked, setTemplateContents, clearBindings
+ };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
 index 5f7b2ab850..ca3ae26290 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js
@@ -348,11 +1825,68 @@ index 5f7b2ab850..ca3ae26290 100644
  }
  
  // https://dom.spec.whatwg.org/#queue-a-tree-mutation-record
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js
+index 8bbe4c8775..0f9e20b05b 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/CharacterData-impl.js
+@@ -8,13 +8,27 @@ class CharacterDataImpl extends NodeImpl {
+ const NonDocumentTypeChildNodeImpl = require("./NonDocumentTypeChildNode-impl").implementation;
+ 
+ const { MUTATION_TYPE, queueMutationRecord } = require("../helpers/mutation-observers");
++const { wire } = require("../helpers/dom-tree");
++
++/* global Deno */
++/* eslint-disable camelcase -- the native op names */
++const { op_dom_data, op_dom_set_data } = Deno.core.ops;
+ 
+ // https://dom.spec.whatwg.org/#characterdata
+ class CharacterDataImpl extends NodeImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+ 
+-    this._data = privateData.data;
++    // The subclass sets `nodeType` only after this, so no arena slot can be created yet.
++    this._ownData = privateData.data;
++  }
++
++  // Writes allocate the slot, reads never do: until a node has one, its data stays here.
++  get _data() {
++    return this._wire < 0 ? this._ownData : op_dom_data(this._wire);
++  }
++  set _data(data) {
++    op_dom_set_data(wire(this), data);
+   }
+ 
+   // https://dom.spec.whatwg.org/#dom-characterdata-data
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
-index 1a4ff3d5a7..7a9667b098 100644
+index 1a4ff3d5a7..f778d7f4a5 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Document-impl.js
-@@ -270,7 +270,8 @@ _getDOMSelector() {
+@@ -6,6 +6,7 @@
+ const NodeImpl = require("./Node-impl").implementation;
+ const idlUtils = require("../../../generated/idl/utils");
+ const NODE_TYPE = require("../node-type");
++const { elementById } = require("../helpers/dom-tree");
+ const { mixin } = require("../../utils");
+ const { firstChildWithLocalName, firstChildWithLocalNames, firstDescendantWithLocalName } =
+   require("../helpers/traversal");
+@@ -71,7 +72,6 @@ function clearChildNodes(node) {
+ const AsyncResourceQueue = require("../../browser/resources/async-resource-queue");
+ const ResourceQueue = require("../../browser/resources/resource-queue");
+ const PerDocumentResourceLoader = require("../../browser/resources/per-document-resource-loader");
+-const ByIdCache = require("../helpers/by-id-cache");
+ const { NAMED_PROPERTY_LOCAL_NAMES, isNamedPropertyElement } = require("../helpers/document-named-properties");
+ 
+ function clearChildNodes(node) {
+@@ -185,7 +185,6 @@ class DocumentImpl extends NodeImpl {
+     });
+ 
+     this._defaultView = defaultView;
+-    this._byIdCache = new ByIdCache(this);
+     this._isInDocumentTree = true;
+     this._currentScript = null;
+     this._pageShowingFlag = false;
+@@ -270,7 +269,8 @@ _getDOMSelector() {
    _getDOMSelector() {
      if (!this.#domSelector) {
        this.#domSelector = new DOMSelector(this._globalObject, this._ownerDocument, {
@@ -362,7 +1896,19 @@ index 1a4ff3d5a7..7a9667b098 100644
        });
      }
      return this.#domSelector;
-@@ -1102,6 +1103,14 @@ _adoptNode(node) {
+@@ -490,9 +490,9 @@ writeln(...args) {
+     this.write(...args, "\n");
+   }
+ 
+-  // This is implemented separately for Document (which has a _byIdCache) and DocumentFragment (which does not).
++  // Document reads the arena's id index; DocumentFragment walks its tree.
+   getElementById(id) {
+-    return this._byIdCache.get(id);
++    return elementById(this, id);
+   }
+ 
+   get referrer() {
+@@ -1102,6 +1102,14 @@ _adoptNode(node) {
            inclusiveDescendant._adoptingSteps(oldDocument);
          }
        }
@@ -377,6 +1923,149 @@ index 1a4ff3d5a7..7a9667b098 100644
      }
    }
  
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js
+index 71e3c38aee..133468e14f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/DocumentFragment-impl.js
+@@ -18,7 +18,7 @@ constructor(globalObject, args, privateData) {
+     this.nodeType = NODE_TYPE.DOCUMENT_FRAGMENT_NODE;
+   }
+ 
+-  // This is implemented separately for Document (which has a _byIdCache) and DocumentFragment (which does not).
++  // Document reads the arena's id index; DocumentFragment walks its tree.
+   getElementById(id) {
+     if (id === "") {
+       return null;
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
+index 86e0f40b48..68185fd431 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
+@@ -5,6 +5,8 @@
+ const ParentNodeImpl = require("./ParentNode-impl").implementation;
+ const ChildNodeImpl = require("./ChildNode-impl").implementation;
+ const attributes = require("../attributes");
++const { QUERY, query } = require("../helpers/dom-tree");
++const { wrapperForImpl } = require("../../../generated/idl/utils");
+ const windowProperties = require("../window-properties");
+ const NODE_TYPE = require("../node-type");
+ const { parseFragment } = require("../../browser/parser");
+@@ -44,12 +46,16 @@ constructor(globalObject, args, privateData) {
+     this.scrollTop = 0;
+     this.scrollLeft = 0;
+ 
+-    this._attributeList = [];
+-    // Used for caching.
+-    this._attributesByNameMap = new Map();
++    this._attrNodes = null;
++    // A view over the arena's attributes, dropped whenever one is added or removed.
++    this._attrView = null;
+     this._attributes = null;
+   }
+ 
++  get _attributeList() {
++    return (this._attrView ??= attributes.attributeList(this));
++  }
++
+   // Overrides call `super` first so document-dependent caches are cleared before further adoption work.
+   _adoptingSteps() {
+     // `tagName` depends on whether the node document is HTML, even before the element is inserted again.
+@@ -64,16 +70,6 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+ 
+     windowProperties.elementAttributeModified(this, localName, value, oldValue, namespace);
+ 
+-    if (namespace === null && localName === "id" && this._isInDocumentTree) {
+-      const cache = this._ownerDocument._byIdCache;
+-      if (oldValue) {
+-        cache.delete(oldValue, this);
+-      }
+-      if (value) {
+-        cache.add(value, this);
+-      }
+-    }
+-
+     // update classList
+     if (namespace === null && localName === "class" && this._classList !== undefined) {
+       this._classList.attrModified();
+@@ -175,19 +171,11 @@ getAttributeNames() {
+   }
+ 
+   getAttribute(name) {
+-    const attr = attributes.getAttributeByName(this, name);
+-    if (!attr) {
+-      return null;
+-    }
+-    return attr._value;
++    return attributes.getAttributeValueByName(this, name);
+   }
+ 
+   getAttributeNS(namespace, localName) {
+-    const attr = attributes.getAttributeByNameNS(this, namespace, localName);
+-    if (!attr) {
+-      return null;
+-    }
+-    return attr._value;
++    return attributes.getAttributeValueByNameNS(this, namespace, localName);
+   }
+ 
+   setAttribute(name, value) {
+@@ -197,18 +185,7 @@ setAttribute(name, value) {
+       name = asciiLowercase(name);
+     }
+ 
+-    const attribute = attributes.getAttributeByName(this, name);
+-
+-    if (attribute === null) {
+-      const newAttr = this._ownerDocument._createAttribute({
+-        localName: name,
+-        value
+-      });
+-      attributes.appendAttribute(this, newAttr);
+-      return;
+-    }
+-
+-    attributes.changeAttribute(this, attribute, value);
++    attributes.setAttributeValueByName(this, name, value);
+   }
+ 
+   setAttributeNS(namespace, name, value) {
+@@ -236,15 +213,9 @@ toggleAttribute(qualifiedName, force) {
+       qualifiedName = asciiLowercase(qualifiedName);
+     }
+ 
+-    const attribute = attributes.getAttributeByName(this, qualifiedName);
+-
+-    if (attribute === null) {
++    if (!attributes.hasAttributeByName(this, qualifiedName)) {
+       if (force === undefined || force === true) {
+-        const newAttr = this._ownerDocument._createAttribute({
+-          localName: qualifiedName,
+-          value: ""
+-        });
+-        attributes.appendAttribute(this, newAttr);
++        attributes.setAttributeValueByName(this, qualifiedName, "");
+         return true;
+       }
+       return false;
+@@ -512,11 +483,19 @@ insertAdjacentHTML(position, text) {
+   }
+ 
+   closest(selectors) {
++    const hits = query(this, selectors, QUERY.closest);
++    if (hits !== null) {
++      return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
++    }
+     const domSelector = this._ownerDocument._getDOMSelector();
+     return domSelector.closest(selectors, this);
+   }
+ 
+   matches(selectors) {
++    const hits = query(this, selectors, QUERY.matches);
++    if (hits !== null) {
++      return hits.length > 0;
++    }
+     const domSelector = this._ownerDocument._getDOMSelector();
+     return domSelector.matches(selectors, this);
+   }
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 index ace803c6bb..5949ae2d48 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
@@ -432,6 +2121,46 @@ index 8d9b994e20..fd14208c4f 100644
    }
  
    _doReset() {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js
+index 42421cc7d7..393c76c54b 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLInputElement-impl.js
+@@ -12,6 +12,7 @@
+ const { fireAnEvent } = require("../helpers/events");
+ const { firstElementWithId } = require("../helpers/traversal");
+ const { HTML_NS } = require("../helpers/namespaces");
++const { setChecked } = require("../helpers/dom-tree");
+ const {
+   isDisabled,
+   isValidEmailAddress,
+@@ -366,6 +367,7 @@ set _checkedness(checkedness) {
+   set _checkedness(checkedness) {
+     if (this.#checkedness !== checkedness) {
+       this.#checkedness = checkedness;
++      setChecked(this, checkedness);
+       this._invalidateSelectorState();
+     }
+     if (checkedness) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
+index 8e551d3f5e..8fc052f00f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
+@@ -6,6 +6,7 @@ class HTMLOptionElementImpl extends HTMLElementImpl {
+ const { HTML_NS, SVG_NS } = require("../helpers/namespaces");
+ const { closest } = require("../helpers/traversal");
+ const { formOwner } = require("../helpers/form-controls");
++const { setChecked } = require("../helpers/dom-tree");
+ 
+ class HTMLOptionElementImpl extends HTMLElementImpl {
+   #cachedNearestAncestorSelect = null;
+@@ -152,6 +153,7 @@ set _selectedness(value) {
+   set _selectedness(value) {
+     if (this.#selectedness !== value) {
+       this.#selectedness = value;
++      setChecked(this, value);
+       this._invalidateSelectorState();
+       for (let ancestor = this.parentNode; ancestor !== null; ancestor = ancestor.parentNode) {
+         if (ancestor._namespaceURI === HTML_NS && ancestor._localName === "select") {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
 index 36633a1af9..8eef540e1c 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLScriptElement-impl.js
@@ -482,6 +2211,204 @@ index 36633a1af9..8eef540e1c 100644
      try {
        vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
      } catch (e) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
+index 476421f2ef..919812de69 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
+@@ -25,6 +25,10 @@ function nodeEquals(a, b) {
+   isShadowRoot, shadowIncludingRoot, assignSlot, assignSlotableForTree, assignSlotable, signalSlotChange, isSlot
+ } = require("../helpers/shadow-dom");
+ 
++/* global Deno */
++/* eslint-disable-next-line camelcase -- the native op name */
++const { op_dom_text_content } = Deno.core.ops;
++
+ function nodeEquals(a, b) {
+   if (a.nodeType !== b.nodeType) {
+     return false;
+@@ -129,46 +133,25 @@ function isHostInclusiveAncestor(nodeImplA, nodeImplB) {
+ }
+ 
+ // Call these helpers before running element-specific steps, so `document.getElementById()` and `window[name]`
+-// see updated caches for the entire subtree.
++// see updated caches for the entire subtree. Both read the subtree in batched op calls.
+ function addSubtreeToDocumentCaches(root) {
+-  const document = root._ownerDocument;
+-  let affectsNamedProperties = false;
+-
+-  for (const node of root._inclusiveDescendants()) {
+-    node._isInDocumentTree = true;
+-    if (node.nodeType === NODE_TYPE.ELEMENT_NODE) {
+-      affectsNamedProperties ||= isNamedPropertyElement(node);
+-      windowProperties.elementAttached(node);
+-      const id = node.getAttributeNS(null, "id");
+-      if (id) {
+-        document._byIdCache.add(id, node);
+-      }
+-    }
+-  }
+-
+-  if (affectsNamedProperties) {
+-    document._clearNamedPropertyCache();
+-  }
++  setInDocumentTree(root, true);
++  windowProperties.subtreeAttached(root._ownerDocument, treeHelpers.namedKeys(root));
+ }
+ 
+ function removeSubtreeFromDocumentCaches(root) {
+-  const document = root._ownerDocument;
++  setInDocumentTree(root, false);
++  windowProperties.subtreeDetached(root._ownerDocument, treeHelpers.namedKeys(root));
++}
++
++function setInDocumentTree(root, value) {
+   let affectsNamedProperties = false;
+-
+-  for (const node of root._inclusiveDescendants()) {
+-    node._isInDocumentTree = false;
+-    if (node.nodeType === NODE_TYPE.ELEMENT_NODE) {
+-      affectsNamedProperties ||= isNamedPropertyElement(node);
+-      windowProperties.elementDetached(node);
+-      const id = node.getAttributeNS(null, "id");
+-      if (id) {
+-        document._byIdCache.delete(id, node);
+-      }
+-    }
++  for (const node of root._inclusiveDescendantsToArray()) {
++    node._isInDocumentTree = value;
++    affectsNamedProperties ||= isNamedPropertyElement(node);
+   }
+-
+   if (affectsNamedProperties) {
+-    document._clearNamedPropertyCache();
++    root._ownerDocument._clearNamedPropertyCache();
+   }
+ }
+ 
+@@ -178,7 +161,11 @@ constructor(globalObject, args, privateData) {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+ 
+-    this._links = null;
++    this._wire = -1;
++    // Strong mirrors of the arena's parent/child links: wire lookups are weak, so these keep a
++    // held node's whole tree alive and let an unreferenced detached tree be collected.
++    this._treeParent = null;
++    this._treeChildren = null;
+ 
+     this._ownerDocument = privateData.ownerDocument;
+ 
+@@ -289,7 +276,7 @@ _getTheParent() {
+   }
+ 
+   get parentNode() {
+-    return this._links?.parent ?? null;
++    return treeHelpers.parent(this);
+   }
+ 
+   _treeIndex() {
+@@ -303,7 +290,7 @@ get _length() {
+   }
+ 
+   get _childCount() {
+-    return this._links?.childCount ?? 0;
++    return treeHelpers.childCount(this);
+   }
+ 
+   _children() {
+@@ -421,7 +408,7 @@ get nodeName() {
+   }
+ 
+   get firstChild() {
+-    return this._links?.firstChild ?? null;
++    return treeHelpers.firstChild(this);
+   }
+ 
+   // https://dom.spec.whatwg.org/#connected
+@@ -436,7 +423,7 @@ get ownerDocument() {
+   }
+ 
+   get lastChild() {
+-    return this._links?.lastChild ?? null;
++    return treeHelpers.lastChild(this);
+   }
+ 
+   get childNodes() {
+@@ -453,11 +440,11 @@ query: () => this._childrenToArray()
+   }
+ 
+   get nextSibling() {
+-    return this._links?.nextSibling ?? null;
++    return treeHelpers.nextSibling(this);
+   }
+ 
+   get previousSibling() {
+-    return this._links?.previousSibling ?? null;
++    return treeHelpers.previousSibling(this);
+   }
+ 
+   // Selector-visible state can affect styles anywhere in the document, without changing structural collections.
+@@ -771,6 +758,10 @@ get textContent() {
+     switch (this.nodeType) {
+       case NODE_TYPE.DOCUMENT_FRAGMENT_NODE:
+       case NODE_TYPE.ELEMENT_NODE: {
++        // One native call instead of crossing for every descendant and its data.
++        if (this._wire >= 0) {
++          return op_dom_text_content(this._wire);
++        }
+         let text = "";
+         for (const child of this._descendants()) {
+           if (child.nodeType === NODE_TYPE.TEXT_NODE || child.nodeType === NODE_TYPE.CDATA_SECTION_NODE) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
+index 3fed0cd5d1..0d4ac23d96 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
+@@ -4,6 +4,8 @@ class ParentNodeImpl {
+ const HTMLCollection = require("../../../generated/idl/HTMLCollection");
+ const NODE_TYPE = require("../node-type");
+ const { convertNodesIntoNode } = require("../node");
++const { wrapperForImpl } = require("../../../generated/idl/utils");
++const { QUERY, query } = require("../helpers/dom-tree");
+ 
+ class ParentNodeImpl {
+   get children() {
+@@ -60,6 +62,10 @@ querySelector(selectors) {
+     if (shouldAlwaysSelectNothing(this)) {
+       return null;
+     }
++    const hits = query(this, selectors, QUERY.first);
++    if (hits !== null) {
++      return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
++    }
+     const domSelector = this._ownerDocument._getDOMSelector();
+     return domSelector.querySelector(selectors, this);
+   }
+@@ -71,8 +77,10 @@ querySelectorAll(selectors) {
+     if (shouldAlwaysSelectNothing(this)) {
+       return NodeList.createImpl(this._globalObject, [], { nodes: [] });
+     }
+-    const domSelector = this._ownerDocument._getDOMSelector();
+-    const nodes = domSelector.querySelectorAll(selectors, this);
++    const hits = query(this, selectors, QUERY.all);
++    const nodes = hits !== null ?
++      hits.map(wrapperForImpl) :
++      this._ownerDocument._getDOMSelector().querySelectorAll(selectors, this);
+     return NodeList.createImpl(this._globalObject, [], { nodes });
+   }
+ }
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js
+index 10061e8162..3b2b61e0b2 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/SVGSVGElement-impl.js
+@@ -15,7 +15,7 @@ createSVGRect() {
+   }
+ 
+   // Unlike `Document`'s `getElementById()`, this searches within this element's subtree, so the document-level
+-  // `ByIdCache` can't be used (it might return an element outside this subtree). A per-`<svg>` cache isn't worthwhile
++  // id index can't be used (it might return an element outside this subtree). A per-`<svg>` cache isn't worthwhile
+   // since `SVGSVGElement`'s `getElementById()` is rarely called and `<svg>` subtrees are typically small.
+   getElementById(elementId) {
+     for (const node of this._inclusiveDescendants()) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js b/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
 index 0084dc004a..fba816ef06 100644
 --- a/node_modules/jsdom/lib/jsdom/living/window/History-impl.js
@@ -558,3 +2485,93 @@ index 0037250412..aedfcb0ab7 100644
  }
  
  // https://url.spec.whatwg.org/#concept-url-equals
+diff --git a/node_modules/jsdom/lib/jsdom/living/window-properties.js b/node_modules/jsdom/lib/jsdom/living/window-properties.js
+index f20fd1078b..aa5275ab31 100644
+--- a/node_modules/jsdom/lib/jsdom/living/window-properties.js
++++ b/node_modules/jsdom/lib/jsdom/living/window-properties.js
+@@ -85,21 +85,11 @@ query() {
+   });
+ }
+ 
+-exports.elementAttached = element => {
+-  if (element._namespaceURI !== HTML_NS) {
+-    return;
+-  }
+-
+-  const idAttr = element.getAttributeNS(null, "id");
+-  const nameAttr = nameAttributeElementLocalNames.has(element._localName) ?
+-    element.getAttributeNS(null, "name") :
+-    null;
+-  if (!idAttr && !nameAttr) {
+-    return;
+-  }
+-
+-  const window = element._ownerDocument._globalObject;
+-  if (!inAssociatedDocument(element)) {
++// `keys` lists a subtree's elements with the `id` and `name` they answer to; only HTML elements
++// with a non-empty one are listed.
++exports.subtreeAttached = (document, keys) => {
++  const window = document._globalObject;
++  if (keys.length === 0 || window._document !== document) {
+     return;
+   }
+ 
+@@ -109,41 +99,30 @@ query() {
+     trackers.set(window, tracker);
+   }
+ 
+-  if (nameAttr) {
+-    upsert(tracker, nameAttr, element);
+-  }
+-
+-  if (idAttr) {
+-    upsert(tracker, idAttr, element);
++  for (const { element, id, name } of keys) {
++    if (name) {
++      upsert(tracker, name, element);
++    }
++    if (id) {
++      upsert(tracker, id, element);
++    }
+   }
+ };
+ 
+-exports.elementDetached = element => {
+-  if (element._namespaceURI !== HTML_NS) {
+-    return;
+-  }
+-
+-  const idAttr = element.getAttributeNS(null, "id");
+-  const nameAttr = nameAttributeElementLocalNames.has(element._localName) ?
+-    element.getAttributeNS(null, "name") :
+-    null;
+-  if (!idAttr && !nameAttr) {
+-    return;
+-  }
+-
+-  const window = element._ownerDocument._globalObject;
+-  if (!inAssociatedDocument(element)) {
++exports.subtreeDetached = (document, keys) => {
++  const window = document._globalObject;
++  if (keys.length === 0 || window._document !== document) {
+     return;
+   }
+ 
+   const tracker = trackers.get(window);
+-
+-  if (idAttr) {
+-    remove(tracker, idAttr, element);
+-  }
+-
+-  if (nameAttr) {
+-    remove(tracker, nameAttr, element);
++  for (const { element, id, name } of keys) {
++    if (id) {
++      remove(tracker, id, element);
++    }
++    if (name) {
++      remove(tracker, name, element);
++    }
+   }
+ 
+   if (tracker.size === 0) {
