@@ -94,6 +94,37 @@ fn runtime_with_mounted_file(name: &str, contents: &str) -> Runtime {
     Runtime::new(&mounts)
 }
 
+fn mounted_fetch_status(rt: &Runtime, path: &str) -> u16 {
+    rt.eval_promise::<u16>(&format!(
+        "fetch('http://localhost/ext/{path}').then(r => r.status)"
+    ))
+}
+
+#[test]
+fn mounted_file_ignores_query_string() {
+    let rt = runtime_with_mounted_file("query.js", "1;");
+    assert_eq!(mounted_fetch_status(&rt, "query.js?v=3"), 200);
+}
+
+#[test]
+fn mounted_file_name_is_percent_decoded() {
+    let rt = runtime_with_mounted_file("my app.js", "1;");
+    assert_eq!(mounted_fetch_status(&rt, "my%20app.js"), 200);
+}
+
+#[test]
+fn mounted_path_cannot_escape_via_encoded_parent_segment() {
+    let rt = runtime_with_mounted_file("inside.js", "1;");
+    std::fs::write(
+        std::env::temp_dir().join("miniclient-outside.txt"),
+        "secret",
+    )
+    .unwrap();
+    let status = mounted_fetch_status(&rt, "..%2Fminiclient-outside.txt");
+    std::fs::remove_file(std::env::temp_dir().join("miniclient-outside.txt")).ok();
+    assert_eq!(status, 404);
+}
+
 #[test]
 fn dynamically_inserted_async_script_loads() {
     let rt = runtime_with_mounted_file("async-script.js", "window.__ran = 1;");

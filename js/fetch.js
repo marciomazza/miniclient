@@ -114,10 +114,15 @@ function emit(handler, controller, status, statusText, headers, body) {
 /** @param {string} url */
 function fromMount(url) {
     const mounts = globalThis.__RESOURCE_MOUNTS__;
-    const prefix = Object.keys(mounts).find((p) => url.startsWith(p));
+    const { origin, pathname } = new URL(url);
+    const target = origin + pathname;
+    const prefix = Object.keys(mounts).find((p) => target.startsWith(p));
     if (prefix === undefined) return null;
-    const path = `${mounts[prefix]}/${url.slice(prefix.length)}`;
     try {
+        const rel = decodeURIComponent(target.slice(prefix.length));
+        // Decoding can reveal `..` that URL normalization could not see (`%2e%2e%2f`).
+        if (rel.split("/").includes("..")) throw new Error("path escapes mount");
+        const path = `${mounts[prefix]}/${rel}`;
         const bytes = Deno.core.ops.op_fs_read(path);
         return {
             status: 200,
