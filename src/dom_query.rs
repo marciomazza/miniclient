@@ -78,7 +78,7 @@ pub enum StatePseudo {
     Target,
 }
 
-const STATE_PSEUDO_CLASSES: [(&str, StatePseudo); 12] = [
+pub const STATE_PSEUDO_CLASSES: [(&str, StatePseudo); 12] = [
     ("any-link", StatePseudo::AnyLink),
     ("checked", StatePseudo::Checked),
     ("disabled", StatePseudo::Disabled),
@@ -390,7 +390,7 @@ impl std::fmt::Debug for MiniElement<'_> {
 }
 
 impl<'a> MiniElement<'a> {
-    fn wrap(node: NodeRef<'a, Node>, state: &'a QueryState) -> Option<Self> {
+    pub fn wrap(node: NodeRef<'a, Node>, state: &'a QueryState) -> Option<Self> {
         node.value().is_element().then_some(Self { node, state })
     }
 
@@ -428,7 +428,7 @@ impl<'a> MiniElement<'a> {
         }
     }
 
-    fn in_state(&self, pc: StatePseudo) -> bool {
+    pub fn in_state(&self, pc: StatePseudo) -> bool {
         use StatePseudo as P;
         let id = self.node.id();
         match pc {

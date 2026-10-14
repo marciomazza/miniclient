@@ -1020,7 +1020,7 @@ impl DomState {
         w
     }
 
-    fn resolve(&self, wire: u32) -> Option<NodeId> {
+    pub fn resolve(&self, wire: u32) -> Option<NodeId> {
         self.ids.get(wire as usize).copied()
     }
 }

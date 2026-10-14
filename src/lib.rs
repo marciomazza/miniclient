@@ -8,6 +8,8 @@ use pyo3::prelude::*;
 use crate::runtime::{EvalError, EvalOutcome, Wait};
 
 pub mod browser;
+#[cfg(feature = "stylo-css")]
+pub mod css;
 pub mod dom;
 pub mod dom_ops;
 pub mod dom_query;

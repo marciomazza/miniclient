@@ -42,6 +42,17 @@ precomputed-hash = "0.1"
 # Needed to drive `SelectorList::parse` directly for the native query engine; resolves to the
 # same 0.38 `selectors` already pulls in.
 cssparser = "0.38"
+# Prototype: stylo owns cascade and computed values for `getComputedStyle`. MPL-2.0, so it stays
+# behind a feature that release wheels don't enable.
+stylo = { version = "0.22", optional = true }
+stylo_dom = { version = "0.22", optional = true }
+stylo_static_prefs = { version = "0.22", optional = true }
+euclid = { version = "0.22", optional = true }
+app_units = { version = "0.7", optional = true }
+url = { version = "2", optional = true }
+
+[features]
+stylo-css = ["dep:stylo", "dep:stylo_dom", "dep:stylo_static_prefs", "dep:euclid", "dep:app_units", "dep:url"]
 
 [dev-dependencies]
 glob = "0.3"
