@@ -6,6 +6,8 @@
 
 Commit messages and code in English; comment rules; naming
 and quoting conventions for JS eval strings. See [docs/coding-standards.md](docs/coding-standards.md).
+Prefer to write tests in rust as much as possible. Write python tests only for what touches the python layer.
+Run Rust tests with `cargo nextest run`, including targeted test runs.
 
 ### Issue tracker
 
