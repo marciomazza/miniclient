@@ -36,7 +36,7 @@ uuid = { version = "1", features = ["v4"] }
 # selectors pulls a second cssparser (0.37) alongside deno_web's 0.36 -- a harmless duplicate
 # compile.
 ego-tree = "0.11"
-html5ever = "0.39"
+html5ever = "0.40"
 selectors = "0.38"
 precomputed-hash = "0.1"
 # Needed to drive `SelectorList::parse` directly for the native query engine; resolves to the
@@ -70,7 +70,7 @@ pyo3-build-config = "=0.29.2"
 # in the snapshot. Keep these in lockstep with [dependencies] too.
 cssparser = "0.37"
 ego-tree = "0.11"
-html5ever = "0.39"
+html5ever = "0.40"
 selectors = "0.38"
 precomputed-hash = "0.1"
 serde = { version = "1.0.229", features = ["derive"] }

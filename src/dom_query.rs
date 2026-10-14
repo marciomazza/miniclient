@@ -420,7 +420,7 @@ impl<'a> MiniElement<'a> {
 
     /// The local name of an HTML element, `None` for other namespaces.
     fn html_local(&self) -> Option<&str> {
-        (self.el().name.ns.as_ref() == HTML_NS).then(|| self.local())
+        (&*self.el().name.ns == HTML_NS).then(|| self.local())
     }
 
     fn has_attr(&self, name: &str) -> bool {
@@ -654,7 +654,7 @@ impl Element for MiniElement<'_> {
     }
 
     fn is_html_element_in_html_document(&self) -> bool {
-        self.state.html && self.el().name.ns.as_ref() == HTML_NS
+        self.state.html && &*self.el().name.ns == HTML_NS
     }
 
     fn has_local_name(&self, name: &CssLocalName) -> bool {
