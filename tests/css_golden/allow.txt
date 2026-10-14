@@ -1,0 +1,137 @@
+# Pairs chromium_golden lets stylo get wrong although jsdom matches Chromium.
+# Line: `property [file]`; either may end in `*` as a prefix. Paths are relative to
+# vendor/jsdom/test/web-platform-tests.
+
+## Servo-mode gaps: stylo has no Servo longhand, so the value reads back "".
+-webkit-text-fill-color
+-webkit-text-stroke-color
+anchor-name
+anchor-scope
+animation-trigger
+border-shape
+break-after
+break-before
+break-inside
+caret-animation
+caret-shape
+clip-rule
+column-fill
+column-height
+column-rule-break
+column-rule-color
+column-rule-style
+column-rule-visibility-items
+column-wrap
+contain-intrinsic-block-size
+contain-intrinsic-height
+contain-intrinsic-inline-size
+contain-intrinsic-width
+content-visibility
+counter-set
+dominant-baseline
+dynamic-range-limit
+field-sizing
+flood-color
+flood-opacity
+font-optical-sizing
+font-palette
+font-synthesis-small-caps
+font-synthesis-style
+font-variant-emoji
+font-variation-settings
+hyphenate-character
+hyphenate-limit-chars
+hyphens
+image-orientation
+initial-letter
+interactivity
+interest-delay-end
+interest-delay-start
+interpolate-size
+lighting-color
+marker-end
+marker-mid
+marker-start
+math-shift
+object-view-box
+offset-anchor
+offset-position
+orphans
+overflow-anchor
+overlay
+paint-order
+position-try-order
+print-color-adjust
+reading-flow
+reading-order
+resize
+row-rule-break
+row-rule-color
+row-rule-style
+row-rule-visibility-items
+ruby-align
+rule-overlap
+scroll-initial-target
+scroll-marker-group
+scroll-padding-block-end
+scroll-padding-block-start
+scroll-padding-bottom
+scroll-padding-inline-end
+scroll-padding-inline-start
+scroll-padding-left
+scroll-padding-right
+scroll-padding-top
+scroll-snap-align
+scroll-snap-stop
+scroll-snap-type
+scroll-target-group
+scroll-timeline-axis
+scroll-timeline-name
+scrollbar-gutter
+shape-image-threshold
+shape-outside
+shape-rendering
+text-anchor
+text-box-edge
+text-box-trim
+text-combine-upright
+text-decoration-skip-ink
+text-emphasis-color
+text-emphasis-style
+text-size-adjust
+text-spacing-trim
+text-wrap-style
+timeline-scope
+timeline-trigger-activation-range-end
+timeline-trigger-activation-range-start
+timeline-trigger-active-range-end
+timeline-trigger-active-range-start
+timeline-trigger-name
+timeline-trigger-source
+transform-box
+trigger-scope
+vector-effect
+view-timeline-axis
+view-timeline-inset
+view-timeline-name
+view-transition-group
+view-transition-scope
+widows
+
+## Servo-mode gaps: the feature or its serialization differs.
+corner-*                # serializes `round` as `superellipse(1)`
+transform-origin        # keeps the `0px` z component Chromium drops
+container-type tests/css/css-conditional/container-queries/scroll-state/*  # no `scroll-state`
+display tests/css/cssom/getComputedStyle-insets-multicol-absolute-crash.html  # no ruby display types
+
+## Chromium quirks and layout.
+border-* tests/css/cssom/resolved-border-width.html  # themed checkbox/radio drop author borders
+display tests/css/css-conditional/container-queries/canvas-as-container-*  # size container queries
+
+## Known stylo or embedding bugs, kept narrow so a fix shows up.
+width to-upstream/css/selectors/i18n/css3-selectors-lang-*  # :lang() misses the element's own lang
+display to-upstream/css/selectors/i18n/css3-selectors-lang-*
+direction to-upstream/css/selectors/dir-selector-auto-dont-upstream.html  # dir=auto not resolved
+direction tests/css/cssom/getComputedStyle-insets-relpos-inline.html
+background-color tests/css/css-conditional/at-supports-namespace-*  # @supports ignores @namespace
+background-color tests/css/css-cascade/scope-part.html  # ::part matches under implicit @scope

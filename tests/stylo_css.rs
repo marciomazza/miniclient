@@ -114,6 +114,8 @@ fn reflects_mutations() {
     assert_eq!(color, "rgb(1, 2, 3)");
 }
 
+const WPT: &str = "vendor/jsdom/test/web-platform-tests";
+
 fn strip_scripts(html: &str) -> String {
     let re = regex::Regex::new(r"(?is)<script\b.*?</script\s*>").unwrap();
     re.replace_all(html, "").into_owned()
@@ -122,7 +124,7 @@ fn strip_scripts(html: &str) -> String {
 #[test]
 #[ignore = "report, not a gate"]
 fn corpus_report() {
-    let base = "vendor/jsdom/test/web-platform-tests";
+    let base = WPT;
     let dirs = [
         "to-upstream/css",
         "tests/css/css-cascade",
@@ -262,4 +264,172 @@ fn cost_report() {
     );
     println!("elements 1001, rules 100; times in ms: {json}");
     println!("rss growth over the first stylo call: +{stylo_rss} KiB");
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Golden {
+    chromium: String,
+    viewport: (u32, u32),
+    color_scheme: String,
+    properties: Vec<String>,
+    defaults: BTreeMap<String, String>,
+    files: BTreeMap<String, Vec<(String, BTreeMap<String, String>)>>,
+}
+
+/// `property [file]` lines; either ending in `*` is a prefix, no file means every file.
+fn allow_list(text: &str) -> Vec<(String, Option<String>)> {
+    text.lines()
+        .map(|line| line.split('#').next().unwrap().trim())
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let mut words = line.split_whitespace();
+            let prop = words.next().unwrap().to_owned();
+            (prop, words.next().map(str::to_owned))
+        })
+        .collect()
+}
+
+/// Index of the first entry covering the pair.
+fn allowed(allow: &[(String, Option<String>)], file: &str, prop: &str) -> Option<usize> {
+    let matches = |pattern: &str, s: &str| match pattern.strip_suffix('*') {
+        Some(prefix) => s.starts_with(prefix),
+        None => s == pattern,
+    };
+    allow.iter().position(|(prop_pattern, file_pattern)| {
+        matches(prop_pattern, prop) && file_pattern.as_deref().is_none_or(|f| matches(f, file))
+    })
+}
+
+#[test]
+fn allow_list_matching() {
+    let allow = allow_list("# reason\nwidth\nscroll-snap-*  # gap\ncolor a.html\ndisplay d/*\n");
+    assert!(allowed(&allow, "x.html", "width").is_some());
+    assert!(allowed(&allow, "x.html", "min-width").is_none());
+    assert!(allowed(&allow, "x.html", "scroll-snap-type").is_some());
+    assert!(allowed(&allow, "a.html", "color").is_some());
+    assert!(allowed(&allow, "b.html", "color").is_none());
+    assert!(allowed(&allow, "d/x.html", "display").is_some());
+    assert!(allowed(&allow, "e/x.html", "display").is_none());
+}
+
+/// Gate against Chromium's recorded values: a pair jsdom gets right must stay right under stylo,
+/// unless `css_golden/allow.txt` lists it. Re-record with `scripts/record-chromium-css.py`.
+#[test]
+fn chromium_golden() {
+    let golden: Golden =
+        serde_json::from_str(&std::fs::read_to_string("tests/css_golden/chromium.json").unwrap())
+            .unwrap();
+    let allow = allow_list(&std::fs::read_to_string("tests/css_golden/allow.txt").unwrap());
+    let rt = runtime();
+    let window: (u32, u32) =
+        serde_json::from_str(&rt.eval::<String>("JSON.stringify([innerWidth, innerHeight])"))
+            .unwrap();
+    // A recording on another device would mismatch media queries and viewport units.
+    assert_eq!(
+        golden.viewport, window,
+        "recorded viewport differs from mini's window"
+    );
+    assert_eq!(
+        golden.color_scheme, "light",
+        "mini's device prefers the light scheme"
+    );
+    let props = serde_json::to_string(&golden.properties).unwrap();
+    rt.run(&format!(
+        r#"globalThis.__golden = (markup) => {{
+            document.documentElement.innerHTML = markup;
+            const props = {props};
+            return JSON.stringify([...document.querySelectorAll("*")].map((el) => {{
+                const cs = getComputedStyle(el);
+                return [el.localName, __stylo(el, props), props.map((p) => cs.getPropertyValue(p))];
+            }}));
+        }};
+        0"#
+    ));
+    let (mut pairs, mut stylo_eq, mut jsdom_eq, mut both) = (0, 0, 0, 0);
+    let mut unread = Vec::new();
+    let mut regressions: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut used = vec![false; allow.len()];
+    for (file, expected) in &golden.files {
+        let html = std::fs::read_to_string(format!("{WPT}/{file}")).unwrap();
+        let markup = serde_json::to_string(&strip_scripts(&html)).unwrap();
+        let json = match rt.try_eval(&format!("__golden({markup})")) {
+            Ok(Some(json)) => serde_json::from_str::<String>(&json).unwrap(),
+            other => {
+                unread.push(format!("{file}: {other:?}"));
+                continue;
+            }
+        };
+        let ours: Vec<(String, Vec<String>, Vec<String>)> = serde_json::from_str(&json).unwrap();
+        if ours
+            .iter()
+            .map(|element| &element.0)
+            .ne(expected.iter().map(|element| &element.0))
+        {
+            unread.push(format!("{file}: element tree differs from Chromium's"));
+            continue;
+        }
+        for ((_, stylo, jsdom), (el, deltas)) in ours.iter().zip(expected) {
+            for (i, prop) in golden.properties.iter().enumerate() {
+                let want = deltas.get(prop).unwrap_or(&golden.defaults[prop]);
+                let (stylo_ok, jsdom_ok) = (&stylo[i] == want, &jsdom[i] == want);
+                pairs += 1;
+                stylo_eq += stylo_ok as usize;
+                jsdom_eq += jsdom_ok as usize;
+                both += (stylo_ok && jsdom_ok) as usize;
+                if !jsdom_ok || stylo_ok {
+                    continue;
+                }
+                if let Some(entry) = allowed(&allow, file, prop) {
+                    used[entry] = true;
+                } else {
+                    let lost = regressions.entry(prop.clone()).or_default();
+                    lost.push(format!(
+                        "{file} <{el}>: chromium {want:?} stylo {:?}",
+                        stylo[i]
+                    ));
+                }
+            }
+        }
+    }
+    let pct = |n: usize| 100.0 * n as f64 / pairs.max(1) as f64;
+    println!(
+        "Chromium {}: {} files ({} unread), {pairs} pairs",
+        golden.chromium,
+        golden.files.len(),
+        unread.len()
+    );
+    println!("  stylo = Chromium {stylo_eq} ({:.1}%)", pct(stylo_eq));
+    println!("  jsdom = Chromium {jsdom_eq} ({:.1}%)", pct(jsdom_eq));
+    println!("  both             {both} ({:.1}%)", pct(both));
+    for u in &unread {
+        println!("  unread {u}");
+    }
+    for (prop, lost) in &regressions {
+        println!("{:6} {prop}", lost.len());
+        for sample in lost.iter().take(3) {
+            println!("         {sample}");
+        }
+    }
+    let stale: Vec<_> = allow
+        .iter()
+        .zip(&used)
+        .filter(|(_, was_used)| !**was_used)
+        .map(|(entry, _)| entry)
+        .collect();
+    for entry in &stale {
+        println!("  stale allow entry {entry:?}");
+    }
+    assert!(unread.is_empty(), "{} files not compared", unread.len());
+    // A fixed bug's entry would otherwise keep hiding a later regression.
+    assert!(
+        stale.is_empty(),
+        "{} allow entries no longer cover a pair",
+        stale.len()
+    );
+    assert!(
+        regressions.is_empty(),
+        "{} properties where stylo loses a value jsdom gets right",
+        regressions.len()
+    );
 }
