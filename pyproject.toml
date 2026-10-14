@@ -110,6 +110,7 @@ unfixable = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/wpt/run.py" = ["T201"]  # a CLI that reports on stdout
+"scripts/record-chromium-css.py" = ["T201"]  # a hand-run recorder that reports on stdout
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
