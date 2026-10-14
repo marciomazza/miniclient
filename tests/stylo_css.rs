@@ -1,12 +1,11 @@
-//! stylo's computed values against jsdom's, which stay the oracle. The corpus test is a report:
-//! run it with `cargo test --features stylo-css --test stylo_css -- --ignored --nocapture`.
+//! stylo's computed values against jsdom's and against a Chromium recording of the CSS corpus.
+//! The cost test is a report: run it with `-- --ignored --nocapture`.
 
 #![cfg(feature = "stylo-css")]
 
 mod common;
 
 use std::collections::BTreeMap;
-use std::time::Instant;
 
 use common::EvalExt;
 use common::fetch_mock::{MockFetchBackend, runtime_with_mock};
@@ -21,22 +20,18 @@ globalThis.__stylo = (el, props) => {
 };
 globalThis.__compare = () => {
     const els = [...document.querySelectorAll("*")];
-    let t = performance.now();
     const oracle = els.map((el) => {
         const cs = getComputedStyle(el);
         return [...cs].filter((p) => !p.startsWith("--")).map((p) => [p, cs.getPropertyValue(p)]);
     });
-    const jsdomMs = performance.now() - t;
-    t = performance.now();
     const ours = els.map((el, i) => __stylo(el, oracle[i].map(([p]) => p)));
-    const styloMs = performance.now() - t;
     const diffs = [];
     let pairs = 0;
     oracle.forEach((props, i) => props.forEach(([p, v], j) => {
         pairs++;
         if (v !== ours[i][j]) diffs.push([els[i].localName, p, v, ours[i][j]]);
     }));
-    return JSON.stringify({ pairs, diffs, jsdomMs, styloMs, elements: els.length });
+    return JSON.stringify({ pairs, diffs });
 };
 0
 "#;
@@ -45,11 +40,6 @@ globalThis.__compare = () => {
 struct Outcome {
     pairs: usize,
     diffs: Vec<(String, String, String, String)>,
-    #[serde(rename = "jsdomMs")]
-    jsdom_ms: f64,
-    #[serde(rename = "styloMs")]
-    stylo_ms: f64,
-    elements: usize,
 }
 
 fn compare(rt: &common::Runtime, markup: &str) -> Outcome {
@@ -119,91 +109,6 @@ const WPT: &str = "vendor/jsdom/test/web-platform-tests";
 fn strip_scripts(html: &str) -> String {
     let re = regex::Regex::new(r"(?is)<script\b.*?</script\s*>").unwrap();
     re.replace_all(html, "").into_owned()
-}
-
-#[test]
-#[ignore = "report, not a gate"]
-fn corpus_report() {
-    let base = WPT;
-    let dirs = [
-        "to-upstream/css",
-        "tests/css/css-cascade",
-        "tests/css/css-variables",
-        "tests/css/css-nesting",
-        "tests/css/css-conditional",
-        "tests/css/cssom",
-    ];
-    let rt = runtime();
-    let (mut pairs, mut equal, mut files, mut clean_files, mut elements) = (0, 0, 0, 0, 0);
-    let (mut jsdom_ms, mut stylo_ms) = (0.0, 0.0);
-    let mut by_prop: BTreeMap<String, usize> = BTreeMap::new();
-    let mut samples: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut per_dir: Vec<(String, usize, usize)> = Vec::new();
-    let started = Instant::now();
-    for dir in dirs {
-        let (dir_pairs_before, dir_equal_before) = (pairs, equal);
-        let pattern = format!("{base}/{dir}/**/*.html");
-        for path in glob::glob(&pattern).unwrap().flatten() {
-            let Ok(html) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let markup = strip_scripts(&html);
-            let markup_json = serde_json::to_string(&markup).unwrap();
-            let src = format!("document.documentElement.innerHTML = {markup_json}; __compare()");
-            let Ok(Some(json)) = rt.try_eval(&src) else {
-                continue;
-            };
-            let Ok(json) = serde_json::from_str::<String>(&json) else {
-                continue;
-            };
-            let out: Outcome = serde_json::from_str(&json).unwrap();
-            files += 1;
-            elements += out.elements;
-            pairs += out.pairs;
-            equal += out.pairs - out.diffs.len();
-            jsdom_ms += out.jsdom_ms;
-            stylo_ms += out.stylo_ms;
-            if out.diffs.is_empty() {
-                clean_files += 1;
-            }
-            for (el, prop, theirs, ours) in out.diffs {
-                *by_prop.entry(prop.clone()).or_default() += 1;
-                let s = samples.entry(prop).or_default();
-                if s.len() < 3 {
-                    let file = path.strip_prefix(base).unwrap_or(&path).display();
-                    s.push(format!("{file} <{el}>: jsdom {theirs:?} stylo {ours:?}"));
-                }
-            }
-        }
-        per_dir.push((
-            dir.into(),
-            pairs - dir_pairs_before,
-            equal - dir_equal_before,
-        ));
-    }
-    println!("files {files}, clean {clean_files}, elements {elements}");
-    println!(
-        "pairs {pairs}, equal {equal} ({:.1}%)",
-        100.0 * equal as f64 / pairs.max(1) as f64
-    );
-    for (dir, p, e) in per_dir {
-        println!(
-            "  {dir}: {e}/{p} ({:.1}%)",
-            100.0 * e as f64 / p.max(1) as f64
-        );
-    }
-    println!(
-        "getComputedStyle total: jsdom {jsdom_ms:.0} ms, stylo {stylo_ms:.0} ms; wall {:.1}s",
-        started.elapsed().as_secs_f64()
-    );
-    let mut ranked: Vec<_> = by_prop.into_iter().collect();
-    ranked.sort_by_key(|p| std::cmp::Reverse(p.1));
-    for (prop, n) in ranked.iter().take(40) {
-        println!("{n:6} {prop}");
-        for s in &samples[prop] {
-            println!("         {s}");
-        }
-    }
 }
 
 fn rss_kb() -> u64 {
