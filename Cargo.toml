@@ -33,15 +33,15 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 # Rust-backed DOM tree: an `ego-tree` arena filled by `html5ever` and matched with `selectors`.
-# selectors pulls a second cssparser (0.37) alongside deno_web's 0.36 -- a harmless duplicate
+# selectors pulls a second cssparser (0.38) alongside deno_web's 0.36 -- a harmless duplicate
 # compile.
 ego-tree = "0.11"
 html5ever = "0.40"
-selectors = "0.38"
+selectors = "0.41"
 precomputed-hash = "0.1"
 # Needed to drive `SelectorList::parse` directly for the native query engine; resolves to the
-# same 0.37 `selectors` already pulls in.
-cssparser = "0.37"
+# same 0.38 `selectors` already pulls in.
+cssparser = "0.38"
 
 [dev-dependencies]
 glob = "0.3"
@@ -68,10 +68,10 @@ deno_webidl = "0.259.0"
 pyo3-build-config = "=0.29.2"
 # build.rs compiles src/dom.rs, src/dom_ops.rs and src/dom_query.rs to register the DOM ops
 # in the snapshot. Keep these in lockstep with [dependencies] too.
-cssparser = "0.37"
+cssparser = "0.38"
 ego-tree = "0.11"
 html5ever = "0.40"
-selectors = "0.38"
+selectors = "0.41"
 precomputed-hash = "0.1"
 serde = { version = "1.0.229", features = ["derive"] }
 

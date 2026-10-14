@@ -4,7 +4,7 @@
 use std::cell::Cell;
 
 use crate::node::{Element as ElementData, Node};
-use cssparser::{CowRcStr, ParseError, Parser as CssParser, ParserInput, SourceLocation, ToCss};
+use cssparser::{CowRcStr, ParseError, Parser as CssParser, ToCss};
 use ego_tree::{NodeId, NodeRef};
 use html5ever::{LocalName, Namespace};
 use precomputed_hash::PrecomputedHash;
@@ -141,8 +141,7 @@ impl MatchSelector {
     /// `None` when the selector is invalid or needs what this matcher lacks (namespace
     /// prefixes, `:lang`, state pseudo-classes, ...).
     pub fn parse(selector: &str) -> Option<Self> {
-        let mut input = ParserInput::new(selector);
-        let mut parser = CssParser::new(&mut input);
+        let mut parser = CssParser::new(selector);
         let mini = MiniParser::default();
         let list = SelectorList::parse(&mini, &mut parser, ParseRelative::No).ok()?;
         (!mini.unsupported.get()).then_some(Self { list })
@@ -286,8 +285,6 @@ pub enum MiniPseudo {
 }
 
 impl parser::NonTSPseudoClass for MiniPseudo {
-    type Impl = MiniImpl;
-
     fn is_active_or_hover(&self) -> bool {
         false
     }
@@ -309,9 +306,7 @@ impl ToCss for MiniPseudo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MiniPseudoElement(String);
 
-impl parser::PseudoElement for MiniPseudoElement {
-    type Impl = MiniImpl;
-}
+impl parser::PseudoElement for MiniPseudoElement {}
 
 impl ToCss for MiniPseudoElement {
     fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
@@ -328,7 +323,7 @@ struct MiniParser {
 
 impl<'i> parser::Parser<'i> for MiniParser {
     type Impl = MiniImpl;
-    type Error = SelectorParseErrorKind<'i>;
+    type Error = SelectorParseErrorKind;
 
     fn parse_is_and_where(&self) -> bool {
         true
@@ -344,16 +339,15 @@ impl<'i> parser::Parser<'i> for MiniParser {
 
     fn parse_non_ts_pseudo_class(
         &self,
-        location: SourceLocation,
         name: CowRcStr<'i>,
-    ) -> Result<MiniPseudo, ParseError<'i, Self::Error>> {
+    ) -> Result<MiniPseudo, ParseError<Self::Error>> {
         let state = STATE_PSEUDO_CLASSES
             .iter()
             .find(|(n, _)| name.eq_ignore_ascii_case(n));
         if let Some(&(_, pc)) = state {
             return Ok(MiniPseudo::State(pc));
         }
-        let known = known(&NEVER_MATCHING_PSEUDO_CLASSES, location, name);
+        let known = known(&NEVER_MATCHING_PSEUDO_CLASSES, &name);
         self.unsupported
             .set(self.unsupported.get() || known.is_err());
         known.map(MiniPseudo::NeverMatches)
@@ -361,10 +355,9 @@ impl<'i> parser::Parser<'i> for MiniParser {
 
     fn parse_pseudo_element(
         &self,
-        location: SourceLocation,
         name: CowRcStr<'i>,
-    ) -> Result<MiniPseudoElement, ParseError<'i, Self::Error>> {
-        let known = known(&PSEUDO_ELEMENTS, location, name);
+    ) -> Result<MiniPseudoElement, ParseError<Self::Error>> {
+        let known = known(&PSEUDO_ELEMENTS, &name);
         self.unsupported
             .set(self.unsupported.get() || known.is_err());
         known.map(MiniPseudoElement)
@@ -372,20 +365,14 @@ impl<'i> parser::Parser<'i> for MiniParser {
 }
 
 /// `name` lower-cased when it is in `list` or vendor-prefixed, else a parse error.
-fn known<'i>(
-    list: &[&str],
-    location: SourceLocation,
-    name: CowRcStr<'i>,
-) -> Result<String, ParseError<'i, SelectorParseErrorKind<'i>>> {
+fn known(list: &[&str], name: &str) -> Result<String, ParseError<SelectorParseErrorKind>> {
     let lower = name.to_ascii_lowercase();
     if list.contains(&lower.as_str()) || lower.starts_with("-webkit-") {
         return Ok(lower);
     }
-    Err(
-        location.new_custom_error(SelectorParseErrorKind::UnsupportedPseudoClassOrElement(
-            name,
-        )),
-    )
+    Err(ParseError::custom(
+        SelectorParseErrorKind::UnsupportedPseudoClassOrElement,
+    ))
 }
 
 // --- selectors::Element newtype ---------------------------------------------------------
