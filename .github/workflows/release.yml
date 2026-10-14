@@ -56,6 +56,12 @@ jobs:
             test "$size" -gt 5000000 || { echo "wheel too small -- V8 not linked?"; exit 1; }
             test "$size" -lt 100000000 || { echo "wheel over PyPI per-file limit"; exit 1; }
           done
+      - name: Wheel must carry the MPL notice
+        shell: bash
+        run: |
+          for w in dist/*.whl; do
+            unzip -l "$w" | grep -q miniclient/MPL_NOTICE.md || { echo "$w lacks MPL_NOTICE.md"; exit 1; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.runner }}-${{ matrix.target }}
