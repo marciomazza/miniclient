@@ -25,6 +25,10 @@ test-wpt-extended: develop
 update-wpt *args: develop
     uv run python tests/wpt/run.py --update {{args}}
 
+# Rewrite python/miniclient/MPL_NOTICE.md after a Cargo.lock change.
+notice:
+    UPDATE_NOTICE=1 cargo nextest run --test third_party_notice
+
 # Regenerate patches/ from vendor/jsdom, then reinstall so node_modules matches.
 # Each patch's header names the fork change it came from.
 sync-jsdom:

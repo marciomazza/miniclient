@@ -22,3 +22,10 @@ To release `0.1.4`:
 CI builds wheels for Linux x86_64 and macOS arm64 only — every extra platform costs ~18 MB of
 PyPI's 10 GB project quota per release. It refuses to publish unless the tag matches
 `Cargo.toml`. Never add `--locked` to the release build.
+
+## MPL-2.0 notice
+
+The wheel and sdist carry `python/miniclient/MPL_NOTICE.md`, listing every MPL-2.0 crate in
+`Cargo.lock` with its version and source URL, plus the licence text. After any `Cargo.lock` change
+run `just notice` and commit the result; `cargo nextest` fails while it is stale. MPL crates may
+be used unmodified only: patching or vendoring an MPL file would require shipping its source.

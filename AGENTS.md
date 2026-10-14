@@ -83,5 +83,9 @@ tagging, or releasing.
 - The wheel ships only vendored licences, not vendored source. This is fine because every
   vendored dep is permissive (MIT/BSD/ISC/Apache) and the source is already inlined in the
   bundle and snapshot. When adding a new vendored dep, confirm its licence is MIT/BSD/ISC/
-  Apache before treating it the same way — a copyleft licence (GPL/LGPL/MPL/EPL) would
-  require shipping the source.
+  Apache before treating it the same way — a copyleft licence (GPL/LGPL/EPL) would require
+  shipping the source.
+- Unmodified MPL-2.0 Cargo crates (stylo, selectors, cssparser, ...) are allowed: the wheel
+  carries `python/miniclient/MPL_NOTICE.md`, generated from `Cargo.lock` by `just notice` and
+  checked by `tests/third_party_notice.rs`. Never patch or vendor an MPL file. A dual-licensed
+  crate offering MPL fails that test until it is added to `ELECTED`.

@@ -1,6 +1,7 @@
 # Third-Party Code
 
-Code adapted or copied inline from other projects, beyond normal Cargo/pip dependency use.
+Code adapted or copied inline from other projects, beyond normal Cargo/pip dependency use. MPL-2.0 crates are listed in
+`python/miniclient/MPL_NOTICE.md`.
 
 ## scraper (ISC)
 
