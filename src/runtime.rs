@@ -82,6 +82,8 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_crypto_random_bytes(),
             ops::op_crypto_random_uuid(),
             crate::css::op_css_computed_values(),
+            crate::css::op_css_sheet_loaded(),
+            crate::css::op_css_sheet_removed(),
         ]),
         ..Default::default()
     }

@@ -129,9 +129,13 @@ fn style_and_stylesheet_links_reach_document_style_sheets() {
         r#"const loaded = new Promise((resolve) => window.addEventListener("load", resolve, {{ once: true }}));
         {js}
         loaded.then(() => [log[0], document.styleSheets.length,
-            getComputedStyle(document.querySelector("p")).color])"#
+            getComputedStyle(document.querySelector("p")).color,
+            getComputedStyle(document.querySelector("b")).color])"#
     ));
-    assert_eq!(got, serde_json::json!([1, 2, "rgb(255, 0, 0)"]));
+    assert_eq!(
+        got,
+        serde_json::json!([1, 2, "rgb(255, 0, 0)", "rgb(0, 0, 255)"])
+    );
 }
 
 #[test]

@@ -1,4 +1,4 @@
-# fork: numztrknzlun 6b6f543584ff
+# fork: ywstymszvynv 07628ff602f9
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -1251,10 +1251,34 @@ index 6bd7b86035..122e17dd34 100644
  exports.parseIntoStyleSheet = parseIntoStyleSheet;
  exports.parseRule = parseRule;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..dfff87ed5a 100644
+index 270a6209f5..fac5aa5bd5 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-@@ -71,7 +71,11 @@ function onStyleSheetLoad(data, response) {
+@@ -2,6 +2,7 @@
+ const { legacyHookDecode } = require("@exodus/bytes/encoding.js");
+ const whatwgURL = require("whatwg-url");
+ const { parseStyleSheet, parseIntoStyleSheet } = require("./css-parser");
++const { sheetLoaded, sheetRemoved } = require("../../helpers/dom-tree");
+ 
+ // TODO: this should really implement https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet
+ // It (and the things it calls) is nowhere close right now.
+@@ -38,6 +39,7 @@ function onStyleSheetLoad(data, response) {
+       const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
+       exports.addStyleSheet(createdSheet, elementImpl);
+     }
++    sheetLoaded(elementImpl, urlString, css, Boolean(importRule));
+   }
+ 
+   resourceLoader.fetch(urlString, {
+@@ -53,6 +55,7 @@ function onStyleSheetLoad(data, response) {
+ 
+   // Remove the association explicitly; in the spec it's implicit so this step doesn't exist.
+   elementImpl.sheet = null;
++  sheetRemoved(elementImpl);
+ 
+   elementImpl._ownerDocument._clearStyleCache();
+ 
+@@ -71,7 +74,11 @@ function onStyleSheetLoad(data, response) {
    const globalObject = elementImpl._globalObject;
    const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
  
@@ -1266,7 +1290,7 @@ index 270a6209f5..dfff87ed5a 100644
      href,
      ownerNode: elementImpl,
      mediaText: elementImpl.getAttributeNS(null, "media") || "",
-@@ -85,7 +89,9 @@ onError(err) {
+@@ -85,7 +92,9 @@ onError(err) {
      }
    });
  
@@ -1383,10 +1407,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..f97264cf2d 100644
+index 7eb8408fc8..48f1408b4a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,351 @@ function bind(node, w) {
+@@ -6,31 +6,365 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -1694,6 +1718,20 @@ index 7eb8408fc8..f97264cf2d 100644
 +  return Deno.core.ops.op_css_computed_values(element._wire, focus, targetWire(doc), props, doc.baseURLSerialized());
 +}
 +
++// Hands the native style engine a sheet fetched for `element`: its `<link>` sheet, or an
++// `@import` (`isImport`) of the sheet `element` owns. The snapshot build runs without the ops,
++// and styles nothing.
++function sheetLoaded(element, url, css, isImport) {
++  Deno.core.ops.op_css_sheet_loaded?.(element._wire, url, css, isImport);
++}
++
++// `element`'s `<link>` sheet no longer applies.
++function sheetRemoved(element) {
++  if (element._wire >= 0) {
++    Deno.core.ops.op_css_sheet_removed?.(element._wire);
++  }
++}
++
 +// The first element in `document`'s tree, in tree order, whose `id` is `id`.
 +function elementById(document, id) {
 +  return impl(op_dom_get_by_id(wire(document), id));
@@ -1762,7 +1800,7 @@ index 7eb8408fc8..f97264cf2d 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +360,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +374,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1799,7 +1837,7 @@ index 7eb8408fc8..f97264cf2d 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +426,6 @@ next() {
+@@ -136,28 +440,6 @@ next() {
    }
  }
  
@@ -1828,7 +1866,7 @@ index 7eb8408fc8..f97264cf2d 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +521,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +535,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1944,7 +1982,7 @@ index 7eb8408fc8..f97264cf2d 100644
    nextInTree, nextAfterSubtree, previousInTree, lastInclusiveDescendant,
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
-+  treeIndex, appendChild, insertBefore, remove, link, computedValues,
++  treeIndex, appendChild, insertBefore, remove, link, computedValues, sheetLoaded, sheetRemoved,
 +  QUERY, query, impl, wire, materialize, materializedCount, setChecked, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js

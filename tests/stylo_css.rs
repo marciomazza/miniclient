@@ -147,6 +147,117 @@ fn outside_a_document_reads_empty() {
     assert_eq!(color, "");
 }
 
+/// Writes `head` into the document over `mock`, waits for the window's `load`, then evaluates
+/// `then`; `log` holds the `href` of each `<link>` that fired `error`.
+fn after_load(mock: &MockFetchBackend, head: &str, then: &str) -> serde_json::Value {
+    let rt = runtime_with_mock(mock);
+    let html = format!(
+        r#"<head><script>window.log = [];
+        addEventListener("error", (e) => log.push(e.target.href), true)</script>{head}</head>
+        <body><p>x</p></body>"#
+    );
+    rt.eval_promise(&format!(
+        r#"const loaded = new Promise((resolve) => window.addEventListener("load", resolve, {{ once: true }}));
+        document.open(); document.write({html:?}); document.close();
+        loaded.then(() => {then})"#
+    ))
+}
+
+const COLOR_OF_P: &str = r#"getComputedStyle(document.querySelector("p")).color"#;
+
+#[test]
+fn link_sheet_applies_and_goes_with_its_link() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+        &format!(r#"[{COLOR_OF_P}, (document.querySelector("link").remove(), {COLOR_OF_P})]"#),
+    );
+    assert_eq!(got, serde_json::json!(["rgb(1, 2, 3)", "rgb(0, 0, 0)"]));
+}
+
+#[test]
+fn nested_import_resolves_against_its_own_sheet() {
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/a.css",
+        r#"@import "css/b.css"; p { color: red }"#,
+    );
+    mock.text(
+        "http://localhost/css/b.css",
+        "@import url(c.css) screen; p { color: blue; background-color: green }",
+    );
+    mock.text(
+        "http://localhost/css/c.css",
+        "p { color: rgb(0, 0, 3); width: 1px }",
+    );
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+        r#"["color", "background-color", "width"].map(
+            (p) => getComputedStyle(document.querySelector("p")).getPropertyValue(p))"#,
+    );
+    // Rules after an `@import` win over the imported ones.
+    assert_eq!(
+        got,
+        serde_json::json!(["rgb(255, 0, 0)", "rgb(0, 128, 0)", "1px"])
+    );
+}
+
+#[test]
+fn failed_fetch_fires_error_and_adds_no_rules() {
+    let mock = MockFetchBackend::new();
+    mock.status("http://localhost/gone.css", 404);
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/gone.css">"#,
+        &format!("[log, {COLOR_OF_P}]"),
+    );
+    assert_eq!(
+        got,
+        serde_json::json!([["http://localhost/gone.css"], "rgb(0, 0, 0)"])
+    );
+}
+
+#[test]
+fn media_gates_link_and_style_sheets() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/print.css", "p { color: red }");
+    mock.text("http://localhost/wide.css", "p { width: 5px }");
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet media=print href="http://localhost/print.css">
+        <link rel=stylesheet media="screen and (min-width: 600px)" href="http://localhost/wide.css">
+        <style media="(max-width: 100px)">p { height: 9px }</style>"#,
+        r#"["color", "width", "height"].map(
+            (p) => getComputedStyle(document.querySelector("p")).getPropertyValue(p))"#,
+    );
+    assert_eq!(got, serde_json::json!(["rgb(0, 0, 0)", "5px", "auto"]));
+}
+
+#[test]
+fn sheets_a_browser_leaves_off_do_not_apply() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/alt.css", "p { color: red }");
+    mock.text("http://localhost/off.css", "p { width: 5px }");
+    let got = after_load(
+        &mock,
+        r#"<link rel="alternate stylesheet" title=alt href="http://localhost/alt.css">
+        <link rel=stylesheet disabled href="http://localhost/off.css">
+        <style type="text/plain">p { height: 9px }</style>
+        <style title=main>p { margin-top: 1px }</style>
+        <style title=other>p { margin-left: 2px }</style>
+        <style>p { padding-top: 3px }</style>"#,
+        r#"["color", "width", "height", "margin-top", "margin-left", "padding-top"].map(
+            (p) => getComputedStyle(document.querySelector("p")).getPropertyValue(p))"#,
+    );
+    assert_eq!(
+        got,
+        serde_json::json!(["rgb(0, 0, 0)", "auto", "auto", "1px", "0px", "3px"])
+    );
+}
+
 const WPT: &str = "vendor/jsdom/test/web-platform-tests";
 
 fn strip_scripts(html: &str) -> String {

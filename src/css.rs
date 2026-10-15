@@ -3,10 +3,12 @@
 //! build stays free of stylo.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{LazyLock, Mutex, Once};
 
+use cssparser::{Parser, SourceLocation};
 use deno_core::{OpState, op2};
 use ego_tree::{NodeId, NodeRef};
 use html5ever::{local_name, ns};
@@ -28,6 +30,7 @@ use style::dom::{LayoutIterator, NodeInfo, OpaqueNode, TDocument, TElement, TNod
 use style::font_metrics::FontMetrics;
 use style::global_style_data::GLOBAL_STYLE_DATA;
 use style::media_queries::{MediaList, MediaType};
+use style::parser::ParserContext;
 use style::properties::style_structs::Font;
 use style::properties::{
     ComputedValues, PropertyDeclarationBlock, PropertyDeclarationId, PropertyId, ShorthandId,
@@ -38,8 +41,10 @@ use style::selector_parser::{NonTSPseudoClass, PseudoElement, SelectorImpl, Snap
 use style::servo::media_features::PointerCapabilities;
 use style::servo_arc::{Arc, ArcBorrow};
 use style::shared_lock::{Locked, SharedRwLock, StylesheetGuards};
+use style::stylesheets::import_rule::{ImportLayer, ImportSheet, ImportSupportsCondition};
 use style::stylesheets::{
-    AllowImportRules, CssRuleType, DocumentStyleSheet, Origin, Stylesheet, UrlExtraData,
+    AllowImportRules, CssRuleType, DocumentStyleSheet, ImportRule, Origin, Stylesheet,
+    StylesheetLoader, UrlExtraData,
 };
 use style::stylist::{RuleInclusion, Stylist};
 use style::thread_state::{self, ThreadState};
@@ -48,8 +53,9 @@ use style::traversal_flags::TraversalFlags;
 use style::values::computed::font::GenericFontFamily;
 use style::values::computed::{CSSPixelLength, Length};
 use style::values::resolved;
-use style::values::{AtomIdent, AtomString, GenericAtomIdent};
+use style::values::{AtomIdent, AtomString, CssUrl, GenericAtomIdent};
 use style::{Atom, CaseSensitivityExt, LocalName, Namespace};
+use style_traits::ParsingMode;
 use stylo_dom::ElementState;
 
 use crate::dom::DomState;
@@ -77,14 +83,104 @@ fn url_data(base: &str) -> UrlExtraData {
     UrlExtraData::from(url::Url::parse(base).unwrap_or_else(|_| BLANK.clone()))
 }
 
-fn sheet(css: &str, base: &str, origin: Origin, quirks: QuirksMode) -> DocumentStyleSheet {
-    DocumentStyleSheet(Arc::new(Stylesheet::from_str(
-        css,
-        url_data(base),
-        origin,
-        Arc::new(lock().wrap(MediaList::empty())),
-        lock().clone(),
+/// One author sheet: its text, the URL its relative `url()`s and `@import`s resolve against,
+/// and its owner's `media` attribute.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct Source {
+    css: String,
+    base: String,
+    media: String,
+}
+
+fn media_list(media: &str, base: &UrlExtraData, quirks: QuirksMode) -> MediaList {
+    let mut context = ParserContext::new(
+        Origin::Author,
+        base,
+        Some(CssRuleType::Media),
+        ParsingMode::DEFAULT,
+        quirks,
+        Default::default(),
         None,
+        None,
+        Default::default(),
+    );
+    MediaList::parse(&mut context, &mut Parser::new(media))
+}
+
+/// Answers `@import` from the bodies the page already fetched, so parsing stays synchronous. An
+/// import not fetched yet, or one that would import itself again, contributes no rules.
+struct ImportLoader<'a> {
+    imports: &'a BTreeMap<String, String>,
+    quirks: QuirksMode,
+    /// URLs of the sheets being parsed, outermost first.
+    chain: RefCell<Vec<String>>,
+}
+
+impl StylesheetLoader for ImportLoader<'_> {
+    fn request_stylesheet(
+        &self,
+        url: CssUrl,
+        location: SourceLocation,
+        lock: &SharedRwLock,
+        media: Arc<Locked<MediaList>>,
+        supports: Option<ImportSupportsCondition>,
+        layer: ImportLayer,
+    ) -> Arc<Locked<ImportRule>> {
+        let href = url.url().map(|u| u.as_str().to_owned());
+        let css = href
+            .as_ref()
+            .filter(|href| !self.chain.borrow().contains(href))
+            .and_then(|href| self.imports.get(href));
+        let stylesheet = match (href, css) {
+            _ if supports.as_ref().is_some_and(|s| !s.enabled) => ImportSheet::new_refused(),
+            (Some(href), Some(css)) => {
+                self.chain.borrow_mut().push(href.clone());
+                let sheet = Stylesheet::from_str(
+                    css,
+                    url_data(&href),
+                    Origin::Author,
+                    media,
+                    lock.clone(),
+                    Some(self),
+                    None,
+                    self.quirks,
+                    AllowImportRules::Yes,
+                );
+                self.chain.borrow_mut().pop();
+                ImportSheet::new(Arc::new(sheet))
+            }
+            _ => ImportSheet::new_pending(),
+        };
+        Arc::new(lock.wrap(ImportRule {
+            url,
+            stylesheet,
+            supports,
+            layer,
+            source_location: location,
+        }))
+    }
+}
+
+fn sheet(
+    src: &Source,
+    origin: Origin,
+    quirks: QuirksMode,
+    imports: &BTreeMap<String, String>,
+) -> DocumentStyleSheet {
+    let base = url_data(&src.base);
+    let media = media_list(&src.media, &base, quirks);
+    let loader = ImportLoader {
+        imports,
+        quirks,
+        chain: RefCell::new(vec![src.base.clone()]),
+    };
+    DocumentStyleSheet(Arc::new(Stylesheet::from_str(
+        &src.css,
+        base,
+        origin,
+        Arc::new(lock().wrap(media)),
+        lock().clone(),
+        Some(&loader),
         None,
         quirks,
         AllowImportRules::Yes,
@@ -92,12 +188,19 @@ fn sheet(css: &str, base: &str, origin: Origin, quirks: QuirksMode) -> DocumentS
 }
 
 /// Every page of a test suite tends to ship the same sheets, so they parse once per process.
-fn author_sheet(css: &str, base: &str, quirks: QuirksMode) -> DocumentStyleSheet {
-    type Key = (String, String, QuirksMode);
+/// `imports` is part of the key, as `@import` bodies end up inside the parsed sheet.
+fn author_sheet(
+    src: &Source,
+    quirks: QuirksMode,
+    imports: &BTreeMap<String, String>,
+) -> DocumentStyleSheet {
+    type Key = (Source, QuirksMode, u64);
     static SHEETS: LazyLock<Mutex<HashMap<Key, DocumentStyleSheet>>> =
         LazyLock::new(Default::default);
     let mut sheets = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
-    let key = (css.to_owned(), base.to_owned(), quirks);
+    let mut hasher = DefaultHasher::new();
+    imports.hash(&mut hasher);
+    let key = (src.clone(), quirks, hasher.finish());
     if let Some(sheet) = sheets.get(&key) {
         return sheet.clone();
     }
@@ -106,7 +209,7 @@ fn author_sheet(css: &str, base: &str, quirks: QuirksMode) -> DocumentStyleSheet
     if sheets.len() >= SHEET_CACHE_SIZE {
         sheets.clear();
     }
-    let parsed = sheet(css, base, Origin::Author, quirks);
+    let parsed = sheet(src, Origin::Author, quirks, imports);
     sheets.insert(key, parsed.clone());
     parsed
 }
@@ -114,11 +217,16 @@ fn author_sheet(css: &str, base: &str, quirks: QuirksMode) -> DocumentStyleSheet
 // Parsed once per process.
 // shortcut: no-quirks UA sheet for every document, parse a quirks copy once quirks pages matter.
 static UA_SHEET: LazyLock<DocumentStyleSheet> = LazyLock::new(|| {
+    let src = Source {
+        css: include_str!("ua.css").to_owned(),
+        base: "about:blank".to_owned(),
+        media: String::new(),
+    };
     sheet(
-        include_str!("ua.css"),
-        "about:blank",
+        &src,
         Origin::UserAgent,
         QuirksMode::NoQuirks,
+        &BTreeMap::new(),
     )
 });
 
@@ -190,7 +298,7 @@ pub struct DocStyle {
     quirks: QuirksMode,
     html: bool,
     base: String,
-    sheets: Vec<String>,
+    sheets: Vec<Source>,
     stylist: Stylist,
     query: QueryState,
     /// Filled as stylo reaches each element. Boxed so a handed-out `&Extra` stays put while
@@ -198,13 +306,18 @@ pub struct DocStyle {
     extras: RefCell<HashMap<NodeId, Box<Extra>>>,
 }
 
-/// The op's state: one style table per document read from.
+/// The op's state: one style table per document read from, and the sheet bodies the page
+/// fetched.
 #[derive(Default)]
 pub struct CssState {
     docs: HashMap<NodeId, DocStyle>,
+    /// Each `<link>`'s fetched sheet: its body and the URL it came from.
+    links: HashMap<NodeId, (String, String)>,
+    /// `@import` bodies by URL, per document.
+    imports: HashMap<NodeId, BTreeMap<String, String>>,
 }
 
-fn stylist(quirks: QuirksMode, base: &str, sheets: &[String]) -> Stylist {
+fn stylist(quirks: QuirksMode, sheets: &[Source], imports: &BTreeMap<String, String>) -> Stylist {
     let device = Device::new(
         MediaType::screen(),
         quirks,
@@ -220,25 +333,19 @@ fn stylist(quirks: QuirksMode, base: &str, sheets: &[String]) -> Stylist {
     let mut stylist = Stylist::new(device, quirks);
     let guard = lock().read();
     stylist.append_stylesheet(UA_SHEET.clone(), &guard);
-    let mut seen = std::collections::HashSet::new();
-    for css in sheets {
+    let mut seen = HashSet::new();
+    for src in sheets {
         // stylo takes each sheet once, and a repeat still counts at its own place in the order.
-        let sheet = if seen.insert(css) {
-            author_sheet(css, base, quirks)
+        let sheet = if seen.insert(src) {
+            author_sheet(src, quirks, imports)
         } else {
-            sheet(css, base, Origin::Author, quirks)
+            sheet(src, Origin::Author, quirks, imports)
         };
         stylist.append_stylesheet(sheet, &guard);
     }
     let guards = StylesheetGuards::same(&guard);
     let _ = stylist.flush(&guards);
     stylist
-}
-
-fn is_html(node: NodeRef<Node>, local: &LocalName) -> bool {
-    node.value()
-        .as_element()
-        .is_some_and(|e| e.name.ns == ns!(html) && e.name.local == **local)
 }
 
 fn text_of(node: NodeRef<Node>) -> String {
@@ -250,12 +357,49 @@ fn text_of(node: NodeRef<Node>) -> String {
         .collect()
 }
 
-// shortcut: inline `<style>` only, no `media`/`type`/`disabled` filtering and no `<link>`;
-// those come with the CSSOM step.
-fn author_sheets(root: NodeRef<Node>) -> Vec<String> {
+fn has_token(list: Option<&str>, token: &str) -> bool {
+    list.unwrap_or("")
+        .split_ascii_whitespace()
+        .any(|t| t.eq_ignore_ascii_case(token))
+}
+
+/// The document's `<style>` and loaded `<link>` sheets in tree order, minus the ones a browser
+/// leaves off: a foreign `type`, `disabled`, alternates, and titled sheets outside the first
+/// title's set.
+// shortcut: tree order stands in for the order sheets were created, which differs only when a
+// `<link>` loads after a later `<style>` gave the first title.
+fn author_sheets(
+    root: NodeRef<Node>,
+    base: &str,
+    links: &HashMap<NodeId, (String, String)>,
+) -> Vec<Source> {
+    let mut preferred = None;
     root.descendants()
-        .filter(|n| is_html(*n, &LocalName::from("style")))
-        .map(text_of)
+        .filter_map(|n| {
+            let e = n.value().as_element().filter(|e| e.name.ns == ns!(html))?;
+            let (css, base) = match e.name.local {
+                local_name!("style")
+                    if e.attr("type")
+                        .is_none_or(|t| t.is_empty() || t.eq_ignore_ascii_case("text/css")) =>
+                {
+                    (text_of(n), base.to_owned())
+                }
+                local_name!("link")
+                    if has_token(e.attr("rel"), "stylesheet")
+                        && !has_token(e.attr("rel"), "alternate")
+                        && e.attr("disabled").is_none() =>
+                {
+                    links.get(&n.id())?.clone()
+                }
+                _ => return None,
+            };
+            let title = e.attr("title").unwrap_or("");
+            if !title.is_empty() && *preferred.get_or_insert_with(|| title.to_owned()) != title {
+                return None;
+            }
+            let media = e.attr("media").unwrap_or("").to_owned();
+            Some(Source { css, base, media })
+        })
         .collect()
 }
 
@@ -297,16 +441,18 @@ impl DocStyle {
         key: (u32, i32, i32),
         base: &str,
         reuse: Option<DocStyle>,
+        links: &HashMap<NodeId, (String, String)>,
+        imports: &BTreeMap<String, String>,
     ) -> Self {
         enable_prefs();
         let html = matches!(root.value(), Node::Document(d) if !d.xml);
         // shortcut: standards mode for every document, as jsdom's cascade did; pass the mode
         // through the op once quirks pages matter.
         let quirks = QuirksMode::NoQuirks;
-        let sheets = author_sheets(root);
+        let sheets = author_sheets(root, base, links);
         let stylist = match reuse {
             Some(old) if old.sheets == sheets && old.base == base => old.stylist,
-            _ => stylist(quirks, base, &sheets),
+            _ => stylist(quirks, &sheets, imports),
         };
         Self {
             key,
@@ -395,6 +541,12 @@ fn style_of(
     // shortcut: a released document's table lingers until the next read; hook `release` if
     // pages that never read styles again hold many.
     css.docs.retain(|root, _| dom.doc_version(*root).is_some());
+    css.imports
+        .retain(|root, _| dom.doc_version(*root).is_some());
+    css.links.retain(|id, _| {
+        let root = dom.arena.get(*id).and_then(|n| n.ancestors().last());
+        root.is_some_and(|r| dom.doc_version(r.id()).is_some())
+    });
     let node = dom.resolve(wire).and_then(|id| dom.arena.get(id))?;
     let root = node.ancestors().last().unwrap_or(node);
     if !node.value().is_element() {
@@ -403,7 +555,10 @@ fn style_of(
     let key = (dom.doc_version(root.id())?, focus, target);
     let doc = match css.docs.remove(&root.id()) {
         Some(doc) if doc.key == key && doc.base == base => doc,
-        old => DocStyle::build(dom, root, key, base, old),
+        old => {
+            let imports = css.imports.get(&root.id()).cloned().unwrap_or_default();
+            DocStyle::build(dom, root, key, base, old, &css.links, &imports)
+        }
     };
     let style = doc.computed(&dom.arena, node);
     css.docs.insert(root.id(), doc);
@@ -485,6 +640,47 @@ pub fn op_css_computed_values(
     );
     state.put(css);
     values
+}
+
+/// The node `wire` names and the root of its tree.
+fn node_and_root(dom: &DomState, wire: u32) -> Option<(NodeId, NodeId)> {
+    let node = dom.resolve(wire).and_then(|id| dom.arena.get(id))?;
+    Some((node.id(), node.ancestors().last().unwrap_or(node).id()))
+}
+
+/// A sheet the page fetched for `owner`, a `<link>` or, for an `@import`, the element whose
+/// sheet imports it; `url` is where it came from. The owner's document restyles on next read.
+#[op2(fast)]
+pub fn op_css_sheet_loaded(
+    state: &mut OpState,
+    owner: u32,
+    #[string] url: String,
+    #[string] body: String,
+    import: bool,
+) {
+    let Some((id, root)) = node_and_root(state.borrow::<DomState>(), owner) else {
+        return;
+    };
+    let mut css = state.try_take::<CssState>().unwrap_or_default();
+    if import {
+        css.imports.entry(root).or_default().insert(url, body);
+    } else {
+        css.links.insert(id, (body, url));
+    }
+    css.docs.remove(&root);
+    state.put(css);
+}
+
+/// `owner`'s `<link>` sheet is gone, until it loads again.
+#[op2(fast)]
+pub fn op_css_sheet_removed(state: &mut OpState, owner: u32) {
+    let Some((id, root)) = node_and_root(state.borrow::<DomState>(), owner) else {
+        return;
+    };
+    if let Some(css) = state.try_borrow_mut::<CssState>() {
+        css.links.remove(&id);
+        css.docs.remove(&root);
+    }
 }
 
 /// What a handle reads through while stylo runs.
