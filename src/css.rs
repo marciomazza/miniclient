@@ -111,11 +111,11 @@ fn author_sheet(css: &str, base: &str, quirks: QuirksMode) -> DocumentStyleSheet
     parsed
 }
 
-// Parsed once per process, from jsdom's own UA sheet.
+// Parsed once per process.
 // shortcut: no-quirks UA sheet for every document, parse a quirks copy once quirks pages matter.
 static UA_SHEET: LazyLock<DocumentStyleSheet> = LazyLock::new(|| {
     sheet(
-        include_str!("../vendor/jsdom/lib/jsdom/browser/default-stylesheet.css"),
+        include_str!("ua.css"),
         "about:blank",
         Origin::UserAgent,
         QuirksMode::NoQuirks,
