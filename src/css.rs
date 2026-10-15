@@ -362,7 +362,7 @@ pub fn computed_values(
     if !node.value().is_element() || !root.value().is_document() {
         return blank();
     }
-    let key = (dom.mutations, focus, target);
+    let key = (dom.doc_version(root.id()), focus, target);
     let doc = match css.doc.take() {
         Some(doc) if doc.root == root.id() && doc.key == key => doc,
         old => DocStyle::build(dom, root, key, old),

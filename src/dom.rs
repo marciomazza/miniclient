@@ -103,8 +103,9 @@ pub struct DomState {
     // ponytail: side table maps a small wire integer to a NodeId, because ego-tree keeps its
     // own index accessor private. Drop it if ego-tree ever exposes `from_index`.
     ids: Vec<NodeId>,
-    /// Bumps on every structural change (parse / create / insert / remove).
-    pub mutations: u32,
+    /// Per-document change counter, keyed by the `Document` node: styles cached for one
+    /// document stay valid while another changes. Absent means unchanged since creation.
+    doc_versions: HashMap<NodeId, u32>,
     /// `id` attribute value -> every element bearing it, connected or not. `getElementById`
     /// filters this by document (each candidate's topmost ancestor) at read time instead of
     /// tracking connect/disconnect -- that's exactly what "topmost ancestor" already answers.
@@ -118,7 +119,7 @@ impl DomState {
         Self {
             arena: Tree::new(Node::document(false)),
             ids: Vec::new(),
-            mutations: 0,
+            doc_versions: HashMap::new(),
             id_index: HashMap::new(),
             selectors: HashMap::new(),
         }
@@ -254,7 +255,6 @@ impl DomState {
         };
         *self = html5ever::driver::parse_fragment_for_element(sink, opts, context, scripting, form)
             .one(html);
-        self.mutations += 1;
         // The tree builder puts the content in an `<html>` element under the fragment root.
         let wrapper = self
             .arena
@@ -276,7 +276,7 @@ impl DomState {
         let wire = self.wire(root);
         let parser = DocumentParser::new(self, wire, html, true, false).expect("fresh document");
         parser.feed(self);
-        self.mutations += 1;
+        self.touch(root);
         root
     }
 
@@ -349,6 +349,29 @@ impl DomState {
         Some(self.wire(hit))
     }
 
+    /// Bumps the version of the document `id` sits in; a node outside any document bumps
+    /// nothing, since no style was read from it.
+    fn touch(&mut self, id: NodeId) {
+        let Some(root) = self.topmost(id) else { return };
+        if matches!(
+            self.arena.get(root).map(|n| n.value()),
+            Some(Node::Document(_))
+        ) {
+            *self.doc_versions.entry(root).or_default() += 1;
+        }
+    }
+
+    fn touch_wire(&mut self, wire: u32) {
+        if let Some(id) = self.resolve(wire) {
+            self.touch(id);
+        }
+    }
+
+    /// The change counter of the `Document` node `root`.
+    pub fn doc_version(&self, root: NodeId) -> u32 {
+        self.doc_versions.get(&root).copied().unwrap_or(0)
+    }
+
     fn topmost(&self, id: NodeId) -> Option<NodeId> {
         let node = self.arena.get(id)?;
         Some(node.ancestors().last().map(|a| a.id()).unwrap_or(id))
@@ -360,6 +383,7 @@ impl DomState {
         let (Some(parent_id), Some(child_id)) = (self.resolve(parent), self.resolve(child)) else {
             return;
         };
+        self.touch(child_id);
         if let Some(mut n) = self.arena.get_mut(child_id) {
             n.detach();
         }
@@ -380,16 +404,16 @@ impl DomState {
                 }
             }
         }
-        self.mutations += 1;
+        self.touch(parent_id);
     }
 
     /// Detaches the node so it stops appearing in the arena's traversal. The slot stays.
     pub fn remove(&mut self, child: u32) {
         if let Some(id) = self.resolve(child) {
+            self.touch(id);
             if let Some(mut n) = self.arena.get_mut(id) {
                 n.detach();
             }
-            self.mutations += 1;
         }
     }
 
@@ -420,7 +444,6 @@ impl DomState {
             }
         };
         let id = self.arena.orphan(node).id();
-        self.mutations += 1;
         self.wire(id)
     }
 
@@ -439,7 +462,7 @@ impl DomState {
 
     pub fn set_checked(&mut self, wire: u32, checked: bool) {
         if self.edit_element(wire, |e| e.checked = checked).is_some() {
-            self.mutations += 1;
+            self.touch_wire(wire);
         }
     }
 
@@ -447,7 +470,6 @@ impl DomState {
     /// `DOMParser`), flagged HTML or XML.
     pub fn create_document(&mut self, html: bool) -> u32 {
         let id = self.arena.orphan(Node::document(!html)).id();
-        self.mutations += 1;
         self.wire(id)
     }
 
@@ -522,7 +544,7 @@ impl DomState {
 
     fn mutate_attrs(&mut self, wire: u32, edit: impl FnOnce(&mut Vec<Attribute>)) {
         if self.edit_element(wire, |e| edit(&mut e.attrs)).is_some() {
-            self.mutations += 1;
+            self.touch_wire(wire);
         }
     }
 
@@ -531,6 +553,7 @@ impl DomState {
     pub fn release(&mut self, wires: &[u32]) {
         for &w in wires {
             let Some(id) = self.resolve(w) else { continue };
+            self.doc_versions.remove(&id);
             if let Some(Node::Element(e)) = self.arena.get(id).map(|n| n.value()) {
                 let old = id_of(e);
                 self.reindex_id(id, old.as_deref(), None);
@@ -560,7 +583,7 @@ impl DomState {
             Node::ProcessingInstruction(p) => p.data = data.into(),
             _ => return,
         }
-        self.mutations += 1;
+        self.touch(id);
     }
 
     pub fn children(&mut self, wire: u32) -> Vec<NodeRecord> {
@@ -745,6 +768,8 @@ impl DomState {
             })
             .collect();
         roots.sort();
+        let mut trees: Vec<NodeId> = roots.iter().map(|r| r.0).collect();
+        trees.dedup();
         let mut order = Vec::new();
         for (_, _, root) in roots {
             let mut stack = vec![root];
@@ -791,7 +816,9 @@ impl DomState {
         for id in order {
             self.arena.get_mut(id).expect("created").detach();
         }
-        self.mutations += 1;
+        for tree in trees {
+            self.touch(tree);
+        }
         records
     }
 
@@ -1793,14 +1820,48 @@ mod tests {
             vec![text, late]
         );
 
-        let before = dom.mutations;
         dom.remove(text);
         assert!(dom.parent_wire(text).is_none());
         assert_eq!(
             dom.children(a).iter().map(|r| r.id).collect::<Vec<_>>(),
             vec![late]
         );
-        assert_eq!(dom.mutations, before + 1);
+    }
+
+    #[test]
+    fn doc_version_moves_only_for_the_changed_document() {
+        let mut dom = DomState::new();
+        let (a, b) = (
+            dom.parse_document("<p>a</p>"),
+            dom.parse_document("<p>b</p>"),
+        );
+        let find = |dom: &mut DomState, root: NodeId, name: &str| {
+            let hit = dom.arena.get(root).unwrap().descendants().find(|n| {
+                n.value()
+                    .as_element()
+                    .is_some_and(|e| &*e.name.local == name)
+            });
+            let id = hit.unwrap().id();
+            dom.wire(id)
+        };
+        let p = find(&mut dom, a, "p");
+        let body_b = find(&mut dom, b, "body");
+
+        let (va, vb) = (dom.doc_version(a), dom.doc_version(b));
+        dom.set_attr(p, None, None, "class", "x");
+        assert!(dom.doc_version(a) > va);
+        assert_eq!(dom.doc_version(b), vb);
+
+        // moving a node bumps both the document it left and the one it joined
+        let (va, vb) = (dom.doc_version(a), dom.doc_version(b));
+        dom.insert(body_b, p, None);
+        assert!(dom.doc_version(a) > va && dom.doc_version(b) > vb);
+
+        // a detached node bumps nothing
+        let (va, vb) = (dom.doc_version(a), dom.doc_version(b));
+        let loose = dom.create(1, Some("i"), Some("html"), None);
+        dom.set_attr(loose, None, None, "class", "y");
+        assert_eq!((dom.doc_version(a), dom.doc_version(b)), (va, vb));
     }
 
     #[test]
