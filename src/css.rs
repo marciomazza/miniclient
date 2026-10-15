@@ -780,8 +780,11 @@ impl selectors::Element for N<'_> {
         pc: &NonTSPseudoClass,
         _context: &mut MatchingContext<Self::Impl>,
     ) -> bool {
+        if let NonTSPseudoClass::Lang(lang) = pc {
+            return self.match_element_lang(None, lang);
+        }
         let flag = pc.state_flag();
-        // shortcut: stateless pseudo-classes (`:lang`, `:defined` details, custom states) never
+        // shortcut: other stateless pseudo-classes (`:defined` details, custom states) never
         // match; mini's own matcher covers them for queries.
         !flag.is_empty() && self.state().intersects(flag)
     }
@@ -1041,15 +1044,36 @@ impl<'a> TElement for N<'a> {
     }
 
     fn lang_attr(&self) -> Option<style::selector_parser::AttrValue> {
-        None
+        self.get_attr(
+            &GenericAtomIdent(local_name!("lang")),
+            &GenericAtomIdent(ns!(xml)),
+        )
+        .or_else(|| {
+            self.get_attr(
+                &GenericAtomIdent(local_name!("lang")),
+                &GenericAtomIdent(ns!()),
+            )
+        })
+        .map(|v| AtomString::from(v.as_str()))
     }
 
+    // shortcut: equality or `-` prefix match only, no RFC 4647 `*` wildcards; upgrade when a
+    // page uses `:lang("*-CH")`.
     fn match_element_lang(
         &self,
-        _override_lang: Option<Option<style::selector_parser::AttrValue>>,
-        _value: &style::selector_parser::Lang,
+        override_lang: Option<Option<style::selector_parser::AttrValue>>,
+        value: &style::selector_parser::Lang,
     ) -> bool {
-        false
+        let lang = override_lang.unwrap_or_else(|| {
+            std::iter::successors(Some(*self), selectors::Element::parent_element)
+                .find_map(|e| e.lang_attr())
+        });
+        lang.is_some_and(|lang| {
+            let (lang, value) = (lang.as_ref(), value.as_ref());
+            lang.get(..value.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(value))
+                && matches!(lang.as_bytes().get(value.len()), None | Some(b'-'))
+        })
     }
 
     fn is_html_document_body_element(&self) -> bool {

@@ -92,6 +92,23 @@ fn pref_gated_features_parse() {
 }
 
 #[test]
+fn lang_matches_own_and_inherited_language() {
+    let rt = runtime();
+    let markup = r#"<style>
+        :lang(en) { color: green; }
+        :lang(fr) { color: blue; }
+    </style>
+    <p id="own" lang="EN-us"></p>
+    <div lang="fr"><span id="inherited"></span><b id="override" lang="en"></b></div>
+    <i id="eng" lang="eng"></i>"#;
+    let color = |sel| computed(&rt, markup, sel, &["color"]).remove(0);
+    assert_eq!(color("#own"), "rgb(0, 128, 0)");
+    assert_eq!(color("#inherited"), "rgb(0, 0, 255)");
+    assert_eq!(color("#override"), "rgb(0, 128, 0)");
+    assert_eq!(color("#eng"), "rgb(0, 0, 0)");
+}
+
+#[test]
 fn reflects_mutations() {
     let rt = runtime();
     let markup = "<head><style>.on { color: rgb(1, 2, 3) }</style></head><body><p>x</p></body>";
