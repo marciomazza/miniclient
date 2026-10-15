@@ -178,6 +178,50 @@ fn link_sheet_applies_and_goes_with_its_link() {
 }
 
 #[test]
+fn rel_turning_into_stylesheet_loads_and_back_drops() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+    let got = after_load(
+        &mock,
+        r#"<link rel=preload as=style href="http://localhost/a.css">"#,
+        &format!(
+            r#"new Promise((resolve) => {{
+                const link = document.querySelector("link");
+                link.onload = resolve;
+                link.rel = "stylesheet";
+            }}).then(() => {{
+                const loaded = [{COLOR_OF_P}, document.styleSheets.length];
+                document.querySelector("link").rel = "preload";
+                return [loaded, [{COLOR_OF_P}, document.styleSheets.length]];
+            }})"#
+        ),
+    );
+    assert_eq!(
+        got,
+        serde_json::json!([["rgb(1, 2, 3)", 1], ["rgb(0, 0, 0)", 0]])
+    );
+}
+
+#[test]
+fn failed_refetch_drops_the_previous_sheet() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+    mock.status("http://localhost/gone.css", 404);
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+        &format!(
+            r#"new Promise((resolve) => {{
+                const link = document.querySelector("link");
+                link.onerror = resolve;
+                link.href = "http://localhost/gone.css";
+            }}).then(() => [{COLOR_OF_P}, document.styleSheets.length])"#
+        ),
+    );
+    assert_eq!(got, serde_json::json!(["rgb(0, 0, 0)", 0]));
+}
+
+#[test]
 fn nested_import_resolves_against_its_own_sheet() {
     let mock = MockFetchBackend::new();
     mock.text(

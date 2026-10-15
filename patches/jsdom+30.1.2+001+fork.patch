@@ -1,4 +1,4 @@
-# fork: otwqvqqsouyx 347a33936ad7
+# fork: ovuslttznwvq 98b52c93230a
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -1251,7 +1251,7 @@ index 6bd7b86035..122e17dd34 100644
  exports.parseIntoStyleSheet = parseIntoStyleSheet;
  exports.parseRule = parseRule;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..fac5aa5bd5 100644
+index 270a6209f5..277b03b90a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 @@ -2,6 +2,7 @@
@@ -1262,7 +1262,33 @@ index 270a6209f5..fac5aa5bd5 100644
  
  // TODO: this should really implement https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet
  // It (and the things it calls) is nowhere close right now.
-@@ -38,6 +39,7 @@ function onStyleSheetLoad(data, response) {
+@@ -14,6 +15,14 @@ function removeOldSheet() {
+     defaultEncodingLabel = elementImpl.getAttributeNS(null, "charset");
+   }
+ 
++  // Whether or not the new fetch succeeds, the sheet a previous `href` gave stops applying; a
++  // failed one reaches here through `onError`.
++  function removeOldSheet() {
++    if (!importRule && elementImpl.sheet) {
++      exports.removeStyleSheet(elementImpl.sheet, elementImpl);
++    }
++  }
++
+   function onStyleSheetLoad(data, response) {
+     if (!response.ok) {
+       throw new Error("Status code: " + response.status);
+@@ -27,9 +36,7 @@ function onStyleSheetLoad(data, response) {
+     const css = legacyHookDecode(data, defaultEncodingLabel);
+ 
+     // TODO: MIME type checking?
+-    if (!importRule && elementImpl.sheet) {
+-      exports.removeStyleSheet(elementImpl.sheet, elementImpl);
+-    }
++    removeOldSheet();
+ 
+     if (importRule) {
+       parseImportedStyleSheet(css, importRule);
+@@ -38,11 +45,13 @@ function onStyleSheetLoad(data, response) {
        const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
        exports.addStyleSheet(createdSheet, elementImpl);
      }
@@ -1270,7 +1296,14 @@ index 270a6209f5..fac5aa5bd5 100644
    }
  
    resourceLoader.fetch(urlString, {
-@@ -53,6 +55,7 @@ function onStyleSheetLoad(data, response) {
+     element: elementImpl,
+-    onLoad: onStyleSheetLoad
++    onLoad: onStyleSheetLoad,
++    onError: removeOldSheet
+   });
+ };
+ 
+@@ -53,6 +62,7 @@ function onStyleSheetLoad(data, response) {
  
    // Remove the association explicitly; in the spec it's implicit so this step doesn't exist.
    elementImpl.sheet = null;
@@ -1278,7 +1311,7 @@ index 270a6209f5..fac5aa5bd5 100644
  
    elementImpl._ownerDocument._clearStyleCache();
  
-@@ -71,7 +74,11 @@ function onStyleSheetLoad(data, response) {
+@@ -71,7 +81,11 @@ function onStyleSheetLoad(data, response) {
    const globalObject = elementImpl._globalObject;
    const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
  
@@ -1290,7 +1323,7 @@ index 270a6209f5..fac5aa5bd5 100644
      href,
      ownerNode: elementImpl,
      mediaText: elementImpl.getAttributeNS(null, "media") || "",
-@@ -85,7 +92,9 @@ onError(err) {
+@@ -85,7 +99,9 @@ onError(err) {
      }
    });
  
@@ -2319,6 +2352,48 @@ index 42421cc7d7..393c76c54b 100644
        this._invalidateSelectorState();
      }
      if (checkedness) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
+index b9edd3be89..faabca59f9 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
+@@ -45,8 +45,18 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+       maybeFetchAndProcess(this);
+     }
+ 
+-    if (namespace === null && localName === "rel" && this._relList !== undefined) {
+-      this._relList.attrModified();
++    if (namespace === null && localName === "rel") {
++      if (this._relList !== undefined) {
++        this._relList.attrModified();
++      }
++      // Becoming a stylesheet link fetches, as with `rel` set by a preload's `onload`; ceasing to
++      // be one drops its sheet.
++      const was = isStylesheetRel(oldValue);
++      if (!was && isStylesheetRel(value)) {
++        maybeFetchAndProcess(this);
++      } else if (was && !isStylesheetRel(value) && this.sheet) {
++        removeStyleSheet(this.sheet, this);
++      }
+     }
+   }
+ 
+@@ -97,11 +107,10 @@ function isExternalResourceLink(el) {
+ function isExternalResourceLink(el) {
+   // for our purposes, only stylesheets can be external resource links
+   const wrapper = idlUtils.wrapperForImpl(el);
+-  if (!/(?:[ \t\n\r\f]|^)stylesheet(?:[ \t\n\r\f]|$)/i.test(wrapper.rel)) {
+-    // rel is a space-separated list of tokens, and the original rel types
+-    // are case-insensitive.
+-    return false;
+-  }
++  return isStylesheetRel(wrapper.rel) && el.hasAttributeNS(null, "href");
++}
+ 
+-  return el.hasAttributeNS(null, "href");
++// rel is a space-separated list of tokens, and the original rel types are case-insensitive.
++function isStylesheetRel(rel) {
++  return /(?:[ \t\n\r\f]|^)stylesheet(?:[ \t\n\r\f]|$)/i.test(rel ?? "");
+ }
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
 index 8e551d3f5e..8fc052f00f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLOptionElement-impl.js
