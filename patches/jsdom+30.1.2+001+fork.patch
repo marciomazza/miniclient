@@ -1,4 +1,4 @@
-# fork: ovuslttznwvq 98b52c93230a
+# fork: pnywmutptvqo 83007a164689
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -1440,7 +1440,7 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..35305d3113 100644
+index 7eb8408fc8..6c07accd74 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 @@ -6,31 +6,367 @@ function bind(node, w) {
@@ -1784,7 +1784,7 @@ index 7eb8408fc8..35305d3113 100644
 +// The element the URL's fragment indicates: the raw fragment first, then percent-decoded.
 +// `a[name]` anchors are not indicated, as no browser test navigates to one.
 +function targetWire(doc) {
-+  const fragment = doc._URL.fragment;
++  const { fragment } = doc._URL;
 +  if (!fragment) {
 +    return -1;
 +  }
