@@ -80,7 +80,6 @@
     const p = /** @type {Element} */ (doc.querySelector("#b > .c")); // dom-selector
     p.matches(".a, .zz");
     doc.querySelectorAll("div[data-x^='y'], p:not(.d)");
-    win.getComputedStyle(p).getPropertyValue("color"); // css-color + cascade
     const styled = /** @type {HTMLElement} */ (p);
     styled.style.color = "rgb(10 20 30)";
     styled.style.cssText;
@@ -270,11 +269,6 @@
         }
     };
     walk(doc.styleSheets[0].cssRules);
-    for (const el of doc.querySelectorAll("*")) {
-        const cs = win.getComputedStyle(el);
-        cs.getPropertyValue("color");
-        cs.getPropertyValue("display");
-    }
     dom.window.close();
 })();
 

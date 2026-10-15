@@ -1,4 +1,4 @@
-# fork: kzorznqnuwyp d7d019e4ef4d
+# fork: numztrknzlun 6b6f543584ff
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -991,10 +991,46 @@ index 65486849e6..4e23a14e62 100644
 +  return element._wire >= 0 && op_dom_attrs(element._wire).length > 0;
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-index 26a1aec94c..c16a15ce1e 100644
+index 26a1aec94c..317f732543 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-@@ -282,14 +282,23 @@ removeProperty(property) {
+@@ -6,7 +6,7 @@
+ const propertyDefinitions = require("../../../generated/css-property-definitions");
+ const propertyDescriptors = require("../../../generated/css-property-descriptors");
+ const propertyMetadata = require("../../../generated/css-property-metadata");
+-const resolvedValueResolvers = require("../../../generated/css-property-resolved-value-resolvers");
++const { computedValues } = require("../helpers/dom-tree");
+ const { asciiLowercase } = require("../helpers/strings");
+ const computedStyle = require("./helpers/computed-style");
+ const cssValues = require("./helpers/css-values");
+@@ -198,23 +198,15 @@ getPropertyPriority(property) {
+   /**
+    * Returns the value of the specified property.
+    *
+-   * For a computed style declaration this is the resolved value
+-   * (https://drafts.csswg.org/cssom/#resolved-value), which is the computed value except for the
+-   * properties in `resolvedValueResolvers`.
++   * For a computed style declaration this is the value miniclient's native style engine
++   * computes for the owner element.
+    *
+    * @param {string} property - The property name.
+    * @returns {string} The property value, or empty string if not set.
+    */
+   getPropertyValue(property) {
+     if (this._computed) {
+-      const computedValue = this._getComputedPropertyValue(property);
+-      const getResolvedValue = resolvedValueResolvers.get(property);
+-      if (getResolvedValue) {
+-        return getResolvedValue(computedValue, {
+-          getComputedValue: otherProperty => this._getComputedPropertyValue(otherProperty)
+-        });
+-      }
+-      return computedValue;
++      return computedValues(this.#ownerNode, [property])[0];
+     }
+     return this.#values.get(property) ?? "";
+   }
+@@ -282,14 +274,23 @@ removeProperty(property) {
          "NoModificationAllowedError"
        ]);
      }
@@ -1127,6 +1163,41 @@ index 48e10ffc1f..6d4f0e4068 100644
          this.cssRules._clear();
          cssParser.parseIntoStyleSheet(text, this._globalObject, this);
          this.#disallowModification = false;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
+index bda5409bc3..6213a6b14e 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
+@@ -20,24 +20,14 @@ function getComputedStyleDeclaration(elementImpl) {
+ );
+ let parsedDefaultStyleSheet;
+ 
++// Its values come from miniclient's native style engine, read on each access, so nothing is
++// cascaded or cached here.
+ function getComputedStyleDeclaration(elementImpl) {
+-  const styleCache = elementImpl._ownerDocument._styleCache;
+-  const cachedDeclaration = styleCache.get(elementImpl);
+-  if (cachedDeclaration) {
+-    const clonedDeclaration = CSSStyleProperties.createImpl(elementImpl._globalObject, [], {
+-      computed: true,
+-      ownerNode: elementImpl
+-    });
+-
+-    clonedDeclaration._copyDeclarationsFrom(cachedDeclaration);
+-    clonedDeclaration._readonly = true;
+-
+-    return clonedDeclaration;
+-  }
+-
+-  const declaration = prepareComputedStyleDeclaration(elementImpl, styleCache);
++  const declaration = CSSStyleProperties.createImpl(elementImpl._globalObject, [], {
++    computed: true,
++    ownerNode: elementImpl
++  });
+   declaration._readonly = true;
+-
+   return declaration;
+ }
+ 
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
 index 6bd7b86035..122e17dd34 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
@@ -1312,10 +1383,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..b8affe8c5f 100644
+index 7eb8408fc8..f97264cf2d 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,339 @@ function bind(node, w) {
+@@ -6,31 +6,351 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -1611,6 +1682,18 @@ index 7eb8408fc8..b8affe8c5f 100644
 +  return batch(op_dom_query, node, selectors, mode, html, quirks, focus, targetWire(doc));
 +}
 +
++// The computed value of each of `props` on `element`, from the native style engine; "" for
++// every one when the element sits in no document. The op is looked up per call, as the snapshot
++// is built without it.
++function computedValues(element, props) {
++  if (element._wire < 0) {
++    return props.map(() => "");
++  }
++  const doc = element._ownerDocument;
++  const focus = doc._lastFocusedElement?._wire ?? -1;
++  return Deno.core.ops.op_css_computed_values(element._wire, focus, targetWire(doc), props, doc.baseURLSerialized());
++}
++
 +// The first element in `document`'s tree, in tree order, whose `id` is `id`.
 +function elementById(document, id) {
 +  return impl(op_dom_get_by_id(wire(document), id));
@@ -1679,7 +1762,7 @@ index 7eb8408fc8..b8affe8c5f 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +348,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +360,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -1716,7 +1799,7 @@ index 7eb8408fc8..b8affe8c5f 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +414,6 @@ next() {
+@@ -136,28 +426,6 @@ next() {
    }
  }
  
@@ -1745,7 +1828,7 @@ index 7eb8408fc8..b8affe8c5f 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +509,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +521,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -1861,7 +1944,7 @@ index 7eb8408fc8..b8affe8c5f 100644
    nextInTree, nextAfterSubtree, previousInTree, lastInclusiveDescendant,
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
-+  treeIndex, appendChild, insertBefore, remove, link,
++  treeIndex, appendChild, insertBefore, remove, link, computedValues,
 +  QUERY, query, impl, wire, materialize, materializedCount, setChecked, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js

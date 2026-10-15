@@ -1,7 +1,5 @@
-//! stylo's computed values against jsdom's and against a Chromium recording of the CSS corpus.
-//! The cost test is a report: run it with `-- --ignored --nocapture`.
-
-#![cfg(feature = "stylo-css")]
+//! `getComputedStyle`, answered by stylo, on hand-written pages and against a Chromium recording
+//! of the CSS corpus. The cost test is a report: run it with `-- --ignored --nocapture`.
 
 mod common;
 
@@ -11,44 +9,13 @@ use common::EvalExt;
 use common::fetch_mock::{MockFetchBackend, runtime_with_mock};
 use serde::Deserialize;
 
-/// `compare()` diffs every element of the page on every property jsdom lists for it.
 const HARNESS: &str = r#"
-globalThis.__stylo = (el, props) => {
-    const impl = __jsdomImplForWrapper(el);
-    const focus = impl._ownerDocument._lastFocusedElement?._wire ?? -1;
-    return Deno.core.ops.op_css_computed_values(impl._wire, focus, -1, props);
-};
-globalThis.__compare = () => {
-    const els = [...document.querySelectorAll("*")];
-    const oracle = els.map((el) => {
-        const cs = getComputedStyle(el);
-        return [...cs].filter((p) => !p.startsWith("--")).map((p) => [p, cs.getPropertyValue(p)]);
-    });
-    const ours = els.map((el, i) => __stylo(el, oracle[i].map(([p]) => p)));
-    const diffs = [];
-    let pairs = 0;
-    oracle.forEach((props, i) => props.forEach(([p, v], j) => {
-        pairs++;
-        if (v !== ours[i][j]) diffs.push([els[i].localName, p, v, ours[i][j]]);
-    }));
-    return JSON.stringify({ pairs, diffs });
+globalThis.__computed = (el, props) => {
+    const cs = getComputedStyle(el);
+    return props.map((p) => cs.getPropertyValue(p));
 };
 0
 "#;
-
-#[derive(Deserialize)]
-struct Outcome {
-    pairs: usize,
-    diffs: Vec<(String, String, String, String)>,
-}
-
-fn compare(rt: &common::Runtime, markup: &str) -> Outcome {
-    let markup = serde_json::to_string(markup).unwrap();
-    let json = rt.eval::<String>(&format!(
-        "document.documentElement.innerHTML = {markup}; __compare()"
-    ));
-    serde_json::from_str(&json).unwrap()
-}
 
 fn runtime() -> common::Runtime {
     let rt = runtime_with_mock(&MockFetchBackend::new());
@@ -56,52 +23,93 @@ fn runtime() -> common::Runtime {
     rt
 }
 
+/// `getComputedStyle(document.querySelector(selector))` for each of `props`, after `markup`
+/// replaces the document's content.
+fn computed(rt: &common::Runtime, markup: &str, selector: &str, props: &[&str]) -> Vec<String> {
+    let markup = serde_json::to_string(markup).unwrap();
+    let args = serde_json::to_string(&(selector, props)).unwrap();
+    rt.eval::<Vec<String>>(&format!(
+        "document.documentElement.innerHTML = {markup}; \
+         ((sel, props) => __computed(document.querySelector(sel), props))(...{args})"
+    ))
+}
+
+const BASICS: &str = r#"<head><style>
+        :root { --gap: 4px }
+        .a { color: rgb(0, 0, 255); margin-top: var(--gap) }
+        #b.a { color: green }
+        p { display: inline-block !important }
+        .c { & span { visibility: hidden } }
+        @media (min-width: 600px) { .a { padding-left: 3px } }
+        input:checked { outline-style: solid }
+    </style></head>
+    <body><div class="a"><p id="b" class="a" style="display: block">x</p>
+    <div class="c"><span>y</span></div><input type="checkbox" checked></div></body>"#;
+
 #[test]
-fn cascade_basics_agree() {
+fn cascade_basics() {
     let rt = runtime();
-    let out = compare(
-        &rt,
-        r#"<head><style>
-            :root { --gap: 4px }
-            .a { color: rgb(0, 0, 255); margin-top: var(--gap) }
-            #b.a { color: green }
-            p { display: inline-block !important }
-            .c { & span { visibility: hidden } }
-            @media (min-width: 600px) { .a { padding-left: 3px } }
-            input:checked { outline-style: solid }
-        </style></head>
-        <body><div class="a"><p id="b" class="a" style="display: block">x</p>
-        <div class="c"><span>y</span></div><input type="checkbox" checked></div></body>"#,
-    );
-    assert!(out.pairs > 0);
-    let diff = |el: &str, p: &str, jsdom: &str, stylo: &str| {
-        (el.into(), p.into(), jsdom.into(), stylo.into())
-    };
-    // jsdom leaves var() unresolved and echoes specified values; stylo matches browsers there.
+    let p = [
+        "color",
+        "display",
+        "margin-top",
+        "padding-left",
+        "margin-block",
+    ];
     assert_eq!(
-        out.diffs,
-        vec![
-            diff("div", "margin-top", "var(--gap)", "4px"),
-            diff("p", "margin-block", "1em", "4px 16px"),
-            diff("p", "margin-top", "var(--gap)", "4px"),
-            diff("input", "word-spacing", "normal", "0px"),
-            diff("input", "text-indent", "0", "0px"),
-            diff("input", "text-shadow", "rgba(0, 0, 0, 0)", "none"),
-        ]
+        computed(&rt, BASICS, "#b", &p),
+        ["rgb(0, 128, 0)", "inline-block", "4px", "3px", "4px 16px"]
     );
+    assert_eq!(computed(&rt, BASICS, "span", &["visibility"]), ["hidden"]);
+    assert_eq!(
+        computed(&rt, BASICS, "input", &["outline-style"]),
+        ["solid"]
+    );
+    // camelCase and `webkit*` accessors read the same values
+    let camel: Vec<String> = rt.eval(
+        r##"const cs = getComputedStyle(document.querySelector("#b"));
+        [cs.marginTop, cs.webkitTransform, cs.getPropertyValue("-webkit-transform")]"##,
+    );
+    assert_eq!(camel, ["4px", "none", "none"]);
 }
 
 #[test]
 fn reflects_mutations() {
     let rt = runtime();
-    compare(
-        &rt,
-        "<head><style>.on { color: rgb(1, 2, 3) }</style></head><body><p>x</p></body>",
-    );
+    let markup = "<head><style>.on { color: rgb(1, 2, 3) }</style></head><body><p>x</p></body>";
+    assert_eq!(computed(&rt, markup, "p", &["color"]), ["rgb(0, 0, 0)"]);
     let color: String = rt.eval(
-        r#"const p = document.querySelector("p"); p.className = "on"; __stylo(p, ["color"])[0]"#,
+        r#"const p = document.querySelector("p"); p.className = "on"; getComputedStyle(p).color"#,
     );
     assert_eq!(color, "rgb(1, 2, 3)");
+}
+
+#[test]
+fn hidden_ancestor_is_not_focusable() {
+    let rt = runtime();
+    let focused: Vec<bool> = rt.eval(
+        r#"document.body.innerHTML =
+            "<style>.off { display: none }</style><div class=off><button>a</button></div><button>b</button>";
+        [...document.querySelectorAll("button")].map((b) => (b.focus(), document.activeElement === b))"#,
+    );
+    assert_eq!(focused, [false, true]);
+}
+
+#[test]
+fn inner_text_of_a_hidden_element_is_empty() {
+    let rt = runtime();
+    let text: Vec<String> = rt.eval(
+        r#"document.body.innerHTML = "<style>.off { display: none }</style><p class=off>a</p><p>b</p>";
+        [...document.querySelectorAll("p")].map((p) => p.innerText)"#,
+    );
+    assert_eq!(text, ["", "b"]);
+}
+
+#[test]
+fn outside_a_document_reads_empty() {
+    let rt = runtime();
+    let color: String = rt.eval(r#"getComputedStyle(document.createElement("p")).color"#);
+    assert_eq!(color, "");
 }
 
 const WPT: &str = "vendor/jsdom/test/web-platform-tests";
@@ -119,8 +127,7 @@ fn rss_kb() -> u64 {
     String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
 }
 
-/// Run with `cargo test --release --features stylo-css --test stylo_css cost -- --ignored
-/// --nocapture`.
+/// Run with `cargo test --release --test stylo_css cost -- --ignored --nocapture`.
 #[test]
 #[ignore = "report, not a gate"]
 fn cost_report() {
@@ -148,27 +155,25 @@ fn cost_report() {
         0"#,
     );
     let before = rss_kb();
-    rt.run(r#"r.styloCold = time(() => __stylo(el, ["color"])); 0"#);
-    let stylo_rss = rss_kb().saturating_sub(before);
+    rt.run(r#"r.first = time(() => getComputedStyle(el).color); 0"#);
+    let rss = rss_kb().saturating_sub(before);
     let json: String = rt.eval(
         r#"(() => {
-            r.styloWarm = avg(200, () => time(() => __stylo(el, ["color"])));
-            r.styloOther = avg(200, (i) => time(() => __stylo(els[i], ["color"])));
-            r.jsdomFirst = time(() => getComputedStyle(el).color);
-            r.jsdomWarm = avg(200, () => time(() => getComputedStyle(el).color));
-            r.styloAfterMutation = avg(20, (i) => {
+            r.warm = avg(200, () => time(() => getComputedStyle(el).color));
+            r.other = avg(200, (i) => time(() => getComputedStyle(els[i]).color));
+            r.afterMutation = avg(20, (i) => {
                 els[i].setAttribute("data-x", i);
-                return time(() => __stylo(el, ["color"]));
-            });
-            r.jsdomAfterMutation = avg(20, (i) => {
-                els[i].setAttribute("data-y", i);
                 return time(() => getComputedStyle(el).color);
             });
             return JSON.stringify(r);
         })()"#,
     );
     println!("elements 1001, rules 100; times in ms: {json}");
-    println!("rss growth over the first stylo call: +{stylo_rss} KiB");
+    // jsdom's cascade on the same page; it no longer runs, so these numbers are fixed.
+    println!(
+        r#"jsdom's cascade was:            {{"first":7.81,"warm":0.0051,"afterMutation":0.750}}"#
+    );
+    println!("rss growth over the first call: +{rss} KiB");
 }
 
 #[derive(Deserialize)]
@@ -179,8 +184,11 @@ struct Golden {
     color_scheme: String,
     properties: Vec<String>,
     defaults: BTreeMap<String, String>,
-    files: BTreeMap<String, Vec<(String, BTreeMap<String, String>)>>,
+    files: BTreeMap<String, Vec<RecordedElement>>,
 }
+
+/// An element's local name and the properties where Chromium's value differs from `defaults`.
+type RecordedElement = (String, BTreeMap<String, String>);
 
 /// Where jsdom's own cascade agreed with Chromium; that cascade no longer runs, so this cannot be
 /// re-recorded. Per element, an index into `patterns`, each a hex bitset over
@@ -267,7 +275,7 @@ fn chromium_golden() {
             document.documentElement.innerHTML = markup;
             const props = {props};
             return JSON.stringify(
-                [...document.querySelectorAll("*")].map((el) => [el.localName, __stylo(el, props)])
+                [...document.querySelectorAll("*")].map((el) => [el.localName, __computed(el, props)])
             );
         }};
         0"#

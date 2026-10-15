@@ -125,6 +125,7 @@ container-type tests/css/css-conditional/container-queries/scroll-state/*  # no 
 display tests/css/cssom/getComputedStyle-insets-multicol-absolute-crash.html  # no ruby display types
 
 ## Chromium quirks and layout.
+background-image tests/css/css-variables/variable-substitution-filters.html  # recorded on about:blank, where a relative url() stays as written
 border-* tests/css/cssom/resolved-border-width.html  # themed checkbox/radio drop author borders
 display tests/css/css-conditional/container-queries/canvas-as-container-*  # size container queries
 

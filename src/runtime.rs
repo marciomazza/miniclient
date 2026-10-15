@@ -81,7 +81,6 @@ pub(crate) fn miniclient_extension() -> Extension {
             ops::op_request_navigation(),
             ops::op_crypto_random_bytes(),
             ops::op_crypto_random_uuid(),
-            #[cfg(feature = "stylo-css")]
             crate::css::op_css_computed_values(),
         ]),
         ..Default::default()

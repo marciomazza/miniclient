@@ -104,7 +104,7 @@ pub struct DomState {
     // own index accessor private. Drop it if ego-tree ever exposes `from_index`.
     ids: Vec<NodeId>,
     /// Per-document change counter, keyed by the `Document` node: styles cached for one
-    /// document stay valid while another changes. Absent means unchanged since creation.
+    /// document stay valid while another changes. A released document has no entry.
     doc_versions: HashMap<NodeId, u32>,
     /// `id` attribute value -> every element bearing it, connected or not. `getElementById`
     /// filters this by document (each candidate's topmost ancestor) at read time instead of
@@ -116,10 +116,11 @@ pub struct DomState {
 
 impl DomState {
     pub fn new() -> Self {
+        let arena = Tree::new(Node::document(false));
         Self {
-            arena: Tree::new(Node::document(false)),
+            doc_versions: HashMap::from([(arena.root().id(), 0)]),
+            arena,
             ids: Vec::new(),
-            doc_versions: HashMap::new(),
             id_index: HashMap::new(),
             selectors: HashMap::new(),
         }
@@ -271,8 +272,9 @@ impl DomState {
 
     /// Parses a whole document into a fresh, detached `Document` node.
     #[cfg(test)]
-    fn parse_document(&mut self, html: &str) -> NodeId {
+    pub(crate) fn parse_document(&mut self, html: &str) -> NodeId {
         let root = self.arena.orphan(Node::document(false)).id();
+        self.doc_versions.insert(root, 0);
         let wire = self.wire(root);
         let parser = DocumentParser::new(self, wire, html, true, false).expect("fresh document");
         parser.feed(self);
@@ -352,12 +354,8 @@ impl DomState {
     /// Bumps the version of the document `id` sits in; a node outside any document bumps
     /// nothing, since no style was read from it.
     fn touch(&mut self, id: NodeId) {
-        let Some(root) = self.topmost(id) else { return };
-        if matches!(
-            self.arena.get(root).map(|n| n.value()),
-            Some(Node::Document(_))
-        ) {
-            *self.doc_versions.entry(root).or_default() += 1;
+        if let Some(v) = self.topmost(id).and_then(|r| self.doc_versions.get_mut(&r)) {
+            *v += 1;
         }
     }
 
@@ -367,9 +365,10 @@ impl DomState {
         }
     }
 
-    /// The change counter of the `Document` node `root`.
-    pub fn doc_version(&self, root: NodeId) -> u32 {
-        self.doc_versions.get(&root).copied().unwrap_or(0)
+    /// The change counter of the `Document` node `root`; `None` once it is released, or if
+    /// it is no document.
+    pub fn doc_version(&self, root: NodeId) -> Option<u32> {
+        self.doc_versions.get(&root).copied()
     }
 
     fn topmost(&self, id: NodeId) -> Option<NodeId> {
@@ -470,6 +469,7 @@ impl DomState {
     /// `DOMParser`), flagged HTML or XML.
     pub fn create_document(&mut self, html: bool) -> u32 {
         let id = self.arena.orphan(Node::document(!html)).id();
+        self.doc_versions.insert(id, 0);
         self.wire(id)
     }
 
@@ -1035,7 +1035,7 @@ impl DomState {
         })
     }
 
-    fn wire(&mut self, id: NodeId) -> u32 {
+    pub(crate) fn wire(&mut self, id: NodeId) -> u32 {
         let mut node = self.arena.get_mut(id).expect("node in arena");
         let slot = node.value().wire_mut();
         if *slot != NO_WIRE {

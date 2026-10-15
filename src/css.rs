@@ -1,12 +1,11 @@
-//! stylo's cascade and computed values over the arena, for `getComputedStyle`. A prototype
-//! behind the `stylo-css` feature, with jsdom's own path kept as the oracle. `build.rs` never
+//! stylo's cascade and computed values over the arena, for `getComputedStyle`. `build.rs` never
 //! compiles this file: its op sits in the runtime-only `miniclient` extension, so the snapshot
 //! build stays free of stylo.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{LazyLock, Once};
+use std::sync::{LazyLock, Mutex, Once};
 
 use deno_core::{OpState, op2};
 use ego_tree::{NodeId, NodeRef};
@@ -57,25 +56,31 @@ use crate::dom::DomState;
 use crate::dom_query::{MiniElement, QueryState, STATE_PSEUDO_CLASSES, StatePseudo};
 use crate::node::Node;
 
-/// jsdom's window size, so media queries agree with the oracle.
+/// jsdom's window size, so media queries agree with `innerWidth` / `innerHeight`.
 const VIEWPORT: (f32, f32) = (1024.0, 768.0);
 
+/// Bounds the parsed-sheet cache, which pages that build `<style>` text from data would grow
+/// without limit.
+const SHEET_CACHE_SIZE: usize = 256;
+
 // One process-wide lock: stylo asserts a sheet is read through the lock it was created with,
-// and the UA sheet is shared by every isolate.
+// and parsed sheets are shared by every isolate.
 fn lock() -> &'static SharedRwLock {
     &GLOBAL_STYLE_DATA.shared_lock
 }
 
-fn url_data() -> UrlExtraData {
-    static URL: LazyLock<url::Url> =
+/// `base` resolves the sheet's relative `url()`s; one that does not parse falls back to
+/// about:blank, as for a document without a URL.
+fn url_data(base: &str) -> UrlExtraData {
+    static BLANK: LazyLock<url::Url> =
         LazyLock::new(|| url::Url::parse("about:blank").expect("static URL"));
-    UrlExtraData::from(URL.clone())
+    UrlExtraData::from(url::Url::parse(base).unwrap_or_else(|_| BLANK.clone()))
 }
 
-fn sheet(css: &str, origin: Origin, quirks: QuirksMode) -> DocumentStyleSheet {
+fn sheet(css: &str, base: &str, origin: Origin, quirks: QuirksMode) -> DocumentStyleSheet {
     DocumentStyleSheet(Arc::new(Stylesheet::from_str(
         css,
-        url_data(),
+        url_data(base),
         origin,
         Arc::new(lock().wrap(MediaList::empty())),
         lock().clone(),
@@ -86,11 +91,32 @@ fn sheet(css: &str, origin: Origin, quirks: QuirksMode) -> DocumentStyleSheet {
     )))
 }
 
-// Parsed once per process; jsdom's own UA sheet so both paths start from the same defaults.
+/// Every page of a test suite tends to ship the same sheets, so they parse once per process.
+fn author_sheet(css: &str, base: &str, quirks: QuirksMode) -> DocumentStyleSheet {
+    type Key = (String, String, QuirksMode);
+    static SHEETS: LazyLock<Mutex<HashMap<Key, DocumentStyleSheet>>> =
+        LazyLock::new(Default::default);
+    let mut sheets = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
+    let key = (css.to_owned(), base.to_owned(), quirks);
+    if let Some(sheet) = sheets.get(&key) {
+        return sheet.clone();
+    }
+    // shortcut: dropping the whole cache when full beats LRU bookkeeping on every hit; move to
+    // LRU if a page cycles through more distinct sheets than the cache holds.
+    if sheets.len() >= SHEET_CACHE_SIZE {
+        sheets.clear();
+    }
+    let parsed = sheet(css, base, Origin::Author, quirks);
+    sheets.insert(key, parsed.clone());
+    parsed
+}
+
+// Parsed once per process, from jsdom's own UA sheet.
 // shortcut: no-quirks UA sheet for every document, parse a quirks copy once quirks pages matter.
 static UA_SHEET: LazyLock<DocumentStyleSheet> = LazyLock::new(|| {
     sheet(
         include_str!("../vendor/jsdom/lib/jsdom/browser/default-stylesheet.css"),
+        "about:blank",
         Origin::UserAgent,
         QuirksMode::NoQuirks,
     )
@@ -157,23 +183,25 @@ struct Extra {
 
 /// One document's styling inputs and results.
 pub struct DocStyle {
-    root: NodeId,
     key: (u32, i32, i32),
     quirks: QuirksMode,
     html: bool,
+    base: String,
     sheets: Vec<String>,
     stylist: Stylist,
-    extras: HashMap<NodeId, Extra>,
+    query: QueryState,
+    /// Filled as stylo reaches each element. Boxed so a handed-out `&Extra` stays put while
+    /// the map grows.
+    extras: RefCell<HashMap<NodeId, Box<Extra>>>,
 }
 
-/// The op's state: the last document styled.
-// shortcut: one document cached at a time; key by document once iframes read styles.
+/// The op's state: one style table per document read from.
 #[derive(Default)]
 pub struct CssState {
-    doc: Option<DocStyle>,
+    docs: HashMap<NodeId, DocStyle>,
 }
 
-fn stylist(quirks: QuirksMode, sheets: &[String]) -> Stylist {
+fn stylist(quirks: QuirksMode, base: &str, sheets: &[String]) -> Stylist {
     let device = Device::new(
         MediaType::screen(),
         quirks,
@@ -189,8 +217,15 @@ fn stylist(quirks: QuirksMode, sheets: &[String]) -> Stylist {
     let mut stylist = Stylist::new(device, quirks);
     let guard = lock().read();
     stylist.append_stylesheet(UA_SHEET.clone(), &guard);
+    let mut seen = std::collections::HashSet::new();
     for css in sheets {
-        stylist.append_stylesheet(sheet(css, Origin::Author, quirks), &guard);
+        // stylo takes each sheet once, and a repeat still counts at its own place in the order.
+        let sheet = if seen.insert(css) {
+            author_sheet(css, base, quirks)
+        } else {
+            sheet(css, base, Origin::Author, quirks)
+        };
+        stylist.append_stylesheet(sheet, &guard);
     }
     let guards = StylesheetGuards::same(&guard);
     let _ = stylist.flush(&guards);
@@ -248,56 +283,56 @@ fn element_state(node: NodeRef<Node>, query: &QueryState) -> ElementState {
 }
 
 impl DocStyle {
-    /// Rebuilt from scratch whenever anything it read may have changed: the arena's mutation
-    /// counter covers structure, attributes and text, and focus/target cover element state.
+    /// Rebuilt whenever anything it read may have changed: the document's change counter
+    /// covers structure, attributes and text, and focus/target cover element state. The
+    /// stylist survives while the sheets and base URL stay the same.
     // shortcut: whole-table invalidation; stylo snapshots are the upgrade if this shows up in
     // profiles.
     fn build(
         dom: &DomState,
         root: NodeRef<Node>,
         key: (u32, i32, i32),
+        base: &str,
         reuse: Option<DocStyle>,
     ) -> Self {
         enable_prefs();
         let html = matches!(root.value(), Node::Document(d) if !d.xml);
-        let query = dom.query_state(html, false, key.1, key.2);
+        // shortcut: standards mode for every document, as jsdom's cascade did; pass the mode
+        // through the op once quirks pages matter.
         let quirks = QuirksMode::NoQuirks;
         let sheets = author_sheets(root);
         let stylist = match reuse {
-            Some(old) if old.root == root.id() && old.sheets == sheets => old.stylist,
-            _ => stylist(quirks, &sheets),
+            Some(old) if old.sheets == sheets && old.base == base => old.stylist,
+            _ => stylist(quirks, base, &sheets),
         };
-        let extras = root
-            .descendants()
-            .filter_map(|n| {
-                let e = n.value().as_element()?;
-                let style_attr = e.attr("style").map(|css| {
-                    Arc::new(lock().wrap(parse_style_attribute(
-                        css,
-                        &url_data(),
-                        None,
-                        quirks,
-                        CssRuleType::Style,
-                    )))
-                });
-                let extra = Extra {
-                    data: ElementDataWrapper::default(),
-                    flags: Cell::new(ElementSelectorFlags::empty()),
-                    id: e.id().map(Atom::from),
-                    style_attr,
-                    state: element_state(n, &query),
-                };
-                Some((n.id(), extra))
-            })
-            .collect();
         Self {
-            root: root.id(),
             key,
             quirks,
             html,
+            base: base.to_owned(),
             sheets,
             stylist,
-            extras,
+            query: dom.query_state(html, false, key.1, key.2),
+            extras: RefCell::default(),
+        }
+    }
+
+    fn extra_for(&self, node: NodeRef<Node>, e: &crate::node::Element) -> Extra {
+        let style_attr = e.attr("style").map(|css| {
+            Arc::new(lock().wrap(parse_style_attribute(
+                css,
+                &url_data(&self.base),
+                None,
+                self.quirks,
+                CssRuleType::Style,
+            )))
+        });
+        Extra {
+            data: ElementDataWrapper::default(),
+            flags: Cell::new(ElementSelectorFlags::empty()),
+            id: e.id().map(Atom::from),
+            style_attr,
+            state: element_state(node, &self.query),
         }
     }
 
@@ -344,31 +379,49 @@ impl DocStyle {
     }
 }
 
-/// `getComputedStyle(el).getPropertyValue(p)` for each of `props`; `""` for shorthands and
-/// unknown names, and for elements outside a document.
+/// The element's computed style, `None` outside a document. `base` is the document's base
+/// URL, which resolves relative `url()`s.
+fn style_of(
+    css: &mut CssState,
+    dom: &DomState,
+    wire: u32,
+    focus: i32,
+    target: i32,
+    base: &str,
+) -> Option<Arc<ComputedValues>> {
+    // shortcut: a released document's table lingers until the next read; hook `release` if
+    // pages that never read styles again hold many.
+    css.docs.retain(|root, _| dom.doc_version(*root).is_some());
+    let node = dom.resolve(wire).and_then(|id| dom.arena.get(id))?;
+    let root = node.ancestors().last().unwrap_or(node);
+    if !node.value().is_element() {
+        return None;
+    }
+    let key = (dom.doc_version(root.id())?, focus, target);
+    let doc = match css.docs.remove(&root.id()) {
+        Some(doc) if doc.key == key && doc.base == base => doc,
+        old => DocStyle::build(dom, root, key, base, old),
+    };
+    let style = doc.computed(&dom.arena, node);
+    css.docs.insert(root.id(), doc);
+    Some(style)
+}
+
+/// `getComputedStyle(el).getPropertyValue(p)` for each of `props`; `""` for unknown names and
+/// for elements outside a document.
 pub fn computed_values(
     css: &mut CssState,
     dom: &DomState,
     wire: u32,
     focus: i32,
     target: i32,
+    base: &str,
     props: &[String],
 ) -> Vec<String> {
-    let blank = || vec![String::new(); props.len()];
-    let Some(node) = dom.resolve(wire).and_then(|id| dom.arena.get(id)) else {
-        return blank();
+    let Some(style) = style_of(css, dom, wire, focus, target, base) else {
+        return vec![String::new(); props.len()];
     };
-    let root = node.ancestors().last().unwrap_or(node);
-    if !node.value().is_element() || !root.value().is_document() {
-        return blank();
-    }
-    let key = (dom.doc_version(root.id()), focus, target);
-    let doc = match css.doc.take() {
-        Some(doc) if doc.root == root.id() && doc.key == key => doc,
-        old => DocStyle::build(dom, root, key, old),
-    };
-    let style = doc.computed(&dom.arena, node);
-    let values = props
+    props
         .iter()
         .map(
             |name| match PropertyId::parse_enabled_for_all_content(name) {
@@ -382,9 +435,7 @@ pub fn computed_values(
                 Err(()) => String::new(),
             },
         )
-        .collect();
-    css.doc = Some(doc);
-    values
+        .collect()
 }
 
 /// As Servo does it: the shorthand serialized from its resolved longhands, "" when they
@@ -417,6 +468,7 @@ pub fn op_css_computed_values(
     focus: i32,
     target: i32,
     #[serde] props: Vec<String>,
+    #[string] base: &str,
 ) -> Vec<String> {
     let mut css = state.try_take::<CssState>().unwrap_or_default();
     let values = computed_values(
@@ -425,6 +477,7 @@ pub fn op_css_computed_values(
         wire,
         focus,
         target,
+        base,
         &props,
     );
     state.put(css);
@@ -504,7 +557,16 @@ impl<'a> N<'a> {
     }
 
     fn extra(&self) -> Option<&'a Extra> {
-        self.doc().extras.get(&self.node().id())
+        let node = self.node();
+        let e = node.value().as_element()?;
+        let doc = self.doc();
+        let mut extras = doc.extras.borrow_mut();
+        let extra = extras
+            .entry(node.id())
+            .or_insert_with(|| Box::new(doc.extra_for(node, e)));
+        // SAFETY: entries are boxed and never removed while `doc` lives, so the `Extra` stays
+        // put after the borrow ends.
+        Some(unsafe { &*(&**extra as *const Extra) })
     }
 
     fn addr(&self) -> usize {
@@ -1044,5 +1106,51 @@ impl<'a> TElement for N<'a> {
         .into_iter()
         .find(|f| flags.contains(*f))
         .unwrap_or_else(ElementSelectorFlags::empty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(dom: &mut DomState, root: NodeId, name: &str) -> u32 {
+        let hit = dom.arena.get(root).unwrap().descendants().find(|n| {
+            n.value()
+                .as_element()
+                .is_some_and(|e| &*e.name.local == name)
+        });
+        let id = hit.unwrap().id();
+        dom.wire(id)
+    }
+
+    fn read(css: &mut CssState, dom: &DomState, wire: u32) -> Arc<ComputedValues> {
+        style_of(css, dom, wire, -1, -1, "about:blank").unwrap()
+    }
+
+    #[test]
+    fn a_change_in_one_document_keeps_anothers_table() {
+        let mut dom = DomState::new();
+        let a = dom.parse_document("<style>p { color: rgb(1, 2, 3) }</style><p>a</p>");
+        let b = dom.parse_document("<p>b</p>");
+        let (pa, pb) = (element(&mut dom, a, "p"), element(&mut dom, b, "p"));
+        let mut css = CssState::default();
+        let color = |css: &mut CssState, dom: &DomState, wire| {
+            computed_values(css, dom, wire, -1, -1, "about:blank", &["color".into()]).remove(0)
+        };
+        assert_eq!(color(&mut css, &dom, pa), "rgb(1, 2, 3)");
+        assert_eq!(color(&mut css, &dom, pb), "rgb(0, 0, 0)");
+
+        let before = read(&mut css, &dom, pa);
+        dom.set_attr(pb, None, None, "class", "x");
+        read(&mut css, &dom, pb);
+        assert!(Arc::ptr_eq(&before, &read(&mut css, &dom, pa)));
+
+        dom.set_attr(pa, None, None, "class", "x");
+        assert!(!Arc::ptr_eq(&before, &read(&mut css, &dom, pa)));
+
+        let a_wire = dom.wire(a);
+        dom.release(&[a_wire]);
+        read(&mut css, &dom, pb);
+        assert!(!css.docs.contains_key(&a));
     }
 }
