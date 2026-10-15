@@ -136,6 +136,9 @@ fn enable_prefs() {
         stylo_static_prefs::set_pref!("layout.grid.enabled", true);
         stylo_static_prefs::set_pref!("layout.writing-mode.enabled", true);
         stylo_static_prefs::set_pref!("layout.unimplemented", true);
+        stylo_static_prefs::set_pref!("layout.css.grid-template-subgrid-value.enabled", true);
+        stylo_static_prefs::set_pref!("layout.css.anchor-positioning.enabled", true);
+        stylo_static_prefs::set_pref!("layout.variable_fonts.enabled", true);
     });
 }
 

@@ -33,12 +33,10 @@ dynamic-range-limit
 field-sizing
 flood-color
 flood-opacity
-font-optical-sizing
 font-palette
 font-synthesis-small-caps
 font-synthesis-style
 font-variant-emoji
-font-variation-settings
 hyphenate-character
 hyphenate-limit-chars
 hyphens

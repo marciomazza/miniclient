@@ -74,6 +74,24 @@ fn cascade_basics() {
 }
 
 #[test]
+fn pref_gated_features_parse() {
+    let rt = runtime();
+    let markup = r#"<style>
+        #g { display: grid; grid-template-columns: 1px 2px; }
+        #s { display: grid; grid-template-columns: subgrid; font-variation-settings: "wght" 700; }
+    </style><div id="g"><div id="s"></div></div>"#;
+    assert_eq!(
+        computed(
+            &rt,
+            markup,
+            "#s",
+            &["grid-template-columns", "font-variation-settings"]
+        ),
+        ["subgrid", "\"wght\" 700"]
+    );
+}
+
+#[test]
 fn reflects_mutations() {
     let rt = runtime();
     let markup = "<head><style>.on { color: rgb(1, 2, 3) }</style></head><body><p>x</p></body>";
