@@ -206,6 +206,24 @@ fn nested_import_resolves_against_its_own_sheet() {
 }
 
 #[test]
+fn failed_or_refused_import_adds_no_rules() {
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/a.css",
+        r#"@import "gone.css"; @import "b.css" supports(not (display: block)); p { width: 1px }"#,
+    );
+    mock.status("http://localhost/gone.css", 404);
+    mock.text("http://localhost/b.css", "p { color: red }");
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+        r#"["color", "width"].map(
+            (p) => getComputedStyle(document.querySelector("p")).getPropertyValue(p))"#,
+    );
+    assert_eq!(got, serde_json::json!(["rgb(0, 0, 0)", "1px"]));
+}
+
+#[test]
 fn failed_fetch_fires_error_and_adds_no_rules() {
     let mock = MockFetchBackend::new();
     mock.status("http://localhost/gone.css", 404);

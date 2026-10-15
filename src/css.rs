@@ -311,10 +311,15 @@ pub struct DocStyle {
 #[derive(Default)]
 pub struct CssState {
     docs: HashMap<NodeId, DocStyle>,
-    /// Each `<link>`'s fetched sheet: its body and the URL it came from.
-    links: HashMap<NodeId, (String, String)>,
+    links: HashMap<NodeId, LinkSheet>,
     /// `@import` bodies by URL, per document.
     imports: HashMap<NodeId, BTreeMap<String, String>>,
+}
+
+/// A `<link>`'s fetched sheet.
+struct LinkSheet {
+    css: String,
+    url: String,
 }
 
 fn stylist(quirks: QuirksMode, sheets: &[Source], imports: &BTreeMap<String, String>) -> Stylist {
@@ -367,11 +372,12 @@ fn has_token(list: Option<&str>, token: &str) -> bool {
 /// leaves off: a foreign `type`, `disabled`, alternates, and titled sheets outside the first
 /// title's set.
 // shortcut: tree order stands in for the order sheets were created, which differs only when a
-// `<link>` loads after a later `<style>` gave the first title.
+// `<link>` loads after a later `<style>` gave the first title; track creation order once a page
+// relies on that.
 fn author_sheets(
     root: NodeRef<Node>,
     base: &str,
-    links: &HashMap<NodeId, (String, String)>,
+    links: &HashMap<NodeId, LinkSheet>,
 ) -> Vec<Source> {
     let mut preferred = None;
     root.descendants()
@@ -389,7 +395,8 @@ fn author_sheets(
                         && !has_token(e.attr("rel"), "alternate")
                         && e.attr("disabled").is_none() =>
                 {
-                    links.get(&n.id())?.clone()
+                    let link = links.get(&n.id())?;
+                    (link.css.clone(), link.url.clone())
                 }
                 _ => return None,
             };
@@ -441,7 +448,7 @@ impl DocStyle {
         key: (u32, i32, i32),
         base: &str,
         reuse: Option<DocStyle>,
-        links: &HashMap<NodeId, (String, String)>,
+        links: &HashMap<NodeId, LinkSheet>,
         imports: &BTreeMap<String, String>,
     ) -> Self {
         enable_prefs();
@@ -665,7 +672,7 @@ pub fn op_css_sheet_loaded(
     if import {
         css.imports.entry(root).or_default().insert(url, body);
     } else {
-        css.links.insert(id, (body, url));
+        css.links.insert(id, LinkSheet { css: body, url });
     }
     css.docs.remove(&root);
     state.put(css);
