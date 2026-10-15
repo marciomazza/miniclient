@@ -182,6 +182,23 @@ struct Golden {
     files: BTreeMap<String, Vec<(String, BTreeMap<String, String>)>>,
 }
 
+/// Where jsdom's own cascade agreed with Chromium; that cascade no longer runs, so this cannot be
+/// re-recorded. Per element, an index into `patterns`, each a hex bitset over
+/// `Golden::properties`.
+#[derive(Deserialize)]
+struct JsdomVerdicts {
+    patterns: Vec<String>,
+    files: BTreeMap<String, Vec<usize>>,
+}
+
+impl JsdomVerdicts {
+    fn agreed(&self, file: &str, element: usize, prop: usize) -> bool {
+        let hex = &self.patterns[self.files[file][element]];
+        let byte = u8::from_str_radix(&hex[prop / 8 * 2..prop / 8 * 2 + 2], 16).unwrap();
+        byte & (1 << (prop % 8)) != 0
+    }
+}
+
 /// `property [file]` lines; either ending in `*` is a prefix, no file means every file.
 fn allow_list(text: &str) -> Vec<(String, Option<String>)> {
     text.lines()
@@ -218,12 +235,17 @@ fn allow_list_matching() {
     assert!(allowed(&allow, "e/x.html", "display").is_none());
 }
 
-/// Gate against Chromium's recorded values: a pair jsdom gets right must stay right under stylo,
-/// unless `css_golden/allow.txt` lists it. Re-record with `scripts/record-chromium-css.py`.
+/// Gate against Chromium's recorded values: a pair jsdom got right (`css_golden/jsdom.json`)
+/// must stay right under stylo, unless `css_golden/allow.txt` lists it. Re-record with
+/// `scripts/record-chromium-css.py`; the jsdom verdicts cannot be re-recorded, so a new file
+/// needs its entry built some other way.
 #[test]
 fn chromium_golden() {
     let golden: Golden =
         serde_json::from_str(&std::fs::read_to_string("tests/css_golden/chromium.json").unwrap())
+            .unwrap();
+    let jsdom: JsdomVerdicts =
+        serde_json::from_str(&std::fs::read_to_string("tests/css_golden/jsdom.json").unwrap())
             .unwrap();
     let allow = allow_list(&std::fs::read_to_string("tests/css_golden/allow.txt").unwrap());
     let rt = runtime();
@@ -244,10 +266,9 @@ fn chromium_golden() {
         r#"globalThis.__golden = (markup) => {{
             document.documentElement.innerHTML = markup;
             const props = {props};
-            return JSON.stringify([...document.querySelectorAll("*")].map((el) => {{
-                const cs = getComputedStyle(el);
-                return [el.localName, __stylo(el, props), props.map((p) => cs.getPropertyValue(p))];
-            }}));
+            return JSON.stringify(
+                [...document.querySelectorAll("*")].map((el) => [el.localName, __stylo(el, props)])
+            );
         }};
         0"#
     ));
@@ -265,7 +286,7 @@ fn chromium_golden() {
                 continue;
             }
         };
-        let ours: Vec<(String, Vec<String>, Vec<String>)> = serde_json::from_str(&json).unwrap();
+        let ours: Vec<(String, Vec<String>)> = serde_json::from_str(&json).unwrap();
         if ours
             .iter()
             .map(|element| &element.0)
@@ -274,10 +295,15 @@ fn chromium_golden() {
             unread.push(format!("{file}: element tree differs from Chromium's"));
             continue;
         }
-        for ((_, stylo, jsdom), (el, deltas)) in ours.iter().zip(expected) {
+        assert_eq!(
+            jsdom.files[file].len(),
+            expected.len(),
+            "{file}: jsdom.json is stale"
+        );
+        for (n, ((_, stylo), (el, deltas))) in ours.iter().zip(expected).enumerate() {
             for (i, prop) in golden.properties.iter().enumerate() {
                 let want = deltas.get(prop).unwrap_or(&golden.defaults[prop]);
-                let (stylo_ok, jsdom_ok) = (&stylo[i] == want, &jsdom[i] == want);
+                let (stylo_ok, jsdom_ok) = (&stylo[i] == want, jsdom.agreed(file, n, i));
                 pairs += 1;
                 stylo_eq += stylo_ok as usize;
                 jsdom_eq += jsdom_ok as usize;
