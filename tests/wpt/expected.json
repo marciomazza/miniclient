@@ -1466,7 +1466,27 @@
   "Request without body cannot be disturbed",
   "Request's body: initial state"
  ],
- "/fetch/api/request/request-error.any.html": [],
+ "/fetch/api/request/request-error.any.html": [
+  "Bad cache init parameter value",
+  "Bad credentials init parameter value",
+  "Bad mode init parameter value",
+  "Bad redirect init parameter value",
+  "Bad referrerPolicy init parameter value",
+  "Input URL is not valid",
+  "Request error",
+  "Request should get its content-type from init headers if one is provided",
+  "Request should get its content-type from the body if none is provided",
+  "Request should get its content-type from the init request",
+  "Request should not get its content-type from the init request if init headers are provided",
+  "Request with cache mode: only-if-cached and fetch mode cors",
+  "Request with cache mode: only-if-cached and fetch mode no-cors",
+  "Request with cache mode: only-if-cached and fetch mode: same-origin",
+  "RequestInit's cache mode is only-if-cached and mode is not same-origin",
+  "RequestInit's method is forbidden",
+  "RequestInit's method is invalid",
+  "RequestInit's mode is navigate",
+  "RequestInit's referrer is invalid"
+ ],
  "/fetch/api/request/request-headers.any.html": [
   "Adding valid no-cors request header \"Accept-Language: OK\"",
   "Adding valid no-cors request header \"Accept: OK\"",
