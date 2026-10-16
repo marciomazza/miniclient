@@ -80,9 +80,6 @@
     const p = /** @type {Element} */ (doc.querySelector("#b > .c")); // dom-selector
     p.matches(".a, .zz");
     doc.querySelectorAll("div[data-x^='y'], p:not(.d)");
-    const styled = /** @type {HTMLElement} */ (p);
-    styled.style.color = "rgb(10 20 30)";
-    styled.style.cssText;
     dom.window.close();
 })();
 

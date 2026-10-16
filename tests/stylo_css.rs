@@ -74,6 +74,67 @@ fn cascade_basics() {
 }
 
 #[test]
+fn inline_style_round_trips_through_the_attribute() {
+    let rt = runtime();
+    let got: serde_json::Value = rt.eval(
+        r#"document.body.innerHTML = "<p style='margin: 1px; COLOR: red'>x</p>";
+        const p = document.querySelector("p");
+        const before = getComputedStyle(p).color;
+        p.style.color = "rgb(10 20 30)";
+        p.style.setProperty("padding-left", "2px", "important");
+        p.style.marginTop = "3px";
+        const written = p.getAttribute("style");
+        const written_computed = getComputedStyle(p).color;
+        p.setAttribute("style", "float: left; bogus: 1");
+        ({
+            before,
+            written,
+            written_computed,
+            computed: getComputedStyle(p).color,
+            names: [...p.style],
+            cssFloat: p.style.cssFloat,
+            removed: p.style.removeProperty("float"),
+            after: p.getAttribute("style"),
+        })"#,
+    );
+    assert_eq!(
+        got,
+        serde_json::json!({
+            "before": "rgb(255, 0, 0)",
+            "written": "margin: 3px 1px 1px; color: rgb(10, 20, 30); padding-left: 2px !important;",
+            "written_computed": "rgb(10, 20, 30)",
+            "computed": "rgb(0, 0, 0)",
+            "names": ["float"],
+            "cssFloat": "left",
+            "removed": "left",
+            "after": "",
+        })
+    );
+    let computed: String = rt.eval(
+        r#"const q = document.querySelector("p");
+        q.style.cssText = "color: rgb(1, 2, 3)";
+        getComputedStyle(q).color"#,
+    );
+    assert_eq!(computed, "rgb(1, 2, 3)");
+}
+
+#[test]
+fn computed_style_enumerates_its_longhands() {
+    let rt = runtime();
+    let got: (u32, bool, bool, String) = rt.eval(
+        r#"const cs = getComputedStyle(document.body);
+        const names = [...cs];
+        [cs.length, names.includes("color"), names.includes("margin"), cs.item(cs.length)]"#,
+    );
+    assert!(got.0 > 200, "{got:?}");
+    assert!(got.1 && !got.2, "{got:?}");
+    assert_eq!(got.3, "");
+    // pseudo-element computed style is unimplemented, so it enumerates nothing
+    let pseudo: u32 = rt.eval(r#"getComputedStyle(document.body, "::before").length"#);
+    assert_eq!(pseudo, 0);
+}
+
+#[test]
 fn pref_gated_features_parse() {
     let rt = runtime();
     let markup = r#"<style>

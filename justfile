@@ -40,6 +40,11 @@ sync-jsdom:
     npm ci
     npx patch-package --error-on-fail
 
+# Regenerate the fork's CSSStyleProperties attributes from stylo's property table; then sync-jsdom.
+css-style-properties:
+    cargo build
+    python3 scripts/css-style-properties.py
+
 # Type-check the JS under js/ (files opt in with // @ts-check).
 check-js:
     npx tsc -p jsconfig.json

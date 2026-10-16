@@ -84,6 +84,12 @@ pub(crate) fn miniclient_extension() -> Extension {
             crate::css::op_css_computed_values(),
             crate::css::op_css_sheet_loaded(),
             crate::css::op_css_sheet_removed(),
+            crate::css::op_css_declarations_text(),
+            crate::css::op_css_declaration_names(),
+            crate::css::op_css_declaration_value(),
+            crate::css::op_css_set_declaration(),
+            crate::css::op_css_remove_declaration(),
+            crate::css::op_css_computed_longhands(),
         ]),
         ..Default::default()
     }

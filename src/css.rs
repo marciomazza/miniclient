@@ -33,8 +33,9 @@ use style::media_queries::{MediaList, MediaType};
 use style::parser::ParserContext;
 use style::properties::style_structs::Font;
 use style::properties::{
-    ComputedValues, PropertyDeclarationBlock, PropertyDeclarationId, PropertyId, ShorthandId,
-    parse_style_attribute,
+    ComputedValues, Importance, PropertyDeclarationBlock, PropertyDeclarationId, PropertyId,
+    ShorthandId, SourcePropertyDeclaration, SourcePropertyDeclarationUpdate,
+    parse_one_declaration_into, parse_style_attribute,
 };
 use style::queries::values::PrefersColorScheme;
 use style::selector_parser::{NonTSPseudoClass, PseudoElement, SelectorImpl, SnapshotMap};
@@ -688,6 +689,189 @@ pub fn op_css_sheet_removed(state: &mut OpState, owner: u32) {
         css.links.remove(&id);
         css.docs.remove(&root);
     }
+}
+
+/// Runs `f` on the declaration block `text` parses to. The CSSOM keeps no block of its own, so
+/// a `style` attribute is parsed here, once per distinct text.
+fn with_block<R>(text: &str, f: impl FnOnce(&PropertyDeclarationBlock) -> R) -> R {
+    static BLOCKS: LazyLock<Mutex<HashMap<String, PropertyDeclarationBlock>>> =
+        LazyLock::new(Default::default);
+    let mut blocks = BLOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    if !blocks.contains_key(text) {
+        // shortcut: drops the whole cache when full, as the sheet cache does.
+        if blocks.len() >= SHEET_CACHE_SIZE {
+            blocks.clear();
+        }
+        enable_prefs();
+        let block = parse_style_attribute(
+            &preprocess(text),
+            &url_data("about:blank"),
+            None,
+            QuirksMode::NoQuirks,
+            CssRuleType::Style,
+        );
+        blocks.insert(text.to_owned(), block);
+    }
+    f(&blocks[text])
+}
+
+/// CSS input preprocessing, which stylo leaves to its embedder: custom property values keep
+/// their source text, so a raw CR or form feed would otherwise survive serialisation.
+fn preprocess(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace(['\r', '\u{c}'], "\n")
+        .replace('\0', "\u{fffd}")
+}
+
+/// `name` as a property, when it is one; a custom property's name must be a whole ident, which
+/// stylo does not check, as its parser only ever hands it one.
+fn property_id(name: &str) -> Option<PropertyId> {
+    if name.starts_with("--") {
+        let mut parser = Parser::new(name);
+        let ident = matches!(
+            parser.next_including_whitespace(),
+            Ok(cssparser::Token::Ident(_))
+        );
+        if !ident || parser.next_including_whitespace().is_ok() {
+            return None;
+        }
+    }
+    PropertyId::parse_enabled_for_all_content(name).ok()
+}
+
+fn block_text(block: &PropertyDeclarationBlock) -> String {
+    let mut s = String::new();
+    let _ = block.to_css(&mut s);
+    s
+}
+
+/// The serialization of the declarations in `text`, for `style.cssText`.
+pub fn declarations_text(text: &str) -> String {
+    with_block(text, block_text)
+}
+
+/// The longhands `text` declares, in order, for `style.length` and `style.item()`.
+pub fn declaration_names(text: &str) -> Vec<String> {
+    with_block(text, |block| {
+        block
+            .declarations()
+            .iter()
+            .map(|d| d.id().name().into_owned())
+            .collect()
+    })
+}
+
+/// `property`'s value and whether it is `!important`; `""` for an unknown or undeclared one.
+pub fn declaration_value(text: &str, property: &str) -> (String, bool) {
+    let Some(id) = property_id(property) else {
+        return (String::new(), false);
+    };
+    with_block(text, |block| {
+        let mut value = String::new();
+        let _ = block.property_value_to_css(&id, &mut value);
+        (value, block.property_priority(&id).important())
+    })
+}
+
+/// The serialization of `text` with `property` set to `value`, or `None` when the name is
+/// unknown, the value does not parse, or nothing would change.
+pub fn set_declaration(text: &str, property: &str, value: &str, important: bool) -> Option<String> {
+    let id = property_id(property)?;
+    enable_prefs();
+    let mut source = SourcePropertyDeclaration::default();
+    parse_one_declaration_into(
+        &mut source,
+        id,
+        &preprocess(value),
+        Origin::Author,
+        &url_data("about:blank"),
+        None,
+        ParsingMode::DEFAULT,
+        QuirksMode::NoQuirks,
+        CssRuleType::Style,
+    )
+    .ok()?;
+    let importance = if important {
+        Importance::Important
+    } else {
+        Importance::Normal
+    };
+    with_block(text, |block| {
+        let mut block = block.clone();
+        let mut updates = SourcePropertyDeclarationUpdate::default();
+        if !block.prepare_for_update(&source, importance, &mut updates) {
+            return None;
+        }
+        block.update(source.drain(), importance, &mut updates);
+        Some(block_text(&block))
+    })
+}
+
+/// The serialization of `text` without `property` (and, for a shorthand, its longhands), or
+/// `None` when it declares none of them.
+pub fn remove_declaration(text: &str, property: &str) -> Option<String> {
+    let id = property_id(property)?;
+    with_block(text, |block| {
+        let first = block.first_declaration_to_remove(&id)?;
+        let mut block = block.clone();
+        block.remove_property(&id, first);
+        Some(block_text(&block))
+    })
+}
+
+/// The longhands `getComputedStyle` enumerates: every enabled one, by name, prefixed ones last.
+pub fn computed_longhands() -> Vec<String> {
+    enable_prefs();
+    let mut names: Vec<_> = ShorthandId::All
+        .longhands()
+        .map(|l| l.name())
+        .chain(["direction", "unicode-bidi"])
+        .filter(|name| PropertyId::parse_enabled_for_all_content(name).is_ok())
+        .map(str::to_owned)
+        .collect();
+    names.sort_by(|a, b| (a.starts_with('-'), a).cmp(&(b.starts_with('-'), b)));
+    names
+}
+
+#[op2]
+#[string]
+pub fn op_css_declarations_text(#[string] text: &str) -> String {
+    declarations_text(text)
+}
+
+#[op2]
+#[serde]
+pub fn op_css_declaration_names(#[string] text: &str) -> Vec<String> {
+    declaration_names(text)
+}
+
+#[op2]
+#[serde]
+pub fn op_css_declaration_value(#[string] text: &str, #[string] property: &str) -> (String, bool) {
+    declaration_value(text, property)
+}
+
+#[op2]
+#[string]
+pub fn op_css_set_declaration(
+    #[string] text: &str,
+    #[string] property: &str,
+    #[string] value: &str,
+    important: bool,
+) -> Option<String> {
+    set_declaration(text, property, value, important)
+}
+
+#[op2]
+#[string]
+pub fn op_css_remove_declaration(#[string] text: &str, #[string] property: &str) -> Option<String> {
+    remove_declaration(text, property)
+}
+
+#[op2]
+#[serde]
+pub fn op_css_computed_longhands() -> Vec<String> {
+    computed_longhands()
 }
 
 /// What a handle reads through while stylo runs.
@@ -1382,5 +1566,81 @@ mod tests {
         dom.release(&[a_wire]);
         read(&mut css, &dom, pb);
         assert!(!css.docs.contains_key(&a));
+    }
+
+    #[test]
+    fn declarations_read_and_write_through_text() {
+        let text = "COLOR: red; margin: 1px 2px; --Gap: 3px; bogus: 1";
+        assert_eq!(
+            declarations_text(text),
+            "color: red; margin: 1px 2px; --Gap: 3px;"
+        );
+        assert_eq!(
+            declaration_names(text),
+            [
+                "color",
+                "margin-top",
+                "margin-right",
+                "margin-bottom",
+                "margin-left",
+                "--Gap"
+            ]
+        );
+        assert_eq!(
+            declaration_value(text, "margin-left"),
+            ("2px".into(), false)
+        );
+        assert_eq!(declaration_value(text, "bogus"), (String::new(), false));
+
+        let set = set_declaration(text, "Color", "blue", true).unwrap();
+        assert_eq!(set, "color: blue !important; margin: 1px 2px; --Gap: 3px;");
+        assert_eq!(declaration_value(&set, "color"), ("blue".into(), true));
+        assert_eq!(set_declaration(&set, "color", "blue", true), None);
+        assert_eq!(set_declaration(text, "color", "1px", false), None);
+        assert_eq!(set_declaration(text, "bogus", "1", false), None);
+
+        assert_eq!(
+            remove_declaration(text, "margin").unwrap(),
+            "color: red; --Gap: 3px;"
+        );
+        assert_eq!(remove_declaration(text, "padding"), None);
+
+        assert_eq!(declarations_text("--x: a\r\nb\u{c}c"), "--x: a\nb\nc;");
+        assert_eq!(set_declaration("", "--x ", "1", false), None);
+        assert_eq!(set_declaration("", "--x y", "1", false), None);
+    }
+
+    #[test]
+    fn every_style_attribute_names_a_parsed_property() {
+        enable_prefs();
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/node_modules/jsdom/lib/jsdom/living/css/style-property-names.json"
+        );
+        let names: HashMap<String, String> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let stale: Vec<_> = names
+            .values()
+            .filter(|p| PropertyId::parse_enabled_for_all_content(p).is_err())
+            .collect();
+        assert!(
+            stale.is_empty(),
+            "rerun scripts/css-style-properties.py: {stale:?}"
+        );
+    }
+
+    #[test]
+    fn computed_longhands_are_enabled_and_sorted() {
+        let names = computed_longhands();
+        assert!(names.contains(&"grid-template-columns".to_owned()));
+        assert!(!names.contains(&"flex-line-count".to_owned()));
+        assert!(!names.contains(&"margin".to_owned()));
+        let first_prefixed = names.iter().position(|n| n.starts_with('-'));
+        assert!(first_prefixed.is_none_or(|i| names[i..].iter().all(|n| n.starts_with('-'))));
+        assert!(
+            names
+                .windows(2)
+                .all(|w| w[0] < w[1] || w[1].starts_with('-'))
+        );
     }
 }
