@@ -1,4 +1,4 @@
-# fork: mqunyqtnxloy 9294b5a0084e
+# fork: xuvwkwoxsqpn 2c4e4f012d66
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -1011,118 +1011,1338 @@ index 65486849e6..4e23a14e62 100644
 -  return element._attributeList.length > 0;
 +  return element._wire >= 0 && op_dom_attrs(element._wire).length > 0;
  };
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSConditionRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSConditionRule-impl.js
+index 8adbe1606f..f0d3e6974a 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSConditionRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSConditionRule-impl.js
+@@ -1,16 +1,9 @@ class CSSConditionRuleImpl extends CSSGroupingRuleImpl {
+ "use strict";
+-
+ const CSSGroupingRuleImpl = require("./CSSGroupingRule-impl.js").implementation;
+ 
+ class CSSConditionRuleImpl extends CSSGroupingRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this._conditionText = privateData.conditionText;
+-  }
+-
+-  // Getter required: CSSMediaRule overrides this, so an own data property would shadow it.
+   get conditionText() {
+-    return this._conditionText;
++    return this._get("conditionText");
+   }
+ }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSContainerRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSContainerRule-impl.js
+index 066c562f40..022f6b5078 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSContainerRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSContainerRule-impl.js
+@@ -1,33 +1,7 @@ class CSSContainerRuleImpl extends CSSConditionRuleImpl {}
+ "use strict";
+-
+ const CSSConditionRuleImpl = require("./CSSConditionRule-impl.js").implementation;
+-const { serializeGroupingRuleBody } = require("./CSSGroupingRule-impl.js");
+-const { serializeCustomIdent } = require("./helpers/css-values.js");
+-
+-// https://drafts.csswg.org/css-conditional-5/#typedef-container-name
+-const containerNameExclusions = new Set(["none", "and", "or", "not"]);
+-
+-class CSSContainerRuleImpl extends CSSConditionRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.containerName = privateData.containerName;
+-    this.containerQuery = privateData.containerQuery;
+-  }
+-
+-  get conditionText() {
+-    if (this.containerName) {
+-      return serializeCustomIdent(this.containerName, containerNameExclusions) + " " + this.containerQuery;
+-    }
+-    return this.containerQuery;
+-  }
+-
+-  get type() {
+-    return 0; // No standard type constant for container rules
+-  }
+-
+-  get cssText() {
+-    return `@container ${this.conditionText} ${serializeGroupingRuleBody(this.cssRules._list)}`;
+-  }
+-}
++
++// The native style engine never produces `@container` rules, so no instance is ever made.
++class CSSContainerRuleImpl extends CSSConditionRuleImpl {}
+ 
+ exports.implementation = CSSContainerRuleImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSCounterStyleRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSCounterStyleRule-impl.js
+index 9dfbbd8158..f38f930e7b 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSCounterStyleRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSCounterStyleRule-impl.js
+@@ -1,45 +1,7 @@ class CSSCounterStyleRuleImpl extends CSSRuleImpl {}
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+-const { serializeCustomIdent } = require("./helpers/css-values.js");
+-
+-// https://drafts.csswg.org/css-counter-styles-3/#typedef-counter-style-name
+-const counterStyleExclusions = new Set(
+-  ["none", "decimal", "disc", "square", "circle", "disclosure-open", "disclosure-closed"]
+-);
+-
+-// TODO: implement these as proper getters and setters that follow the spec at
+-// https://drafts.csswg.org/css-counter-styles-3/#csscounterstylerule, including serialization,
+-// parsing, special handling for certain values, etc.
+-const descriptorNames = [
+-  "system", "symbols", "additiveSymbols", "negative",
+-  "prefix", "suffix", "range", "pad", "speakAs", "fallback"
+-];
+-
+-class CSSCounterStyleRuleImpl extends CSSRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.name = privateData.name;
+-    for (const desc of descriptorNames) {
+-      this[desc] = "";
+-    }
+-  }
+-
+-  get type() {
+-    return 11; // COUNTER_STYLE_RULE
+-  }
+-
+-  get cssText() {
+-    const parts = [];
+-    for (const desc of descriptorNames) {
+-      if (this[desc]) {
+-        // Convert camelCase to kebab-case for CSS property names
+-        const cssName = desc.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
+-        parts.push(`${cssName}: ${this[desc]};`);
+-      }
+-    }
+-    return `@counter-style ${serializeCustomIdent(this.name, counterStyleExclusions)} { ${parts.join(" ")} }`;
+-  }
+-}
++
++// The native style engine never produces `@counter-style` rules, so no instance is ever made.
++class CSSCounterStyleRuleImpl extends CSSRuleImpl {}
+ 
+ exports.implementation = CSSCounterStyleRuleImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSFontFaceRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSFontFaceRule-impl.js
+index 68aba2ade8..d8e46b3b2e 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSFontFaceRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSFontFaceRule-impl.js
+@@ -1,24 +1,16 @@ class CSSFontFaceRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+ const CSSStyleDeclaration = require("../../../generated/idl/CSSStyleDeclaration.js");
+ 
+ class CSSFontFaceRuleImpl extends CSSRuleImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+-
+-    this.style = CSSStyleDeclaration.createImpl(globalObject, [], {
+-      parentRule: this
+-    });
++    this.style = CSSStyleDeclaration.createImpl(globalObject, [], { parentRule: this });
+   }
+ 
+   get type() {
+     return 5; // FONT_FACE_RULE
+   }
+-
+-  get cssText() {
+-    return `@font-face { ${this.style.cssText} }`;
+-  }
+ }
+ 
+ exports.implementation = CSSFontFaceRuleImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSGroupingRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSGroupingRule-impl.js
+index 1300dc7083..f4619fdcd1 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSGroupingRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSGroupingRule-impl.js
+@@ -1,55 +1,22 @@ class CSSGroupingRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+ const CSSRuleList = require("../../../generated/idl/CSSRuleList.js");
+-const CSSStyleRule = require("../../../generated/idl/CSSStyleRule.js");
+ 
+ class CSSGroupingRuleImpl extends CSSRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
++  #cssRules = null;
+ 
+-    this.cssRules = CSSRuleList.createImpl(globalObject);
++  get cssRules() {
++    this.#cssRules ??= CSSRuleList.createImpl(this._globalObject, [], { owner: this, parentRule: this });
++    return this.#cssRules;
+   }
+ 
+   insertRule(rule, index) {
+-    const result = this.cssRules._insert(rule, index, this._isInNestingContext(), this, this.parentStyleSheet);
+-    this._invalidateStyleCache();
+-    return result;
++    return this.cssRules._insert(rule, index);
+   }
+ 
+   deleteRule(index) {
+     this.cssRules._remove(index);
+-    this._invalidateStyleCache();
+-  }
+-
+-  _isInNestingContext() {
+-    let ancestor = this;
+-    while (ancestor) {
+-      if (CSSStyleRule.isImpl(ancestor)) {
+-        return true;
+-      }
+-      ancestor = ancestor.parentRule;
+-    }
+-    return false;
+-  }
+-}
+-
+-/**
+- * Serialize the body of a grouping rule per CSSOM spec.
+- * Produces multi-line output with indented child rules.
+- */
+-function serializeGroupingRuleBody(rules) {
+-  let body = "{\n";
+-  for (const rule of rules) {
+-    const ruleText = rule.cssText;
+-    // Skip empty CSSNestedDeclarations per CSSOM serialization spec
+-    if (ruleText) {
+-      body += `  ${ruleText}\n`;
+-    }
+-  }
+-  body += "}";
+-  return body;
++  }
+ }
+ 
+ exports.implementation = CSSGroupingRuleImpl;
+-exports.serializeGroupingRuleBody = serializeGroupingRuleBody;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSImportRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSImportRule-impl.js
+index 4664f2875d..29feefcde6 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSImportRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSImportRule-impl.js
+@@ -1,26 +1,31 @@ class CSSImportRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+ const CSSStyleSheet = require("../../../generated/idl/CSSStyleSheet.js");
+-const csstree = require("./helpers/patched-csstree.js");
+ 
+ class CSSImportRuleImpl extends CSSRuleImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+ 
+-    this.href = privateData.href;
+-    this.layerName = privateData.layerName;
+-    this.supportsText = privateData.supportsText;
+-
+-    // Starts empty; populated later by stylesheets.js when the @import URL is fetched.
++    // Its rules are filled in when stylesheets.js fetches the `@import`.
+     this.styleSheet = CSSStyleSheet.createImpl(globalObject, [], {
++      id: this._id,
+       ownerRule: this,
+-      parentStyleSheet: this.parentStyleSheet,
+-      mediaText: privateData.mediaText,
+-      constructed: false
++      href: this._get("resolvedHref")
+     });
+   }
+ 
++  get href() {
++    return this._get("href");
++  }
++
++  get layerName() {
++    return this._get("layerName");
++  }
++
++  get supportsText() {
++    return this._get("supportsText");
++  }
++
+   // https://drafts.csswg.org/cssom/#dom-cssimportrule-media
+   get media() {
+     return this.styleSheet.media;
+@@ -29,23 +34,6 @@ get type() {
+   get type() {
+     return 3; // IMPORT_RULE
+   }
+-
+-  get cssText() {
+-    // https://drafts.csswg.org/cssom/#serialize-a-url
+-    // https://github.com/csstree/csstree/issues/360
+-    let result = `@import url(${csstree.string.encode(this.href)})`;
+-    if (this.layerName !== null) {
+-      result += this.layerName ? ` layer(${this.layerName})` : " layer";
+-    }
+-    if (this.supportsText !== null) {
+-      result += ` supports(${this.supportsText})`;
+-    }
+-    const { mediaText } = this.media;
+-    if (mediaText) {
+-      result += ` ${mediaText}`;
+-    }
+-    return result + ";";
+-  }
+ }
+ 
+ exports.implementation = CSSImportRuleImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframeRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframeRule-impl.js
+index 0eaf668b51..bf662cd35e 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframeRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframeRule-impl.js
+@@ -1,42 +1,12 @@ class CSSKeyframeRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+-const DOMException = require("../../../generated/idl/DOMException.js");
+ const CSSStyleProperties = require("../../../generated/idl/CSSStyleProperties.js");
+-const csstree = require("./helpers/patched-csstree.js");
+-
+-function validateKeyframeSelector(selector) {
+-  const ast = csstree.parse(selector, { context: "value" });
+-  return !csstree.lexer.matchType("keyframe-selector", ast).error;
+-}
+-
+-// Normalize a single keyframe selector: "from" → "0%", "To" → "100%", ".5%" → "0.5%", etc.
+-function normalizeSelector(selector) {
+-  const lower = selector.toLowerCase();
+-  if (lower === "from") {
+-    return "0%";
+-  }
+-  if (lower === "to") {
+-    return "100%";
+-  }
+-  // Normalize the number: ".5%" → "0.5%", "100.0%" → "100%", "1e1%" → "10%"
+-  return String(parseFloat(selector)) + "%";
+-}
+-
+-function normalizeKeyText(text) {
+-  return text.split(",").map(s => normalizeSelector(s.trim())).join(", ");
+-}
++const { throwIfError } = require("./helpers/rules.js");
+ 
+ class CSSKeyframeRuleImpl extends CSSRuleImpl {
+-  #keyText;
+-
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+-    this.#keyText = normalizeKeyText(privateData.keyText);
+-
+-    this.style = CSSStyleProperties.createImpl(globalObject, [], {
+-      parentRule: this
+-    });
++    this.style = CSSStyleProperties.createImpl(globalObject, [], { parentRule: this });
+   }
+ 
+   get type() {
+@@ -44,28 +14,13 @@ get type() {
+   }
+ 
+   get keyText() {
+-    return this.#keyText;
++    return this._get("keyText");
+   }
+ 
+   set keyText(value) {
+-    const selectors = value.split(",").map(s => s.trim());
+-    const normalized = [];
+-    for (const sel of selectors) {
+-      if (!validateKeyframeSelector(sel)) {
+-        throw DOMException.create(this._globalObject, [
+-          "Invalid keyframe selector.",
+-          "SyntaxError"
+-        ]);
+-      }
+-      normalized.push(normalizeSelector(sel));
+-    }
+-    this.#keyText = normalized.join(", ");
+-  }
+-
+-  get cssText() {
+-    return `${this.#keyText} { ${this.style.cssText} }`;
++    const result = this._set("keyText", value);
++    throwIfError(this._globalObject, typeof result === "string" && result, "Invalid keyframe selector.");
+   }
+ }
+ 
+ exports.implementation = CSSKeyframeRuleImpl;
+-exports.normalizeKeyText = normalizeKeyText;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframesRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframesRule-impl.js
+index bfc53efefb..64f9dc281c 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframesRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSKeyframesRule-impl.js
+@@ -1,29 +1,29 @@ class CSSKeyframesRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+ const CSSRuleList = require("../../../generated/idl/CSSRuleList.js");
+-const { normalizeKeyText } = require("./CSSKeyframeRule-impl.js");
+-const cssParser = require("./helpers/css-parser.js");
+ const idlUtils = require("../../../generated/idl/utils.js");
+-const { serializeCustomIdent } = require("./helpers/css-values.js");
+-
+-// https://drafts.csswg.org/css-animations/#typedef-keyframes-name
+-const keyframesExclusions = new Set(["none"]);
++const { call } = require("./helpers/rules.js");
+ 
+ class CSSKeyframesRuleImpl extends CSSRuleImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+-
+-    this.name = privateData.name;
+-    this.cssRules = CSSRuleList.createImpl(globalObject);
++    this.cssRules = CSSRuleList.createImpl(globalObject, [], { owner: this, parentRule: this });
+   }
+ 
+   get type() {
+     return 7; // KEYFRAMES_RULE
+   }
+ 
++  get name() {
++    return this._get("name");
++  }
++
++  set name(value) {
++    this._set("name", value);
++  }
++
+   get length() {
+-    return this.cssRules._list.length;
++    return this.cssRules.length;
+   }
+ 
+   get [idlUtils.supportedPropertyIndices]() {
+@@ -31,7 +31,7 @@ get length() {
+   }
+ 
+   [idlUtils.supportsPropertyIndex](index) {
+-    return index >= 0 && index < this.cssRules._list.length;
++    return index >= 0 && index < this.cssRules.length;
+   }
+ 
+   [idlUtils.indexedGet](index) {
+@@ -39,43 +39,23 @@ get length() {
+   }
+ 
+   appendRule(rule) {
+-    const newRule = cssParser.parseKeyframeRule(rule, this._globalObject);
+-    if (newRule === null) {
+-      return;
++    try {
++      this.cssRules._insert(rule, this.cssRules.length);
++    } catch {
++      // Per spec, a keyframe that does not parse is dropped.
+     }
+-    newRule.parentRule = this;
+-    newRule.parentStyleSheet = this.parentStyleSheet;
+-    this.cssRules._list.push(newRule);
+   }
+ 
+   deleteRule(select) {
+-    const normalized = normalizeKeyText(select);
+-    const index = this.cssRules._list.findIndex(
+-      r => r.keyText === normalized
+-    );
++    const index = call("op_css_find_keyframe", this._id, select);
+     if (index !== -1) {
+-      const removed = this.cssRules._list[index];
+-      removed.parentRule = null;
+-      removed.parentStyleSheet = null;
+-      this.cssRules._list.splice(index, 1);
++      this.cssRules._remove(index);
+     }
+   }
+ 
+   findRule(select) {
+-    const normalized = normalizeKeyText(select);
+-    // Per spec, return the last matching rule
+-    for (let i = this.cssRules._list.length - 1; i >= 0; i--) {
+-      if (this.cssRules._list[i].keyText === normalized) {
+-        return this.cssRules._list[i];
+-      }
+-    }
+-    return null;
+-  }
+-
+-  get cssText() {
+-    const rules = this.cssRules._list.map(r => r.cssText).join(" ");
+-    const name = serializeCustomIdent(this.name, keyframesExclusions);
+-    return `@keyframes ${name} { ${rules} }`;
++    const index = call("op_css_find_keyframe", this._id, select);
++    return index === -1 ? null : this.cssRules._list[index];
+   }
+ }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSLayerBlockRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSLayerBlockRule-impl.js
+index dd02f7d7c4..ba7dc2089e 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSLayerBlockRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSLayerBlockRule-impl.js
+@@ -1,17 +1,9 @@ class CSSLayerBlockRuleImpl extends CSSGroupingRuleImpl {
+ "use strict";
+-
+ const CSSGroupingRuleImpl = require("./CSSGroupingRule-impl.js").implementation;
+-const { serializeGroupingRuleBody } = require("./CSSGroupingRule-impl.js");
+ 
+ class CSSLayerBlockRuleImpl extends CSSGroupingRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.name = privateData.name;
+-  }
+-
+-  get cssText() {
+-    const name = this.name ? ` ${this.name}` : "";
+-    return `@layer${name} ${serializeGroupingRuleBody(this.cssRules._list)}`;
++  get name() {
++    return this._get("name");
+   }
+ }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSLayerStatementRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSLayerStatementRule-impl.js
+index 31d1ea3b27..c59cdb7f4f 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSLayerStatementRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSLayerStatementRule-impl.js
+@@ -1,15 +1,9 @@ class CSSLayerStatementRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+ 
+ class CSSLayerStatementRuleImpl extends CSSRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.nameList = Object.freeze(privateData.nameList);
+-  }
+-
+-  get cssText() {
+-    return `@layer ${this.nameList.join(", ")};`;
++  get nameList() {
++    return Object.freeze(this._get("nameList"));
+   }
+ }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSMediaRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSMediaRule-impl.js
+index 2f62080d5d..148cb05526 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSMediaRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSMediaRule-impl.js
+@@ -1,18 +1,11 @@ class CSSMediaRuleImpl extends CSSConditionRuleImpl {
+ "use strict";
+-
+ const CSSConditionRuleImpl = require("./CSSConditionRule-impl.js").implementation;
+-const { serializeGroupingRuleBody } = require("./CSSGroupingRule-impl.js");
+ const MediaList = require("../../../generated/idl/MediaList.js");
+-const { evaluateMediaList } = require("./MediaList-impl.js");
+ 
+ class CSSMediaRuleImpl extends CSSConditionRuleImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+-
+-    this.media = MediaList.createImpl(globalObject, [], {
+-      mediaText: this._conditionText,
+-      onChange: () => this._invalidateStyleCache()
+-    });
++    this.media = MediaList.createImpl(globalObject, [], { owner: this });
+   }
+ 
+   get type() {
+@@ -20,16 +13,12 @@ get type() {
+   }
+ 
+   get matches() {
+-    return evaluateMediaList(this.media._list);
++    return this._get("mediaMatches");
+   }
+ 
+   get conditionText() {
+     return this.media.mediaText;
+   }
+-
+-  get cssText() {
+-    return `@media ${this.media.mediaText} ${serializeGroupingRuleBody(this.cssRules._list)}`;
+-  }
+ }
+ 
+ exports.implementation = CSSMediaRuleImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSNamespaceRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSNamespaceRule-impl.js
+index 5ba06e733b..70503e6edc 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSNamespaceRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSNamespaceRule-impl.js
+@@ -1,27 +1,17 @@ class CSSNamespaceRuleImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+-const csstree = require("./helpers/patched-csstree.js");
+ 
+ class CSSNamespaceRuleImpl extends CSSRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.namespaceURI = privateData.namespaceURI;
+-    this.prefix = privateData.prefix;
+-  }
+-
+   get type() {
+     return 10; // NAMESPACE_RULE
+   }
+ 
+-  get cssText() {
+-    // https://drafts.csswg.org/cssom/#serialize-a-url
+-    // https://github.com/csstree/csstree/issues/360
+-    const url = `url(${csstree.string.encode(this.namespaceURI)})`;
+-    if (this.prefix) {
+-      return `@namespace ${this.prefix} ${url};`;
+-    }
+-    return `@namespace ${url};`;
++  get namespaceURI() {
++    return this._get("namespaceURI");
++  }
++
++  get prefix() {
++    return this._get("prefix");
+   }
+ }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSNestedDeclarations-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSNestedDeclarations-impl.js
+index b4b9e9b284..536215b1c6 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSNestedDeclarations-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSNestedDeclarations-impl.js
+@@ -1,18 +1,11 @@ class CSSNestedDeclarationsImpl extends CSSRuleImpl {
+ "use strict";
+-
+ const CSSRuleImpl = require("./CSSRule-impl.js").implementation;
+ const CSSStyleProperties = require("../../../generated/idl/CSSStyleProperties.js");
+ 
+ class CSSNestedDeclarationsImpl extends CSSRuleImpl {
+   constructor(globalObject, args, privateData) {
+     super(globalObject, args, privateData);
+-    this.style = CSSStyleProperties.createImpl(globalObject, [], {
+-      parentRule: this
+-    });
+-  }
+-
+-  get cssText() {
+-    return this.style.cssText;
++    this.style = CSSStyleProperties.createImpl(globalObject, [], { parentRule: this });
+   }
+ }
+ 
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSPageRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSPageRule-impl.js
+index 238304527d..94149add43 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSPageRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSPageRule-impl.js
+@@ -1,86 +1,7 @@ class CSSPageRuleImpl extends CSSGroupingRuleImpl {}
+ "use strict";
+-
+ const CSSGroupingRuleImpl = require("./CSSGroupingRule-impl.js").implementation;
+-const CSSStyleDeclaration = require("../../../generated/idl/CSSStyleDeclaration.js");
+-
+-const validPagePseudos = new Set(["first", "left", "right", "blank"]);
+-
+-/**
+- * Parse and validate a page selector. Returns the normalized selector string,
+- * or null if the selector is invalid.
+- *
+- * Valid page selectors: "", "named", ":first", "named:first", "named:first:left"
+- * Invalid: "named :first" (space), ":notapagepseudo", ":first :left" (space)
+- */
+-function parsePageSelector(value) {
+-  const trimmed = value.trim();
+-  if (trimmed === "") {
+-    return "";
+-  }
+-
+-  // Match: optional ident, followed by zero or more :pseudo parts, no whitespace allowed
+-  const match = trimmed.match(/^([a-zA-Z_\-\\][a-zA-Z0-9_\-\\]*)?((?::[a-zA-Z]+)*)$/);
+-  if (!match) {
+-    return null;
+-  }
+-
+-  const pageName = match[1] || "";
+-  const pseudoPart = match[2] || "";
+-
+-  if (!pageName && !pseudoPart) {
+-    return null;
+-  }
+-
+-  // Validate each pseudo page
+-  if (pseudoPart) {
+-    const pseudos = pseudoPart.slice(1).split(":");
+-    for (const pseudo of pseudos) {
+-      if (!validPagePseudos.has(pseudo.toLowerCase())) {
+-        return null;
+-      }
+-    }
+-    // Normalize pseudo pages to lowercase
+-    const normalizedPseudos = pseudos.map(p => `:${p.toLowerCase()}`).join("");
+-    return pageName + normalizedPseudos;
+-  }
+-
+-  return pageName;
+-}
+-
+-class CSSPageRuleImpl extends CSSGroupingRuleImpl {
+-  #selectorText;
+-
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.#selectorText = privateData.selectorText;
+-    this.style = CSSStyleDeclaration.createImpl(globalObject, [], {
+-      parentRule: this
+-    });
+-  }
+-
+-  get type() {
+-    return 6; // PAGE_RULE
+-  }
+-
+-  get selectorText() {
+-    return this.#selectorText;
+-  }
+-
+-  set selectorText(value) {
+-    const parsed = parsePageSelector(value);
+-    if (parsed !== null) {
+-      this.#selectorText = parsed;
+-    }
+-  }
+-
+-  get cssText() {
+-    const styleText = this.style.cssText;
+-    const selector = this.#selectorText ? ` ${this.#selectorText}` : "";
+-    if (styleText) {
+-      return `@page${selector} { ${styleText} }`;
+-    }
+-    return `@page${selector} { }`;
+-  }
+-}
++
++// The native style engine never produces `@page` rules, so no instance is ever made.
++class CSSPageRuleImpl extends CSSGroupingRuleImpl {}
+ 
+ exports.implementation = CSSPageRuleImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSRule-impl.js
+index 3faa5964ca..ef3ead9dbe 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSRule-impl.js
+@@ -1,32 +1,29 @@ class CSSRuleImpl {
+ "use strict";
++const { call, track } = require("./helpers/rules.js");
+ 
+ class CSSRuleImpl {
+-  constructor(globalObject, args, privateData) {
++  constructor(globalObject, args, { id, parentRule = null, parentStyleSheet = null }) {
+     this._globalObject = globalObject;
+-    this.parentRule = privateData.parentRule;
+-    this.parentStyleSheet = privateData.parentStyleSheet;
++    this._id = id;
++    this.parentRule = parentRule;
++    this.parentStyleSheet = parentStyleSheet;
++    track(this, id);
+   }
+ 
+-  _invalidateStyleCache() {
+-    this.parentStyleSheet?._invalidateStyleCache();
++  _get(field) {
++    return call("op_css_get", this._id, field);
+   }
+ 
+-  _setParentStyleSheet(sheet) {
+-    this.parentStyleSheet = sheet;
+-    if (this.cssRules) {
+-      for (const rule of this.cssRules._list) {
+-        rule._setParentStyleSheet(sheet);
+-      }
+-    }
++  _set(field, value) {
++    return call("op_css_set", this._id, field, value);
+   }
+ 
+-  // Subclasses must override type and cssText
+   get type() {
+     return 0;
+   }
+ 
+   get cssText() {
+-    return "";
++    return this._get("cssText");
+   }
+ 
+   set cssText(_value) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSRuleList-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSRuleList-impl.js
+index c770f93691..1a1fc793f1 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSRuleList-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSRuleList-impl.js
+@@ -1,18 +1,27 @@ class CSSRuleListImpl {
+ "use strict";
+-
+ const idlUtils = require("../../../generated/idl/utils.js");
+-const DOMException = require("../../../generated/idl/DOMException.js");
+-const CSSImportRule = require("../../../generated/idl/CSSImportRule.js");
+-const CSSNamespaceRule = require("../../../generated/idl/CSSNamespaceRule.js");
+-const CSSStyleRule = require("../../../generated/idl/CSSStyleRule.js");
+-const CSSFontFaceRule = require("../../../generated/idl/CSSFontFaceRule.js");
+-const CSSLayerStatementRule = require("../../../generated/idl/CSSLayerStatementRule.js");
+-const cssParser = require("./helpers/css-parser.js");
++const { call, createRule, throwIfError } = require("./helpers/rules.js");
+ 
++// The rules of `owner` (a sheet or a rule) as JS objects, made on first read and kept in step
++// with the insertions and deletions made through this list.
+ class CSSRuleListImpl {
+-  constructor(globalObject) {
++  #list = null;
++
++  constructor(globalObject, args, { owner, parentRule = null }) {
+     this._globalObject = globalObject;
+-    this._list = [];
++    this._owner = owner;
++    this._parentRule = parentRule;
++  }
++
++  get #sheet() {
++    return this._parentRule ? this._parentRule.parentStyleSheet : this._owner;
++  }
++
++  get _list() {
++    this.#list ??= (call("op_css_rules", this._owner._id) ?? []).map(entry => {
++      return createRule(this._globalObject, entry, this._parentRule, this.#sheet);
++    });
++    return this.#list;
+   }
+ 
+   get length() {
+@@ -28,192 +37,43 @@ item(index) {
+   }
+ 
+   // https://drafts.csswg.org/cssom/#insert-a-css-rule
+-  // `_insert()` parses the rule text and then validates and inserts. `CSSStyleSheet`'s
+-  // `insertRule()` needs to inspect the parsed rule before inserting, so it parses itself and then
+-  // calls `_insertParsed()` directly to avoid double-parsing.
+-  _insert(rule, index, nested, parentRule, parentStyleSheet) {
+-    this.#checkInsertIndex(index);
+-
+-    let newRule;
+-    try {
+-      newRule = cssParser.parseRule(rule, this._globalObject);
+-    } catch (syntaxError) {
+-      if (nested) {
+-        newRule = cssParser.parseDeclarationsAsNestedRule(rule, this._globalObject);
+-        if (!newRule) {
+-          throw syntaxError;
+-        }
+-      } else {
+-        throw syntaxError;
+-      }
+-    }
+-
+-    return this.#validateAndInsert(newRule, index, parentRule, parentStyleSheet);
+-  }
+-
+-  _insertParsed(newRule, index, parentRule, parentStyleSheet) {
+-    this.#checkInsertIndex(index);
+-    return this.#validateAndInsert(newRule, index, parentRule, parentStyleSheet);
+-  }
+-
+-  #checkInsertIndex(index) {
+-    if (index > this._list.length) {
+-      throw DOMException.create(this._globalObject, [
+-        "Index is out of range.",
+-        "IndexSizeError"
+-      ]);
+-    }
+-  }
+-
+-  #validateAndInsert(newRule, index, parentRule, parentStyleSheet) {
+-    if (parentRule) {
+-      // Inside a grouping rule: @import and @namespace are never allowed
+-      if (CSSImportRule.isImpl(newRule)) {
+-        throw DOMException.create(this._globalObject, [
+-          "@import rules are not allowed inside grouping rules.",
+-          "HierarchyRequestError"
+-        ]);
+-      }
+-      if (CSSNamespaceRule.isImpl(newRule)) {
+-        throw DOMException.create(this._globalObject, [
+-          "@namespace rules are not allowed inside grouping rules.",
+-          "HierarchyRequestError"
+-        ]);
+-      }
+-
+-      // @font-face is not valid inside a style rule ancestor
+-      if (CSSFontFaceRule.isImpl(newRule)) {
+-        let ancestor = parentRule;
+-        while (ancestor) {
+-          if (CSSStyleRule.isImpl(ancestor)) {
+-            throw DOMException.create(this._globalObject, [
+-              "@font-face rules are not allowed inside style rules.",
+-              "HierarchyRequestError"
+-            ]);
+-          }
+-          ancestor = ancestor.parentRule;
+-        }
+-      }
+-    } else {
+-      // Sheet-level constraints
+-
+-      // @import rules can only be preceded by other @import and @layer statement rules
+-      if (CSSImportRule.isImpl(newRule)) {
+-        for (let i = 0; i < index; i++) {
+-          const r = this._list[i];
+-          if (!CSSImportRule.isImpl(r) && !CSSLayerStatementRule.isImpl(r)) {
+-            throw DOMException.create(this._globalObject, [
+-              "@import rules must precede all other rules.",
+-              "HierarchyRequestError"
+-            ]);
+-          }
+-        }
+-      }
+-
+-      // @namespace rules cannot be inserted if any non-import/namespace/layer-statement rules exist
+-      if (CSSNamespaceRule.isImpl(newRule)) {
+-        const hasOtherRules = this._list.some(
+-          r => !CSSImportRule.isImpl(r) && !CSSNamespaceRule.isImpl(r) && !CSSLayerStatementRule.isImpl(r)
+-        );
+-        if (hasOtherRules) {
+-          throw DOMException.create(this._globalObject, [
+-            "Cannot insert @namespace rule when other rules exist.",
+-            "InvalidStateError"
+-          ]);
+-        }
+-      }
+-
+-      // Non-import/namespace/layer-statement rules cannot be inserted before @import or @namespace rules
+-      if (!CSSImportRule.isImpl(newRule) && !CSSNamespaceRule.isImpl(newRule) &&
+-          !CSSLayerStatementRule.isImpl(newRule)) {
+-        for (let i = index; i < this._list.length; i++) {
+-          const r = this._list[i];
+-          if (CSSImportRule.isImpl(r) || CSSNamespaceRule.isImpl(r)) {
+-            throw DOMException.create(this._globalObject, [
+-              "Cannot insert a rule before @import or @namespace rules.",
+-              "HierarchyRequestError"
+-            ]);
+-          }
+-        }
+-      }
+-
+-      // Validate namespace prefixes in style rule selectors
+-      if (CSSStyleRule.isImpl(newRule)) {
+-        const declaredPrefixes = new Set();
+-        for (const r of this._list) {
+-          if (CSSNamespaceRule.isImpl(r)) {
+-            declaredPrefixes.add(r.prefix);
+-          }
+-        }
+-        const nsPrefixPattern = /(?:^|[\s,>+~(])([a-zA-Z_][\w-]*)\|/g;
+-        let m;
+-        while ((m = nsPrefixPattern.exec(newRule.selectorText)) !== null) {
+-          if (!declaredPrefixes.has(m[1])) {
+-            throw DOMException.create(this._globalObject, [
+-              "Undeclared namespace prefix in selector.",
+-              "SyntaxError"
+-            ]);
+-          }
+-        }
+-      }
+-    }
+-
+-    newRule.parentRule = parentRule;
+-    newRule._setParentStyleSheet(parentStyleSheet);
+-    if (CSSImportRule.isImpl(newRule) && newRule.styleSheet) {
+-      newRule.styleSheet.parentStyleSheet = parentStyleSheet;
+-    }
+-    this._list.splice(index, 0, newRule);
+-
++  _insert(rule, index) {
++    const entry = call("op_css_rule_insert", this._owner._id, rule, index);
++    throwIfError(this._globalObject, entry[0] === 0 && entry[1], "The rule cannot be inserted.");
++    this.#list?.splice(index, 0, createRule(this._globalObject, entry, this._parentRule, this.#sheet));
+     return index;
+   }
+ 
+   // https://drafts.csswg.org/cssom/#remove-a-css-rule
+   _remove(index) {
+-    if (index >= this._list.length) {
+-      throw DOMException.create(this._globalObject, [
+-        "Index is out of range.",
+-        "IndexSizeError"
+-      ]);
+-    }
+-
+-    const oldRule = this._list[index];
+-
+-    if (CSSNamespaceRule.isImpl(oldRule)) {
+-      const hasOtherRules = this._list.some(
+-        r => !CSSImportRule.isImpl(r) && !CSSNamespaceRule.isImpl(r) && !CSSLayerStatementRule.isImpl(r)
+-      );
+-      if (hasOtherRules) {
+-        throw DOMException.create(this._globalObject, [
+-          "Cannot delete @namespace rule when other rules exist.",
+-          "InvalidStateError"
+-        ]);
+-      }
+-    }
+-
+-    // Not yet in spec; see https://github.com/w3c/csswg-drafts/issues/13612
+-    if (CSSImportRule.isImpl(oldRule) && oldRule.styleSheet) {
+-      oldRule.styleSheet.parentStyleSheet = null;
+-    }
+-
+-    oldRule.parentRule = null;
+-    oldRule.parentStyleSheet = null;
+-    this._list.splice(index, 1);
++    throwIfError(this._globalObject, call("op_css_rule_delete", this._owner._id, index), "The rule cannot be removed.");
++    const [removed] = this.#list?.splice(index, 1) ?? [];
++    if (removed) {
++      removed.parentRule = null;
++      leaveSheet(removed);
++    }
+   }
+ 
+-  _clear() {
+-    for (const rule of this._list) {
+-      if (CSSImportRule.isImpl(rule) && rule.styleSheet) {
+-        rule.styleSheet.parentStyleSheet = null;
+-      }
+-      if (rule.cssRules) {
+-        rule.cssRules._clear();
+-      }
++  // The owner's rules were replaced; the old objects leave it.
++  _reset() {
++    for (const rule of this.#list ?? []) {
+       rule.parentRule = null;
+-      rule.parentStyleSheet = null;
+-    }
+-    this._list.length = 0;
+-  }
++      leaveSheet(rule);
++    }
++    this.#list = null;
++  }
++
++  _leaveSheet() {
++    for (const rule of this.#list ?? []) {
++      leaveSheet(rule);
++    }
++  }
++}
++
++// Nested rules keep their parent rule but, like it, no longer belong to a sheet.
++function leaveSheet(rule) {
++  rule.parentStyleSheet = null;
++  rule.cssRules?._leaveSheet();
+ }
+ 
+ exports.implementation = CSSRuleListImpl;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSScopeRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSScopeRule-impl.js
+index 406ba52c32..35e16c2d91 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSScopeRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSScopeRule-impl.js
+@@ -1,24 +1,13 @@ class CSSScopeRuleImpl extends CSSGroupingRuleImpl {
+ "use strict";
+-
+ const CSSGroupingRuleImpl = require("./CSSGroupingRule-impl.js").implementation;
+-const { serializeGroupingRuleBody } = require("./CSSGroupingRule-impl.js");
+ 
+ class CSSScopeRuleImpl extends CSSGroupingRuleImpl {
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.start = privateData.start;
+-    this.end = privateData.end;
++  get start() {
++    return this._get("start");
+   }
+ 
+-  get cssText() {
+-    let prelude = "";
+-    if (this.start) {
+-      prelude += ` (${this.start})`;
+-    }
+-    if (this.end) {
+-      prelude += ` to (${this.end})`;
+-    }
+-    return `@scope${prelude} ${serializeGroupingRuleBody(this.cssRules._list)}`;
++  get end() {
++    return this._get("end");
+   }
+ }
+ 
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-index 26a1aec94c..0d19b707d5 100644
+index 26a1aec94c..e7e3a444f1 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-@@ -6,7 +6,7 @@
- const propertyDefinitions = require("../../../generated/css-property-definitions");
- const propertyDescriptors = require("../../../generated/css-property-descriptors");
- const propertyMetadata = require("../../../generated/css-property-metadata");
+@@ -2,893 +2,120 @@ class CSSStyleDeclarationImpl {
+ 
+ const DOMException = require("../../../generated/idl/DOMException.js");
+ const idlUtils = require("../../../generated/idl/utils.js");
+-const computedValueResolvers = require("../../../generated/css-property-computed-value-resolvers");
+-const propertyDefinitions = require("../../../generated/css-property-definitions");
+-const propertyDescriptors = require("../../../generated/css-property-descriptors");
+-const propertyMetadata = require("../../../generated/css-property-metadata");
 -const resolvedValueResolvers = require("../../../generated/css-property-resolved-value-resolvers");
 +const { computedLonghands, computedValues, declarations } = require("../helpers/dom-tree");
  const { asciiLowercase } = require("../helpers/strings");
- const computedStyle = require("./helpers/computed-style");
- const cssValues = require("./helpers/css-values");
-@@ -31,6 +31,7 @@ class CSSStyleDeclarationImpl {
-   #values = new Map();
+-const computedStyle = require("./helpers/computed-style");
+-const cssValues = require("./helpers/css-values");
+-const csstree = require("./helpers/patched-csstree");
+-const fontSizes = require("./helpers/font-sizes");
+-const {
+-  borderProperties,
+-  getPositionValue,
+-  normalizeProperties,
+-  prepareBorderProperties,
+-  prepareProperties,
+-  shorthandProperties
+-} = require("./helpers/shorthand-properties");
+-const { systemColors } = require("./helpers/system-colors");
+ 
++// A declaration block keeps no declarations of its own: an element's inline style reads and
++// writes its `style` attribute, a rule's the block in the native sheet, and the native style
++// engine parses and serialises that text.
+ class CSSStyleDeclarationImpl {
+-  // https://drafts.csswg.org/cssom/#css-declaration-blocks
+-  // `_priorities` and `#values` together represent the spec's "declarations".
+   _computed;
+   _readonly = false;
+-  _priorities = new Map();
+-  #values = new Map();
    parentRule;
    #ownerNode;
-+  #pseudo;
-   #updating = false;
-   #pendingStyleUpdate = false;
- 
-@@ -39,11 +40,37 @@ class CSSStyleDeclarationImpl {
-   #cachedPropertyValues = new Map();
-   #cachedCssText = null;
- 
+-  #updating = false;
+-  #pendingStyleUpdate = false;
+-
+-  // Internal private fields.
+-  #computedValueOpts = new Map();
+-  #cachedPropertyValues = new Map();
+-  #cachedCssText = null;
+-
 -  constructor(globalObject, args, { computed, ownerNode, parentRule } = {}) {
++  #pseudo;
++
 +  constructor(globalObject, args, { computed, ownerNode, parentRule, pseudo } = {}) {
      this._globalObject = globalObject;
      this._computed = Boolean(computed);
      this.parentRule = parentRule || null;
      this.#ownerNode = ownerNode || null;
+-  }
+-
+-  _copyDeclarationsFrom(source) {
+-    for (const [property, value] of source.#values) {
+-      this.#values.set(property, value);
+-    }
+-    for (const [property, priority] of source._priorities) {
+-      this._priorities.set(property, priority);
+-    }
+-  }
+-
+-  /**
+-   * Returns the textual representation of the declaration block.
+-   *
+-   * @returns {string} The serialized CSS text.
+-   */
 +    this.#pseudo = Boolean(pseudo);
 +  }
 +
-+  // An element's inline style keeps no declarations of its own: its `style` attribute holds
-+  // them, and the native style engine reads and edits that text.
-+  get #inline() {
-+    return this.#ownerNode !== null && !this._computed;
-+  }
-+
-+  get #attribute() {
++  get #text() {
++    if (this.parentRule) {
++      return this.parentRule._get("style") ?? "";
++    }
 +    return this.#ownerNode.getAttributeNS(null, "style") ?? "";
 +  }
 +
-+  #writeAttribute(text) {
-+    if (text !== null) {
++  // `text` is null when the edit changed nothing.
++  #write(text) {
++    if (text === null) {
++      return;
++    }
++    if (this.parentRule) {
++      this.parentRule._set("style", text);
++    } else {
 +      this.#ownerNode.setAttributeNS(null, "style", text);
 +    }
 +  }
 +
-+  // The properties `item()` enumerates, or null for a rule's declarations.
++  get #base() {
++    return (this.#ownerNode?._ownerDocument ?? this._globalObject._document).baseURLSerialized();
++  }
++
++  #checkWritable(what) {
++    if (this._readonly) {
++      throw DOMException.create(this._globalObject, [`${what} can not be modified.`, "NoModificationAllowedError"]);
++    }
++  }
++
 +  #names() {
 +    if (this._computed) {
 +      // A pseudo-element's computed style is unimplemented, so it enumerates nothing.
 +      return this.#pseudo ? [] : computedLonghands(this.#ownerNode);
 +    }
-+    return this.#inline ? declarations.names(this.#attribute) : null;
++    return declarations.names(this.#text, this.#base);
++  }
++
+   get cssText() {
+-    if (this._computed) {
+-      return "";
+-    }
+-    if (this.#cachedCssText !== null) {
+-      return this.#cachedCssText;
+-    }
+-    const properties = new Set();
+-    for (const property of this.#values.keys()) {
+-      if (shorthandProperties.has(property)) {
+-        const priority = this._priorities.get(property) ?? "";
+-        const { shorthandFor } = shorthandProperties.get(property);
+-        for (const [longhand] of shorthandFor) {
+-          if (priority || !this._priorities.get(longhand)) {
+-            properties.delete(longhand);
+-          }
+-        }
+-      }
+-      properties.add(property);
+-    }
+-    const normalizedProperties = normalizeProperties(properties);
+-    const parts = [];
+-    for (const property of normalizedProperties) {
+-      const value = this.getPropertyValue(property);
+-      const priority = this._priorities.get(property) ?? "";
+-      if (priority) {
+-        parts.push(`${property}: ${value} !${priority};`);
+-      } else {
+-        parts.push(`${property}: ${value};`);
+-      }
+-    }
+-    this.#cachedCssText = parts.join(" ");
+-    return this.#cachedCssText;
++    return this._computed ? "" : declarations.text(this.#text, this.#base);
    }
  
-   _copyDeclarationsFrom(source) {
-@@ -64,6 +91,9 @@ get cssText() {
-     if (this._computed) {
-       return "";
-     }
-+    if (this.#inline) {
-+      return declarations.text(this.#attribute);
-+    }
-     if (this.#cachedCssText !== null) {
-       return this.#cachedCssText;
-     }
-@@ -108,6 +138,10 @@ set cssText(text) {
-         "NoModificationAllowedError"
-       ]);
-     }
-+    if (this.#inline) {
-+      this.#writeAttribute(declarations.text(text));
-+      return;
-+    }
-     const originalText = this.parentRule ? this.cssText : null;
-     this.#cachedCssText = null;
-     this.#values.clear();
-@@ -182,7 +216,7 @@ set cssText(text) {
-    * @returns {number} The property count.
-    */
+-  /**
+-   * Sets the textual representation of the declaration block.
+-   * This clears all existing properties and parses the new CSS text.
+-   *
+-   * @param {string} text - The new CSS text.
+-   */
+   set cssText(text) {
+-    if (this._readonly) {
+-      throw DOMException.create(this._globalObject, [
+-        "cssText can not be modified.",
+-        "NoModificationAllowedError"
+-      ]);
+-    }
+-    const originalText = this.parentRule ? this.cssText : null;
+-    this.#cachedCssText = null;
+-    this.#values.clear();
+-    this._priorities.clear();
+-    this.#updating = true;
+-    text = cssValues.preprocessValue(text);
+-    const valueObj = csstree.parse(text, { context: "declarationList", parseValue: false });
+-    if (valueObj?.children) {
+-      const properties = new Map();
+-      let shouldSkipNext = false;
+-      for (const item of valueObj.children) {
+-        if (item.type === "Atrule") {
+-          continue;
+-        }
+-        if (item.type === "Rule") {
+-          shouldSkipNext = true;
+-          continue;
+-        }
+-        if (shouldSkipNext === true) {
+-          shouldSkipNext = false;
+-          continue;
+-        }
+-        const {
+-          important,
+-          property,
+-          value: { value }
+-        } = item;
+-        if (typeof property === "string" && typeof value === "string") {
+-          const priority = important ? "important" : "";
+-          const isCustomProperty = property.startsWith("--");
+-          if (isCustomProperty || cssValues.hasVarFunc(value)) {
+-            if (properties.has(property)) {
+-              const { priority: itemPriority } = properties.get(property);
+-              if (!itemPriority) {
+-                properties.set(property, { property, value, priority });
+-              }
+-            } else {
+-              properties.set(property, { property, value, priority });
+-            }
+-          } else {
+-            const parsedValue = cssValues.parsePropertyValue(property, value);
+-            if (parsedValue) {
+-              if (properties.has(property)) {
+-                const { priority: itemPriority } = properties.get(property);
+-                if (!itemPriority) {
+-                  properties.set(property, { property, value, priority });
+-                }
+-              } else {
+-                properties.set(property, { property, value, priority });
+-              }
+-            } else {
+-              this.removeProperty(property);
+-            }
+-          }
+-        }
+-      }
+-      const parsedProperties = prepareProperties(properties);
+-      for (const [property, item] of parsedProperties) {
+-        const { priority, value } = item;
+-        this.setProperty(property, value, priority);
+-      }
+-    }
+-    this.#updating = false;
+-    if (!this.parentRule || this.cssText !== originalText) {
+-      this.#notifyChange();
+-    }
++    this.#checkWritable("cssText");
++    this.#write(declarations.text(text, this.#base));
+   }
+ 
+-  /**
+-   * Returns the number of properties in the declaration block.
+-   *
+-   * @returns {number} The property count.
+-   */
    get length() {
 -    return this.#values.size;
-+    return this.#names()?.length ?? this.#values.size;
-   }
- 
-   /**
-@@ -192,29 +226,27 @@ get length() {
-    * @returns {string} The priority string, or empty string if not set.
-    */
+-  }
+-
+-  /**
+-   * Returns the priority of the specified property (e.g. "important").
+-   *
+-   * @param {string} property - The property name.
+-   * @returns {string} The priority string, or empty string if not set.
+-   */
++    return this.#names().length;
++  }
++
++  item(index) {
++    return this.#names()[index] ?? "";
++  }
++
    getPropertyPriority(property) {
-+    if (this.#inline) {
-+      return declarations.value(this.#attribute, property)[1] ? "important" : "";
+-    return this._priorities.get(property) || "";
++    if (this._computed) {
++      return "";
 +    }
-     return this._priorities.get(property) || "";
++    return declarations.value(this.#text, this.#base, property)[1] ? "important" : "";
    }
  
-   /**
-    * Returns the value of the specified property.
-    *
+-  /**
+-   * Returns the value of the specified property.
+-   *
 -   * For a computed style declaration this is the resolved value
 -   * (https://drafts.csswg.org/cssom/#resolved-value), which is the computed value except for the
 -   * properties in `resolvedValueResolvers`.
-+   * For a computed style declaration this is the value miniclient's native style engine
-+   * computes for the owner element.
-    *
-    * @param {string} property - The property name.
-    * @returns {string} The property value, or empty string if not set.
-    */
+-   *
+-   * @param {string} property - The property name.
+-   * @returns {string} The property value, or empty string if not set.
+-   */
++  // For a computed style declaration this is the value the native style engine computes for the
++  // owner element.
    getPropertyValue(property) {
      if (this._computed) {
 -      const computedValue = this._getComputedPropertyValue(property);
@@ -1133,28 +2353,78 @@ index 26a1aec94c..0d19b707d5 100644
 -        });
 -      }
 -      return computedValue;
+-    }
+-    return this.#values.get(property) ?? "";
+-  }
+-
+-  /**
+-   * Returns the computed value (https://drafts.csswg.org/css-cascade/#computed) of the specified
+-   * property. Only meaningful on a computed style declaration.
+-   *
+-   * This is the value inheritance transfers, as opposed to the resolved value that
+-   * `getPropertyValue()` returns: a child inherits the 5px of `border-top: 5px none`, while the
+-   * resolved value is 0px.
+-   *
+-   * @param {string} property - The property name.
+-   * @returns {string} The computed value, or empty string if not set.
+-   */
+-  _getComputedPropertyValue(property) {
+-    const value = this.#values.get(property) ?? "";
+-    if (this.#cachedPropertyValues.has(property)) {
+-      const cachedValue = this.#cachedPropertyValues.get(property);
+-      // Return the cached computed value if the specified value haven't changed.
+-      if (value === cachedValue.value) {
+-        return cachedValue.computedValue;
+-      }
+-    }
+-    const computedValue = this.#getComputedValue(property, value);
+-    if (propertyDefinitions.has(property)) {
+-      const { longhands } = propertyDefinitions.get(property);
+-      if (!longhands) {
+-        this.#cachedPropertyValues.set(property, { computedValue, value });
+-      }
+-    }
+-    return computedValue;
+-  }
+-
+-  /**
+-   * Returns the property name at the specified index.
+-   *
+-   * @param {number} index - The index.
+-   * @returns {string} The property name, or empty string if index is invalid.
+-   */
+-  item(index) {
+-    if (index >= this.#values.size) {
+-      return "";
+-    }
+-    let i = 0;
+-    for (const key of this.#values.keys()) {
+-      if (i === index) {
+-        return key;
+-      }
+-      i++;
+-    }
+-    return "";
+-  }
+-
+-  /**
+-   * Removes the specified property from the declaration block.
+-   *
+-   * @param {string} property - The property name to remove.
+-   * @returns {string} The value of the removed property.
+-   */
 +      return computedValues(this.#ownerNode, [property])[0];
 +    }
-+    if (this.#inline) {
-+      return declarations.value(this.#attribute, property)[0];
-     }
-     return this.#values.get(property) ?? "";
-   }
-@@ -256,6 +288,10 @@ _getComputedPropertyValue(property) {
-    * @returns {string} The property name, or empty string if index is invalid.
-    */
-   item(index) {
-+    const names = this.#names();
-+    if (names) {
-+      return names[index] ?? "";
-+    }
-     if (index >= this.#values.size) {
-       return "";
-     }
-@@ -282,14 +318,29 @@ removeProperty(property) {
-         "NoModificationAllowedError"
-       ]);
-     }
++    return declarations.value(this.#text, this.#base, property)[0];
++  }
++
+   removeProperty(property) {
+-    if (this._readonly) {
+-      throw DOMException.create(this._globalObject, [
+-        `Property ${property} can not be modified.`,
+-        "NoModificationAllowedError"
+-      ]);
+-    }
 -    if (!this.#values.has(property)) {
 -      return "";
 -    }
@@ -1163,49 +2433,55 @@ index 26a1aec94c..0d19b707d5 100644
 -    this.#values.delete(property);
 -    this._priorities.delete(property);
 -    this.#notifyChange();
-+    if (this.#inline) {
-+      const text = this.#attribute;
-+      const [value] = declarations.value(text, property);
-+      this.#writeAttribute(declarations.remove(text, property));
-+      return value;
-+    }
-+    const had = this.#values.has(property);
-+    const prevValue = this.#values.get(property) ?? "";
-+    if (had) {
-+      this.#cachedCssText = null;
-+      this.#values.delete(property);
-+      this._priorities.delete(property);
-+      this.#notifyChange();
-+    }
-+    // https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-removeproperty
-+    // removing a shorthand must also remove the longhands it represents.
-+    // TODO: consider upstreaming this fix as a PR to jsdom/jsdom (no existing issue/PR found for it).
-+    if (shorthandProperties.has(property)) {
-+      const { shorthandFor } = shorthandProperties.get(property);
-+      for (const longhand of shorthandFor.keys()) {
-+        this.removeProperty(longhand);
-+      }
-+    }
-     return prevValue;
+-    return prevValue;
++    this.#checkWritable(`Property ${property}`);
++    const text = this.#text;
++    const [value] = declarations.value(text, this.#base, property);
++    this.#write(declarations.remove(text, this.#base, property));
++    return value;
    }
  
-@@ -301,6 +352,15 @@ removeProperty(property) {
-    * @param {string} [priority=""] - The priority (e.g. "important").
-    */
+-  /**
+-   * Sets a property value with an optional priority.
+-   *
+-   * @param {string} property - The property name.
+-   * @param {string} value - The property value.
+-   * @param {string} [priority=""] - The priority (e.g. "important").
+-   */
    setProperty(property, value, priority = "") {
-+    if (this.#inline) {
-+      if (value === "") {
-+        this.removeProperty(property);
-+      } else if (priority === "" || asciiLowercase(priority) === "important") {
-+        const text = this.#attribute;
-+        this.#writeAttribute(declarations.set(text, property, value, priority !== ""));
-+      }
-+      return;
+-    this._updateStyle(() => this._setPropertyValue(property, value, priority));
+-  }
+-
+-  _setPropertyValue(property, value, priority) {
+-    if (this._readonly) {
+-      throw DOMException.create(this._globalObject, [
+-        `Property ${property} can not be modified.`,
+-        "NoModificationAllowedError"
+-      ]);
+-    }
+-    value = cssValues.preprocessValue(value).trim();
++    this.#checkWritable(`Property ${property}`);
+     if (value === "") {
+-      if (Object.hasOwn(propertyDescriptors, property)) {
+-        // TODO: Refactor handlers to not require `.call()`.
+-        propertyDescriptors[property].set.call(this, value);
+-      }
+       this.removeProperty(property);
+-      return;
+-    }
+-    // Custom property.
+-    if (property.startsWith("--")) {
+-      this._setProperty(property, value, priority);
+-      return;
+-    }
+-    property = asciiLowercase(property);
+-    if (!Object.hasOwn(propertyDescriptors, property)) {
+-      return;
+-    }
+-    propertyDescriptors[property].set.call(this, value, priority);
++    } else if (priority === "" || asciiLowercase(priority) === "important") {
++      this.#write(declarations.set(this.#text, this.#base, property, value, priority !== ""));
 +    }
-     this._updateStyle(() => this._setPropertyValue(property, value, priority));
-   }
- 
-@@ -333,11 +393,11 @@ _setPropertyValue(property, value, priority) {
    }
  
    get [idlUtils.supportedPropertyIndices]() {
@@ -1215,14 +2491,34 @@ index 26a1aec94c..0d19b707d5 100644
  
    [idlUtils.supportsPropertyIndex](index) {
 -    return index >= 0 && index < this.#values.size;
-+    return index >= 0 && index < this.length;
-   }
- 
-   _updateStyle(update) {
-@@ -366,18 +426,7 @@ _updateStyle(update) {
-     if (this._computed) {
-       return;
-     }
+-  }
+-
+-  _updateStyle(update) {
+-    if (this.#updating || this._computed || (!this.#ownerNode && !this.parentRule)) {
+-      update();
+-      return;
+-    }
+-    const originalText = this.cssText;
+-    this.#updating = true;
+-    this.#pendingStyleUpdate = false;
+-    try {
+-      update();
+-    } finally {
+-      this.#updating = false;
+-      if (this.#pendingStyleUpdate && this.cssText !== originalText) {
+-        this.#notifyChange();
+-      }
+-    }
+-  }
+-
+-  #notifyChange() {
+-    if (this.#updating) {
+-      this.#pendingStyleUpdate = true;
+-      return;
+-    }
+-    if (this._computed) {
+-      return;
+-    }
 -    if (this.parentRule) {
 -      this.parentRule._invalidateStyleCache();
 -      return;
@@ -1235,10 +2531,521 @@ index 26a1aec94c..0d19b707d5 100644
 -    this.#ownerNode._settingCssText = true;
 -    this.#ownerNode.setAttributeNS(null, "style", this.cssText);
 -    this.#ownerNode._settingCssText = false;
-+    this.parentRule?._invalidateStyleCache();
+-  }
+-
+-  _setProperty(property, value, priority) {
+-    if (typeof value !== "string") {
+-      return;
+-    }
+-    if (value === "") {
+-      this.removeProperty(property);
+-      return;
+-    }
+-
+-    let originalText = "";
+-    if (this.#ownerNode && !this.#updating) {
+-      originalText = this.cssText;
+-    }
+-
+-    if (priority === "important") {
+-      this._priorities.set(property, priority);
+-    } else {
+-      this._priorities.delete(property);
+-    }
+-
+-    this.#cachedCssText = null;
+-    this.#values.set(property, value);
+-
+-    if (this.#updating) {
+-      this.#pendingStyleUpdate = true;
+-    } else if (this.#ownerNode && this.cssText !== originalText) {
+-      this.#notifyChange();
+-    }
+-  }
+-
+-  #getComputedValue(property, value) {
+-    // Invalid or unsupported property.
+-    if (!propertyDefinitions.has(property) && !property.startsWith("--")) {
+-      return "";
+-    }
+-
+-    const { inherited, initial = "", longhands } = cssValues.getPropertyDefinition(property);
+-    const { caseSensitive, dimensionTypes = {}, functionTypes = {} } = this.#getPropertyMetadata(property);
+-    const isColor = Boolean(functionTypes.color || functionTypes.paint);
+-
+-    if (!value || cssValues.isGlobalKeyword(value)) {
+-      value = computedStyle.replaceEmptyValueAndKeywords(
+-        property,
+-        value,
+-        this.#ownerNode,
+-        { inherit: inherited === "yes", initial, isColor, longhands }
+-      );
+-    }
+-
+-    if (property === "color" && /currentcolor/i.test(value)) {
+-      value = computedStyle.getInheritedPropertyValue(
+-        property,
+-        this.#ownerNode,
+-        { inherit: true, initial, isColor }
+-      );
+-    }
+-
+-    if (cssValues.hasVarFunc(value)) {
+-      // TODO: Resolve css var().
+-    }
+-
+-    if (longhands) {
+-      if (isColor) {
+-        value = asciiLowercase(value);
+-      }
+-      return this.#resolveShorthand(property, value);
+-    }
+-
+-    return this.#resolveLonghand(property, value, { caseSensitive, dimensionTypes, isColor });
+-  }
+-
+-  #getPropertyMetadata(property) {
+-    if (propertyMetadata.has(property)) {
+-      return propertyMetadata.get(property);
+-    }
+-
+-    const value = this.#values.get(property) ?? "";
+-    // TODO: Also check if all or part of the value is quoted.
+-    const caseSensitive = (cssValues.hasVarFunc(value) || value.startsWith("--")) ? true : undefined;
+-
+-    return { caseSensitive };
+-  }
+-
+-  #resolveShorthand(property, value) {
+-    // TODO: resolve other shorthands e.g. background, flex etc.
+-    switch (property) {
+-      case "margin":
+-      case "padding": {
+-        return this.#resolvePositionShorthand(property);
+-      }
+-      case "border":
+-      case "border-top":
+-      case "border-right":
+-      case "border-bottom":
+-      case "border-left":
+-      case "border-width":
+-      case "border-style":
+-      case "border-color": {
+-        return this.#resolveBorderShorthands(property);
+-      }
+-      default: {
+-        return value;
+-      }
+-    }
+-  }
+-
+-  #resolvePositionShorthand(property) {
+-    const shorthandItem = shorthandProperties.get(property);
+-    if (!shorthandItem || !shorthandItem.shorthandFor) {
+-      return "";
+-    }
+-    const longhandValues = [];
+-    for (const [longhandProperty] of shorthandItem.shorthandFor) {
+-      longhandValues.push(this.getPropertyValue(longhandProperty));
+-    }
+-    return getPositionValue(longhandValues);
+-  }
+-
+-  #resolveLonghand(property, value, metadata) {
+-    const resolveDefault = valueToResolve => this.#resolveLonghandDefault(property, valueToResolve, metadata);
+-    const resolveComputedValue = computedValueResolvers.get(property);
+-    if (resolveComputedValue) {
+-      return resolveComputedValue(value, {
+-        getInheritedValue: (inheritedProperty, options) => {
+-          return computedStyle.getInheritedPropertyValue(inheritedProperty, this.#ownerNode, options);
+-        },
+-        resolveDefault
+-      });
+-    }
+-
+-    return resolveDefault(value);
+-  }
+-
+-  #resolveLonghandDefault(property, value, { caseSensitive, dimensionTypes, isColor }) {
+-    const { length: lengthType } = dimensionTypes;
+-    let options = { format: "computedValue" };
+-
+-    // Color and dimension options resolve inherited styles, so only prepare them when needed.
+-    if (isColor || lengthType) {
+-      options = this.#prepareComputedValueOpts();
+-    }
+-
+-    const parsedValue = cssValues.parsePropertyValue(property, value, {
+-      caseSensitive,
+-      ...options
+-    });
+-
+-    if (isColor) {
+-      const resolvedValue = cssValues.serializeColor(parsedValue, options);
+-      if (resolvedValue) {
+-        return resolvedValue;
+-      }
+-    } else if (lengthType) {
+-      const isFontSize = property === "font-size";
+-      const { documentElement } = this.#ownerNode._ownerDocument;
+-      const dimension = {};
+-      if (this.#ownerNode !== documentElement) {
+-        Object.assign(dimension, options.dimension);
+-      }
+-
+-      // Use the element's own font-size for em units if the property is not "font-size".
+-      if (!isFontSize) {
+-        const ownFontSize = this.getPropertyValue("font-size");
+-        if (ownFontSize) {
+-          const parsedOwnFontSize = parseFloat(ownFontSize);
+-          if (!Number.isNaN(parsedOwnFontSize)) {
+-            dimension.em = parsedOwnFontSize;
+-          }
+-        }
+-      }
+-      const resolvedValue =
+-        fontSizes.resolveLengthInPixels(this.#ownerNode, value, dimension, isFontSize);
+-      if (typeof resolvedValue === "number" && !Number.isNaN(resolvedValue)) {
+-        return `${Number(resolvedValue.toPrecision(6))}px`;
+-      }
+-      // A percentage prevents the math function from being fully reduced, e.g.
+-      // width: calc(100% - 1rem) computes to calc(100% - 16px). Only serialize the partially
+-      // reduced string when the math function is the whole value, because reducing it
+-      // lowercases the value, which would destroy case-sensitive tokens surrounding it, e.g.
+-      // the line names in grid-template-rows: [Foo] minmax(1rem, calc(100% - 2rem)) [Bar].
+-      if (
+-        typeof resolvedValue === "string" && resolvedValue &&
+-        Array.isArray(parsedValue) && parsedValue.length === 1 &&
+-        parsedValue[0].type === cssValues.AST_TYPES.CALC
+-      ) {
+-        return resolvedValue;
+-      }
+-    }
+-
+-    // TODO: Resolve special cases other than color.
+-
+-    return value;
+-  }
+-
+-  #resolveBorderShorthands(property) {
+-    switch (property) {
+-      case "border": {
+-        const values = [];
+-        for (const item of ["top", "right", "bottom", "left"]) {
+-          const value = this.getPropertyValue(`border-${item}`);
+-          if (!value) {
+-            return "";
+-          }
+-          values.push(value);
+-        }
+-        const [top, right, bottom, left] = values;
+-        if (top === right && top === bottom && top === left) {
+-          return top;
+-        }
+-        return "";
+-      }
+-      case "border-top":
+-      case "border-right":
+-      case "border-bottom":
+-      case "border-left": {
+-        const values = [];
+-        for (const item of ["width", "style", "color"]) {
+-          const value = this.getPropertyValue(`${property}-${item}`);
+-          if (!value) {
+-            return "";
+-          }
+-          values.push(value);
+-        }
+-        return values.join(" ");
+-      }
+-      // border-width, border-style, border-color
+-      default: {
+-        return this.#resolvePositionShorthand(property);
+-      }
+-    }
+-  }
+-
+-  // Options are used when resolving relative values or specified values.
+-  #prepareComputedValueOpts() {
+-    if (!this.#computedValueOpts.has("options")) {
+-      this.#computedValueOpts.set("options", { format: "computedValue" });
+-    }
+-    const options = this.#computedValueOpts.get("options");
+-
+-    // Return the cached options if the specified raw values haven't changed.
+-    const rawColorScheme = this.#values.get("color-scheme") ?? "";
+-    const rawColor = this.#values.get("color") ?? "";
+-    const rawFontSize = this.#values.get("font-size") ?? "";
+-    if (
+-      this.#computedValueOpts.get("rawColorScheme") === rawColorScheme &&
+-      this.#computedValueOpts.get("rawColor") === rawColor &&
+-      this.#computedValueOpts.get("rawFontSize") === rawFontSize
+-    ) {
+-      return options;
+-    }
+-    // Store current raw values for future cache validation.
+-    this.#computedValueOpts.set("rawColorScheme", rawColorScheme);
+-    this.#computedValueOpts.set("rawColor", rawColor);
+-    this.#computedValueOpts.set("rawFontSize", rawFontSize);
+-
+-    // Prepare color-scheme.
+-    const colorScheme = computedStyle.replaceEmptyValueAndKeywords(
+-      "color-scheme",
+-      rawColorScheme,
+-      this.#ownerNode,
+-      { inherit: true, initial: "normal" }
+-    );
+-    this.#cachedPropertyValues.set("color-scheme", {
+-      computedValue: colorScheme,
+-      value: rawColorScheme
+-    });
+-    options.colorScheme = colorScheme;
+-
+-    // Prepare current color.
+-    let currentColor = computedStyle.replaceEmptyValueAndKeywords(
+-      "color",
+-      rawColor,
+-      this.#ownerNode,
+-      { inherit: true, initial: "canvastext" }
+-    );
+-    currentColor = asciiLowercase(currentColor);
+-    // Replace currentcolor keyword.
+-    if (currentColor === "currentcolor") {
+-      currentColor = computedStyle.getInheritedPropertyValue(
+-        "color",
+-        this.#ownerNode,
+-        { inherit: true, initial: "canvastext", isColor: true }
+-      );
+-    }
+-    // Resolve system colors.
+-    if (systemColors.has(currentColor)) {
+-      currentColor = cssValues.resolveSystemColorValue(currentColor, colorScheme);
+-    } else {
+-      // Resolve named colors.
+-      if (/^[a-z]+$/.test(currentColor)) {
+-        currentColor = cssValues.resolveColor(currentColor, { format: "computedValue" });
+-      }
+-      this.#cachedPropertyValues.set("color", {
+-        computedValue: currentColor,
+-        value: rawColor
+-      });
+-    }
+-    options.currentColor = currentColor;
+-
+-    // Prepare dimension.
+-    let rem, em;
+-    if (this.#ownerNode._ownerDocument.documentElement.firstElementChild) {
+-      const rootFontSize = computedStyle.getInheritedPropertyValue(
+-        "font-size",
+-        this.#ownerNode._ownerDocument.documentElement.firstElementChild,
+-        { inherit: true, initial: "medium" }
+-      );
+-      rem = fontSizes.resolveFontSizeInPixels(this.#ownerNode, rootFontSize);
+-    } else {
+-      rem = fontSizes.resolveFontSizeInPixels(this.#ownerNode, "medium");
+-    }
+-    if (this.#ownerNode.parentElement) {
+-      em = computedStyle.getParentFontSizeInPixels(this.#ownerNode);
+-    } else {
+-      em = rem;
+-    }
+-    const dimension = {
+-      em,
+-      rem,
+-      vh: this._globalObject.innerHeight / 100,
+-      vw: this._globalObject.innerWidth / 100
+-    };
+-    options.dimension = dimension;
+-
+-    // TODO: Add customProperty etc.
+-
+-    // Store options.
+-    this.#computedValueOpts.set("options", options);
+-
+-    return options;
+-  }
+-
+-  /**
+-   * Helper to handle border property expansion.
+-   *
+-   * @private
+-   * @param {string} property - The property name (e.g. "border").
+-   * @param {object|Array|string} value - The value to set.
+-   * @param {string} priority - The priority.
+-   */
+-  _borderSetter(property, value, priority) {
+-    const properties = new Map();
+-    if (typeof priority !== "string") {
+-      priority = this._priorities.get(property) ?? "";
+-    }
+-    if (property === "border") {
+-      properties.set(property, { property, value, priority });
+-    } else {
+-      for (const itemProperty of this.#values.keys()) {
+-        if (borderProperties.has(itemProperty)) {
+-          const itemValue = this.#values.get(itemProperty) ?? "";
+-          const longhandPriority = this._priorities.get(itemProperty) ?? "";
+-          let itemPriority = longhandPriority;
+-          if (itemProperty === property) {
+-            itemPriority = priority;
+-          }
+-          properties.set(itemProperty, {
+-            property: itemProperty,
+-            value: itemValue,
+-            priority: itemPriority
+-          });
+-        }
+-      }
+-    }
+-    const parsedProperties = prepareBorderProperties(property, value, priority, properties);
+-    for (const [itemProperty, item] of parsedProperties) {
+-      const { priority: itemPriority, value: itemValue } = item;
+-      this._setProperty(itemProperty, itemValue, itemPriority);
+-    }
+-  }
+-
+-  /**
+-   * Helper to handle flexbox shorthand expansion.
+-   *
+-   * @private
+-   * @param {string} property - The property name.
+-   * @param {string} value - The property value.
+-   * @param {string} priority - The priority.
+-   * @param {string} shorthandProperty - The shorthand property name.
+-   */
+-  _flexBoxSetter(property, value, priority, shorthandProperty) {
+-    if (!shorthandProperty || !shorthandProperties.has(shorthandProperty)) {
+-      return;
+-    }
+-    this.removeProperty(shorthandProperty);
+-    if (typeof priority !== "string") {
+-      priority = this._priorities.get(property) ?? "";
+-    }
+-    this.removeProperty(property);
+-    this._setProperty(property, value, priority);
+-    if (value && !cssValues.hasVarFunc(value)) {
+-      const longhandValues = [];
+-      const shorthandItem = shorthandProperties.get(shorthandProperty);
+-      let hasGlobalKeyword = false;
+-      for (const [longhandProperty] of shorthandItem.shorthandFor) {
+-        if (longhandProperty === property) {
+-          if (cssValues.isGlobalKeyword(value)) {
+-            hasGlobalKeyword = true;
+-          }
+-          longhandValues.push(value);
+-        } else {
+-          const longhandValue = this.#values.get(longhandProperty) ?? "";
+-          const longhandPriority = this._priorities.get(longhandProperty) ?? "";
+-          if (!longhandValue || longhandPriority !== priority) {
+-            break;
+-          }
+-          if (cssValues.isGlobalKeyword(longhandValue)) {
+-            hasGlobalKeyword = true;
+-          }
+-          longhandValues.push(longhandValue);
+-        }
+-      }
+-      if (longhandValues.length === shorthandItem.shorthandFor.size) {
+-        if (hasGlobalKeyword) {
+-          const [firstValue, ...restValues] = longhandValues;
+-          if (restValues.every(val => val === firstValue)) {
+-            this._setProperty(shorthandProperty, firstValue, priority);
+-          }
+-        } else {
+-          const parsedValue = shorthandItem.parse(longhandValues.join(" "));
+-          const shorthandValue = Object.values(parsedValue).join(" ");
+-          this._setProperty(shorthandProperty, shorthandValue, priority);
+-        }
+-      }
+-    }
+-  }
+-
+-  /**
+-   * Helper to handle position shorthand expansion.
+-   *
+-   * @private
+-   * @param {string} property - The property name.
+-   * @param {Array|string} value - The property value.
+-   * @param {string} priority - The priority.
+-   */
+-  _positionShorthandSetter(property, value, priority) {
+-    if (!shorthandProperties.has(property)) {
+-      return;
+-    }
+-    const shorthandValues = [];
+-    if (Array.isArray(value)) {
+-      shorthandValues.push(...value);
+-    } else if (typeof value === "string") {
+-      shorthandValues.push(value);
+-    } else {
+-      return;
+-    }
+-    if (typeof priority !== "string") {
+-      priority = this._priorities.get(property) ?? "";
+-    }
+-    const { position, shorthandFor } = shorthandProperties.get(property);
+-    let hasPriority = false;
+-    for (const [longhandProperty, longhandItem] of shorthandFor) {
+-      const { position: longhandPosition } = longhandItem;
+-      const longhandValue = getPositionValue(shorthandValues, longhandPosition);
+-      if (priority) {
+-        this._setProperty(longhandProperty, longhandValue, priority);
+-      } else {
+-        const longhandPriority = this._priorities.get(longhandProperty) ?? "";
+-        if (longhandPriority) {
+-          hasPriority = true;
+-        } else {
+-          this._setProperty(longhandProperty, longhandValue, priority);
+-        }
+-      }
+-    }
+-    if (hasPriority) {
+-      this.removeProperty(property);
+-    } else {
+-      const shorthandValue = getPositionValue(shorthandValues, position);
+-      this._setProperty(property, shorthandValue, priority);
+-    }
+-  }
+-
+-  /**
+-   * Helper to handle position longhand updates affecting shorthands.
+-   *
+-   * @private
+-   * @param {string} property - The property name.
+-   * @param {string} value - The property value.
+-   * @param {string} priority - The priority.
+-   * @param {string} shorthandProperty - The shorthand property name.
+-   */
+-  _positionLonghandSetter(property, value, priority, shorthandProperty) {
+-    if (!shorthandProperty || !shorthandProperties.has(shorthandProperty)) {
+-      return;
+-    }
+-    this.removeProperty(shorthandProperty);
+-    if (typeof priority !== "string") {
+-      priority = this._priorities.get(property) ?? "";
+-    }
+-    this.removeProperty(property);
+-    this._setProperty(property, value, priority);
+-    if (value && !cssValues.hasVarFunc(value)) {
+-      const longhandValues = [];
+-      const { shorthandFor, position: shorthandPosition } = shorthandProperties.get(shorthandProperty);
+-      for (const [longhandProperty] of shorthandFor) {
+-        const longhandValue = this.#values.get(longhandProperty) ?? "";
+-        const longhandPriority = this._priorities.get(longhandProperty) ?? "";
+-        if (!longhandValue || longhandPriority !== priority) {
+-          return;
+-        }
+-        longhandValues.push(longhandValue);
+-      }
+-      if (longhandValues.length === shorthandFor.size) {
+-        const replacedValue = getPositionValue(longhandValues, shorthandPosition);
+-        this._setProperty(shorthandProperty, replacedValue, priority);
+-      }
+-    }
++    return index >= 0 && index < this.length;
    }
+ }
  
-   _setProperty(property, value, priority) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleProperties-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleProperties-impl.js
 index 10ce7f6687..951aa6b830 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleProperties-impl.js
@@ -1283,106 +3090,351 @@ index 10ce7f6687..951aa6b830 100644
  }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js
-index 274ebb25f7..c3d59f85e6 100644
+index 274ebb25f7..9694dfde28 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleRule-impl.js
-@@ -3,16 +3,40 @@ class CSSStyleRuleImpl extends CSSGroupingRuleImpl {
+@@ -1,68 +1,26 @@ class CSSStyleRuleImpl extends CSSGroupingRuleImpl {
+ "use strict";
+-
  const CSSGroupingRuleImpl = require("./CSSGroupingRule-impl.js").implementation;
  const CSSStyleProperties = require("../../../generated/idl/CSSStyleProperties.js");
- const csstree = require("./helpers/patched-csstree.js");
-+const cssParser = require("./helpers/css-parser.js");
+-const csstree = require("./helpers/patched-csstree.js");
  
  class CSSStyleRuleImpl extends CSSGroupingRuleImpl {
-   #selectorText;
+-  #selectorText;
 +  #style = null;
-+  // `null` once flushed into `#style`, so a late `_addDeclaration` throws instead of losing data.
-+  #pendingDeclarations = [];
  
-   constructor(globalObject, args, privateData) {
-     super(globalObject, args, privateData);
-     this.#selectorText = privateData.selectorText;
+-  constructor(globalObject, args, privateData) {
+-    super(globalObject, args, privateData);
+-    this.#selectorText = privateData.selectorText;
 -    this.style = CSSStyleProperties.createImpl(globalObject, [], {
 -      parentRule: this
 -    });
-+  }
-+
-+  // Most rules never match an element, so their declarations are only applied once something reads
-+  // the style.
 +  get style() {
-+    if (this.#style === null) {
-+      this.#style = CSSStyleProperties.createImpl(this._globalObject, [], {
-+        parentRule: this
-+      });
-+      for (const decl of this.#pendingDeclarations) {
-+        cssParser.applyDeclaration(this.#style, decl);
-+      }
-+      this.#pendingDeclarations = null;
-+    }
++    this.#style ??= CSSStyleProperties.createImpl(this._globalObject, [], { parentRule: this });
 +    return this.#style;
-+  }
-+
-+  // Only called while the parser builds the rule, before anything can read `style`.
-+  _addDeclaration(decl) {
-+    if (this.#pendingDeclarations === null) {
-+      throw new Error("Cannot add a declaration after the rule's style was read");
-+    }
-+    this.#pendingDeclarations.push(decl);
    }
  
    get selectorText() {
+-    return this.#selectorText;
++    return this._get("selectorText");
+   }
+ 
+   set selectorText(value) {
+-    try {
+-      const ast = csstree.parse(value, { context: "selectorList" });
+-      if (ast.children.isEmpty) {
+-        return;
+-      }
+-    } catch {
+-      return;
+-    }
+-    this.#selectorText = value;
+-    this._selectorSubjects = null;
+-    this._invalidateStyleCache();
++    this._set("selectorText", value);
+   }
+ 
+   get type() {
+     return 1; // STYLE_RULE
+   }
+-
+-  get cssText() {
+-    const styleText = this.style.cssText;
+-    const rules = this.cssRules._list;
+-
+-    if (rules.length === 0 && !styleText) {
+-      return `${this.selectorText} { }`;
+-    }
+-
+-    if (rules.length === 0) {
+-      return `${this.selectorText} { ${styleText} }`;
+-    }
+-
+-    // Has nested rules: use multi-line format
+-    let body = "";
+-    if (styleText) {
+-      body += `\n  ${styleText}`;
+-    }
+-    for (const rule of rules) {
+-      const ruleText = rule.cssText;
+-      // Skip empty CSSNestedDeclarations per CSSOM serialization spec
+-      if (ruleText) {
+-        body += `\n  ${ruleText}`;
+-      }
+-    }
+-    return `${this.selectorText} {${body}\n}`;
+-  }
+ }
+ 
+ exports.implementation = CSSStyleRuleImpl;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
-index 48e10ffc1f..6d4f0e4068 100644
+index 48e10ffc1f..cefbe217e7 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
-@@ -10,6 +10,8 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+@@ -1,23 +1,55 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+ "use strict";
+-
++const whatwgURL = require("whatwg-url");
+ const StyleSheetImpl = require("./StyleSheet-impl.js").implementation;
+ const CSSRuleList = require("../../../generated/idl/CSSRuleList.js");
+ const DOMException = require("../../../generated/idl/DOMException.js");
+-const CSSImportRule = require("../../../generated/idl/CSSImportRule.js");
+-const cssParser = require("./helpers/css-parser.js");
+ const { wrapperForImpl } = require("../../../generated/idl/utils.js");
++const { call, track } = require("./helpers/rules.js");
+ 
  class CSSStyleSheetImpl extends StyleSheetImpl {
    #constructed;
-   #disallowModification;
-+  #cssRules;
-+  #pendingParse = null;
+-  #disallowModification;
++  #disallowModification = false;
++  #cssRules = null;
  
++  // `privateData.id` names a `<style>` or `<link>` sheet, or an `@import`'s, whose rule owns the id.
    constructor(globalObject, args, privateData = {}) {
      super(globalObject, args, privateData);
-@@ -17,7 +19,22 @@ constructor(globalObject, args, privateData = {}) {
-     this.#constructed = "constructed" in privateData ? privateData.constructed : true;
-     this.#disallowModification = false;
+-
+-    this.#constructed = "constructed" in privateData ? privateData.constructed : true;
+-    this.#disallowModification = false;
      this.ownerRule = privateData.ownerRule || null;
 -    this.cssRules = CSSRuleList.createImpl(globalObject);
-+    this.#cssRules = CSSRuleList.createImpl(globalObject);
-+  }
-+
-+  // Sheets created with _deferParse() are only parsed on first access: most linked sheets are
-+  // never read, and parsing dominates their cost. Parse errors are reported at that point.
-+  get cssRules() {
-+    if (this.#pendingParse) {
-+      const { text, onError } = this.#pendingParse;
-+      this.#pendingParse = null;
-+      cssParser.parseIntoStyleSheet(text, this._globalObject, this, onError);
++    this.#constructed = !("id" in privateData);
++    if (!this.#constructed) {
++      this._id = privateData.id;
++      if (!this.ownerRule) {
++        track(this, this._id);
++      }
++      return;
 +    }
-+    return this.#cssRules;
++
++    // https://drafts.csswg.org/cssom/#dom-cssstylesheet-cssstylesheet
++    const { baseURL, media, disabled } = args[0];
++    const document = globalObject._document;
++    let base = document.baseURLSerialized();
++    if (baseURL) {
++      const parsed = whatwgURL.parseURL(baseURL, { baseURL: whatwgURL.parseURL(base) });
++      if (parsed === null) {
++        throw DOMException.create(globalObject, ["The base URL is not valid.", "NotAllowedError"]);
++      }
++      base = whatwgURL.serializeURL(parsed);
++    }
++    const mediaText = typeof media === "string" ? media : media.mediaText;
++    this._id = call("op_css_sheet_new", document._wire, -1, "", base, mediaText);
++    track(this, this._id);
++    if (disabled) {
++      this.disabled = true;
++    }
 +  }
 +
-+  _deferParse(text, onError) {
-+    this.#pendingParse = { text, onError };
++  get parentStyleSheet() {
++    return this.ownerRule?.parentStyleSheet ?? null;
++  }
++
++  get cssRules() {
++    this.#cssRules ??= CSSRuleList.createImpl(this._globalObject, [], { owner: this });
++    return this.#cssRules;
    }
  
    // Legacy alias for cssRules
-@@ -80,6 +97,7 @@ replaceSync(text) {
-     }
+@@ -28,35 +60,18 @@ insertRule(rule, index) {
+   insertRule(rule, index) {
+     // TODO: check origin-clean flag
+     this.#checkModificationAllowed();
+-
+-    const parsed = cssParser.parseRule(rule, this._globalObject);
+-    if (CSSImportRule.isImpl(parsed) && this.#constructed) {
+-      throw DOMException.create(this._globalObject, [
+-        "Cannot insert @import rules into a constructed stylesheet.",
+-        "SyntaxError"
+-      ]);
+-    }
+-
+-    const result = this.cssRules._insertParsed(parsed, index, null, this);
+-    this._invalidateStyleCache();
+-    return result;
++    return this.cssRules._insert(rule, index);
+   }
  
-     // Clear existing rules
-+    this.#pendingParse = null;
-     this.cssRules._clear();
+   deleteRule(index) {
+     // TODO: check origin-clean flag
+     this.#checkModificationAllowed();
+-
+     this.cssRules._remove(index);
+-    this._invalidateStyleCache();
+   }
  
-     // Parse and populate
-@@ -109,6 +127,7 @@ replace(text) {
-     // promise settling.
+   // Legacy method
+-  addRule(selector, style, index) {
+-    const rule = `${selector} { ${style} }`;
+-    if (index === undefined) {
+-      index = this.cssRules._list.length;
+-    }
+-    this.insertRule(rule, index);
++  addRule(selector, style, index = this.cssRules.length) {
++    this.insertRule(`${selector} { ${style} }`, index);
+     return -1;
+   }
+ 
+@@ -66,53 +81,24 @@ removeRule(index) {
+   }
+ 
+   replaceSync(text) {
+-    if (!this.#constructed) {
+-      throw DOMException.create(this._globalObject, [
+-        "Cannot call replaceSync on non-constructed CSSStyleSheet.",
+-        "NotAllowedError"
+-      ]);
+-    }
+-    if (this.#disallowModification) {
+-      throw DOMException.create(this._globalObject, [
+-        "The stylesheet is currently being modified.",
+-        "NotAllowedError"
+-      ]);
+-    }
+-
+-    // Clear existing rules
+-    this.cssRules._clear();
+-
+-    // Parse and populate
+-    cssParser.parseIntoStyleSheet(text, this._globalObject, this);
+-
+-    this._invalidateStyleCache();
++    this.#checkReplaceAllowed("replaceSync");
++    this.#replace(text);
+   }
+ 
+   replace(text) {
+-    if (!this.#constructed) {
+-      return Promise.reject(DOMException.create(this._globalObject, [
+-        "Cannot call replace on non-constructed CSSStyleSheet.",
+-        "NotAllowedError"
+-      ]));
+-    }
+-    if (this.#disallowModification) {
+-      return Promise.reject(DOMException.create(this._globalObject, [
+-        "The stylesheet is currently being modified.",
+-        "NotAllowedError"
+-      ]));
+-    }
+-
++    try {
++      this.#checkReplaceAllowed("replace");
++    } catch (error) {
++      return Promise.reject(error);
++    }
+     this.#disallowModification = true;
+ 
+-    // The spec says "in parallel" which allows off-main-thread parsing. We parse synchronously but
+-    // defer via a microtask so the disallow modification flag is observable between the call and the
+-    // promise settling.
++    // Deferred via a microtask so the disallow modification flag is observable between the call
++    // and the promise settling.
      return new Promise(resolve => {
        queueMicrotask(() => {
-+        this.#pendingParse = null;
-         this.cssRules._clear();
-         cssParser.parseIntoStyleSheet(text, this._globalObject, this);
+-        this.cssRules._clear();
+-        cssParser.parseIntoStyleSheet(text, this._globalObject, this);
++        this.#replace(text);
          this.#disallowModification = false;
+-        this._invalidateStyleCache();
+ 
+         // webidl2js doesn't auto-wrap return values: https://github.com/jsdom/webidl2js/issues/257
+         resolve(wrapperForImpl(this));
+@@ -120,6 +106,21 @@ replace(text) {
+     });
+   }
+ 
++  #replace(text) {
++    call("op_css_sheet_replace", this._id, text);
++    this.cssRules._reset();
++  }
++
++  #checkReplaceAllowed(method) {
++    if (!this.#constructed) {
++      throw DOMException.create(this._globalObject, [
++        `Cannot call ${method} on non-constructed CSSStyleSheet.`,
++        "NotAllowedError"
++      ]);
++    }
++    this.#checkModificationAllowed();
++  }
++
+   #checkModificationAllowed() {
+     if (this.#disallowModification) {
+       throw DOMException.create(this._globalObject, [
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSSupportsRule-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSSupportsRule-impl.js
+index 0162114c2a..a745a3f071 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/CSSSupportsRule-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/CSSSupportsRule-impl.js
+@@ -1,54 +1,5 @@ function evaluateSupportsCondition(node) {
+ "use strict";
+-
+ const CSSConditionRuleImpl = require("./CSSConditionRule-impl.js").implementation;
+-const { serializeGroupingRuleBody } = require("./CSSGroupingRule-impl.js");
+-const csstree = require("./helpers/patched-csstree.js");
+-
+-function evaluateSupportsCondition(node) {
+-  const iter = node.children[Symbol.iterator]();
+-  const child = iter.next().value;
+-
+-  // "not" prefix
+-  if (child.type === "Identifier" && child.name === "not") {
+-    return !evaluateSupportsItem(iter.next().value);
+-  }
+-
+-  let result = evaluateSupportsItem(child);
+-
+-  // Remaining operator + item pairs
+-  for (const operator of iter) {
+-    const item = iter.next().value;
+-    if (operator.name === "and") {
+-      result &&= evaluateSupportsItem(item);
+-    } else if (operator.name === "or") {
+-      result ||= evaluateSupportsItem(item);
+-    }
+-  }
+-
+-  return result;
+-}
+-
+-function evaluateSupportsItem(node) {
+-  if (node.type === "SupportsDeclaration") {
+-    const { property } = node.declaration;
+-    const value = csstree.generate(node.declaration.value);
+-    return csstree.lexer.matchProperty(property, value).error === null;
+-  }
+-  if (node.type === "Condition") {
+-    return evaluateSupportsCondition(node);
+-  }
+-  return false;
+-}
+-
+-// Evaluate a @supports condition string against csstree's lexer.
+-function evaluateSupportsText(conditionText) {
+-  try {
+-    const ast = csstree.parse(`@supports ${conditionText} {}`, { context: "atrule", atrule: "supports" });
+-    return evaluateSupportsCondition(ast.prelude.children.first);
+-  } catch {
+-    return false;
+-  }
+-}
+ 
+ class CSSSupportsRuleImpl extends CSSConditionRuleImpl {
+   get type() {
+@@ -56,13 +7,8 @@ get type() {
+   }
+ 
+   get matches() {
+-    return evaluateSupportsText(this._conditionText);
+-  }
+-
+-  get cssText() {
+-    return `@supports ${this._conditionText} ${serializeGroupingRuleBody(this.cssRules._list)}`;
++    return this._get("matches");
+   }
+ }
+ 
+ exports.implementation = CSSSupportsRuleImpl;
+-exports.evaluateSupportsText = evaluateSupportsText;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/ElementCSSInlineStyle-impl.js b/node_modules/jsdom/lib/jsdom/living/css/ElementCSSInlineStyle-impl.js
 index 529ec2e49a..d170d8a96e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/ElementCSSInlineStyle-impl.js
@@ -1395,14 +3447,264 @@ index 529ec2e49a..d170d8a96e 100644
      this.style = CSSStyleProperties.createImpl(this._globalObject, [], {
        ownerNode: this
      });
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/MediaList-impl.js b/node_modules/jsdom/lib/jsdom/living/css/MediaList-impl.js
+index 7fe1b14b56..7505ab9d3a 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/MediaList-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/MediaList-impl.js
+@@ -1,87 +1,32 @@ class MediaListImpl {
+ "use strict";
+-
+-const DOMException = require("../../../generated/idl/DOMException.js");
+ const idlUtils = require("../../../generated/idl/utils.js");
+-const csstree = require("./helpers/patched-csstree.js");
+-
+-// Parse a single medium string. Returns { normalized, canonical } or null.
+-// - normalized: lowercased original with whitespace collapsed (for storage/display)
+-// - canonical: csstree's serialization lowercased (for comparison)
+-//
+-// If csstree was spec-compliant, we would only need canonical. However, it is not:
+-// https://github.com/csstree/csstree/issues/52. This is a compromise, and still not fully spec-compliant.
+-function parseSingleMedium(text) {
+-  const trimmed = text.trim();
+-  if (trimmed === "") {
+-    return null;
+-  }
+-  try {
+-    const ast = csstree.parse("@media " + trimmed + " {}", { context: "stylesheet" });
+-    let mql = null;
+-    csstree.walk(ast, {
+-      visit: "MediaQueryList",
+-      enter(node) {
+-        mql = node;
+-      }
+-    });
+-    if (mql === null || mql.children.size !== 1) {
+-      return null;
+-    }
+-    const mq = mql.children.first;
+-    // csstree accepts <general-enclosed> tokens (e.g. "layer()") without error,
+-    // but per spec they make the media query invalid ("not all").
+-    if (mq.condition) {
+-      let hasGeneralEnclosed = false;
+-      csstree.walk(mq.condition, node => {
+-        if (node.type === "GeneralEnclosed") {
+-          hasGeneralEnclosed = true;
+-        }
+-      });
+-      if (hasGeneralEnclosed) {
+-        return null;
+-      }
+-    }
+-    return {
+-      normalized: trimmed.replace(/\s+/g, " ").toLowerCase(),
+-      canonical: csstree.generate(mq).toLowerCase()
+-    };
+-  } catch {
+-    return null;
+-  }
+-}
+-
+-// Get the canonical (csstree-serialized) form of a stored medium, for comparison.
+-function canonicalize(stored) {
+-  const result = parseSingleMedium(stored);
+-  return result ? result.canonical : stored;
+-}
+-
++const { call, throwIfError } = require("./helpers/rules.js");
++
++// The media list of `owner`: a sheet, an `@media` rule, or an `@import`'s sheet.
+ class MediaListImpl {
+-  #onChange;
+-
+-  constructor(globalObject, args, privateData) {
++  constructor(globalObject, args, { owner }) {
+     this._globalObject = globalObject;
+-    this._list = [];
+-    this.#onChange = privateData.onChange;
+-
+-    if (privateData.mediaText) {
+-      this._parse(privateData.mediaText);
+-    }
++    this._owner = owner;
++  }
++
++  #get(field) {
++    return call("op_css_get", this._owner._id, field);
++  }
++
++  #set(field, value) {
++    return call("op_css_set", this._owner._id, field, value);
++  }
++
++  get _list() {
++    return this.#get("mediaItems") ?? [];
+   }
+ 
+   get mediaText() {
+-    return this._list.join(", ");
++    return this.#get("media") ?? "";
+   }
+ 
+   set mediaText(value) {
+-    const originalText = this.mediaText;
+-    this._list.length = 0;
+-    if (value !== "") {
+-      this._parse(value);
+-    }
+-    if (this.mediaText !== originalText) {
+-      this.#onChange?.();
+-    }
++    this.#set("media", value);
+   }
+ 
+   get length() {
+@@ -89,62 +34,21 @@ get length() {
+   }
+ 
+   item(index) {
+-    return this._list[index] || null;
++    return this._list[index] ?? null;
+   }
+ 
+   appendMedium(medium) {
+-    const result = parseSingleMedium(medium);
+-    const normalized = result !== null ? result.normalized : "not all";
+-    const canonical = result !== null ? result.canonical : "not all";
+-    for (const entry of this._list) {
+-      if (canonicalize(entry) === canonical) {
+-        return;
+-      }
+-    }
+-    this._list.push(normalized);
+-    this.#onChange?.();
++    this.#set("mediaAppend", medium);
+   }
+ 
+   deleteMedium(medium) {
+-    const result = parseSingleMedium(medium);
+-    const canonical = result !== null ? result.canonical : "not all";
+-    const index = this._list.findIndex(entry => canonicalize(entry) === canonical);
+-    if (index === -1) {
+-      throw DOMException.create(this._globalObject, [
+-        `"${medium}" was not found in the media list.`,
+-        "NotFoundError"
+-      ]);
+-    }
+-    this._list.splice(index, 1);
+-    this.#onChange?.();
++    const removed = this.#set("mediaDelete", medium);
++    throwIfError(this._globalObject, !removed && "NotFoundError", `"${medium}" was not found in the media list.`);
+   }
+ 
+   get [idlUtils.supportedPropertyIndices]() {
+     return this._list.keys();
+   }
+-
+-  _parse(mediaText) {
+-    for (const part of mediaText.split(",")) {
+-      const result = parseSingleMedium(part);
+-      this._list.push(result !== null ? result.normalized : "not all");
+-    }
+-  }
+-}
+-
+-// Evaluate a media query list against jsdom's environment (screen media type).
+-// Returns true if any query in the list matches, or if the list is empty (= "all").
+-// Currently only handles plain media types; queries with media features don't match.
+-function evaluateMediaList(list) {
+-  if (list.length === 0) {
+-    return true;
+-  }
+-  for (const query of list) {
+-    if (query === "all" || query === "screen") {
+-      return true;
+-    }
+-  }
+-  return false;
+ }
+ 
+ exports.implementation = MediaListImpl;
+-exports.evaluateMediaList = evaluateMediaList;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/StyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/StyleSheet-impl.js
+index d4ed3d4749..b91210e994 100644
+--- a/node_modules/jsdom/lib/jsdom/living/css/StyleSheet-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/css/StyleSheet-impl.js
+@@ -1,30 +1,33 @@ class StyleSheetImpl {
+ "use strict";
+-
+ const MediaList = require("../../../generated/idl/MediaList.js");
++const { call } = require("./helpers/rules.js");
+ 
+ class StyleSheetImpl {
++  #disabled = false;
++  #media = null;
++
+   constructor(globalObject, args, privateData = {}) {
+     this._globalObject = globalObject;
+ 
+     this.type = "text/css";
+     this.href = privateData.href || null;
+     this.title = privateData.title || null;
+-    this.disabled = false;
+ 
+     this.ownerNode = privateData.ownerNode || null;
+-    this.parentStyleSheet = privateData.parentStyleSheet || null;
+-    this.media = MediaList.createImpl(globalObject, [], {
+-      mediaText: privateData.mediaText || "",
+-      onChange: () => this._invalidateStyleCache()
+-    });
+-  }
+-
+-  _invalidateStyleCache() {
+-    if (this.parentStyleSheet) {
+-      this.parentStyleSheet._invalidateStyleCache();
+-    } else if (this.ownerNode) {
+-      this.ownerNode._ownerDocument._clearStyleCache();
+-    }
++  }
++
++  get media() {
++    this.#media ??= MediaList.createImpl(this._globalObject, [], { owner: this });
++    return this.#media;
++  }
++
++  get disabled() {
++    return this.#disabled;
++  }
++
++  set disabled(value) {
++    this.#disabled = value;
++    call("op_css_sheet_set_disabled", this._id, value);
+   }
+ }
+ 
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
-index bda5409bc3..01988956f0 100644
+index bda5409bc3..d396d68184 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
-@@ -20,24 +20,15 @@ function getComputedStyleDeclaration(elementImpl, { pseudo = false } = {}) {
- );
- let parsedDefaultStyleSheet;
+@@ -1,335 +1,18 @@ function getComputedStyleDeclaration(elementImpl, { pseudo = false } = {}) {
+ "use strict";
  
+-const fs = require("node:fs");
+-const path = require("node:path");
+-const Specificity = require("@bramus/specificity").default;
+-const CSSImportRule = require("../../../../generated/idl/CSSImportRule.js");
+-const CSSMediaRule = require("../../../../generated/idl/CSSMediaRule.js");
+ const CSSStyleProperties = require("../../../../generated/idl/CSSStyleProperties.js");
+-const CSSStyleRule = require("../../../../generated/idl/CSSStyleRule.js");
+-const { asciiLowercase } = require("../../helpers/strings.js");
+-const { evaluateMediaList } = require("../MediaList-impl.js");
+-const { parseStyleSheet } = require("./css-parser.js");
+-const { isGlobalKeyword } = require("./css-values.js");
+-const { absoluteFontSize } = require("./font-sizes.js");
+-const { systemColors } = require("./system-colors.js");
+-
+-const defaultStyleSheet = fs.readFileSync(
+-  path.resolve(__dirname, "../../../browser/default-stylesheet.css"),
+-  { encoding: "utf-8" }
+-);
+-let parsedDefaultStyleSheet;
+-
 -function getComputedStyleDeclaration(elementImpl) {
 -  const styleCache = elementImpl._ownerDocument._styleCache;
 -  const cachedDeclaration = styleCache.get(elementImpl);
@@ -1419,19 +3721,310 @@ index bda5409bc3..01988956f0 100644
 -  }
 -
 -  const declaration = prepareComputedStyleDeclaration(elementImpl, styleCache);
+-  declaration._readonly = true;
+-
+-  return declaration;
+-}
+-
+-function prepareComputedStyleDeclaration(elementImpl, styleCache) {
+-  const { style } = elementImpl;
++
 +// Its values come from miniclient's native style engine, read on each access, so nothing is
 +// cascaded or cached here.
 +function getComputedStyleDeclaration(elementImpl, { pseudo = false } = {}) {
-+  const declaration = CSSStyleProperties.createImpl(elementImpl._globalObject, [], {
-+    computed: true,
+   const declaration = CSSStyleProperties.createImpl(elementImpl._globalObject, [], {
+     computed: true,
+-    ownerNode: elementImpl
 +    ownerNode: elementImpl,
 +    pseudo
-+  });
-   declaration._readonly = true;
+   });
 -
+-  // Cache the declaration before processing.
+-  styleCache.set(elementImpl, declaration);
+-
+-  applyStyleSheetRules(elementImpl, declaration);
+-
+-  // Not every element implements `ElementCSSInlineStyle`.
+-  if (style) {
+-    for (let i = 0; i < style.length; i++) {
+-      handlePropertyForInlineStyle(style.item(i), declaration, style);
+-    }
+-  }
+-
++  declaration._readonly = true;
    return declaration;
  }
  
+-function applyStyleSheetRules(elementImpl, declaration) {
+-  if (!parsedDefaultStyleSheet) {
+-    // The parsed default stylesheet will be composed of CSSOM objects from the first global object accessed. This is a
+-    // bit strange, but since we only ever access the internals of `parsedDefaultStyleSheet`, and don't expose it to
+-    // callers, it shouldn't cause any issues.
+-    parsedDefaultStyleSheet = parseStyleSheet(defaultStyleSheet, elementImpl._globalObject);
+-  }
+-
+-  const specificities = new Map();
+-  handleSheet(parsedDefaultStyleSheet, elementImpl, declaration, specificities);
+-  for (const sheetImpl of elementImpl._ownerDocument.styleSheets._list) {
+-    handleSheet(sheetImpl, elementImpl, declaration, specificities);
+-  }
+-}
+-
+-function handleSheet(sheetImpl, elementImpl, declaration, specificities) {
+-  for (const ruleImpl of sheetImpl.cssRules._list) {
+-    if (CSSImportRule.isImpl(ruleImpl)) {
+-      if (ruleImpl.styleSheet !== null && evaluateMediaList(ruleImpl.media._list)) {
+-        handleSheet(ruleImpl.styleSheet, elementImpl, declaration, specificities);
+-      }
+-    } else if (CSSMediaRule.isImpl(ruleImpl)) {
+-      if (evaluateMediaList(ruleImpl.media._list)) {
+-        for (const innerRule of ruleImpl.cssRules._list) {
+-          handleRule(innerRule, elementImpl, declaration, specificities);
+-        }
+-      }
+-    } else if (CSSStyleRule.isImpl(ruleImpl)) {
+-      handleRule(ruleImpl, elementImpl, declaration, specificities);
+-    }
+-  }
+-}
+-
+-function handleRule(ruleImpl, elementImpl, declaration, specificities) {
+-  if (ruleMightMatchElement(ruleImpl, elementImpl)) {
+-    const { ast, match } = matches(ruleImpl.selectorText, elementImpl);
+-    if (match) {
+-      // The specificity only depends on the selector AST, not on any individual property, so it is computed once per
+-      // rule rather than once per property. This is a significant win for rules with many declarations.
+-      const { value: specificity } = Specificity.max(...Specificity.calculate(ast));
+-      handleStyle(ruleImpl.style, declaration, specificities, specificity);
+-    }
+-  }
+-}
+-
+-function handleStyle(style, declaration, specificities, specificity) {
+-  for (let i = 0; i < style.length; i++) {
+-    const property = style.item(i);
+-    handleProperty(property, declaration, style, specificities, specificity);
+-  }
+-}
+-
+-function handleProperty(property, declaration, style, specificities, specificity) {
+-  const value = style.getPropertyValue(property);
+-  const priority = style.getPropertyPriority(property);
+-  if (priority) {
+-    declaration.setProperty(property, value, priority);
+-  } else if (!declaration.getPropertyPriority(property)) {
+-    if (specificities.has(property)) {
+-      if (Specificity.compare(specificity, specificities.get(property)) >= 0) {
+-        specificities.set(property, specificity);
+-        declaration.setProperty(property, value);
+-      }
+-    } else {
+-      specificities.set(property, specificity);
+-      declaration.setProperty(property, value);
+-    }
+-  }
+-}
+-
+-function handlePropertyForInlineStyle(property, declaration, style) {
+-  const value = style.getPropertyValue(property);
+-  const priority = style.getPropertyPriority(property);
+-  if (!declaration.getPropertyPriority(property) || priority) {
+-    declaration.setProperty(property, value, priority);
+-  }
+-}
+-
+-function ruleMightMatchElement(ruleImpl, elementImpl) {
+-  if (!ruleImpl._selectorSubjects) {
+-    const domSelector = elementImpl._ownerDocument._getDOMSelector();
+-    ruleImpl._selectorSubjects =
+-      domSelector.extractSubjects(
+-        ruleImpl.selectorText,
+-        elementImpl._ownerDocument.contentType !== "text/html"
+-      );
+-  }
+-
+-  const subjects = ruleImpl._selectorSubjects;
+-  if (subjects.length === 0) {
+-    return true;
+-  }
+-
+-  const id = elementImpl.getAttributeNS(null, "id");
+-  const { classList } = elementImpl;
+-  // TODO: Remove toLowerCase() after updating the dom-selector.
+-  const tag = elementImpl._localName.toLowerCase();
+-  for (const keys of subjects) {
+-    let mightMatch = true;
+-    if (keys.id && keys.id !== id) {
+-      mightMatch = false;
+-    } else if (keys.className && !classList.contains(keys.className)) {
+-      mightMatch = false;
+-      // TODO: Remove toLowerCase() after updating the dom-selector.
+-    } else if (keys.tag && keys.tag.toLowerCase() !== tag) {
+-      mightMatch = false;
+-    }
+-
+-    if (mightMatch) {
+-      return true;
+-    }
+-  }
+-
+-  return false;
+-}
+-
+-function matches(selectorText, elementImpl) {
+-  const domSelector = elementImpl._ownerDocument._getDOMSelector();
+-  const { ast, match, pseudoElement } = domSelector.check(selectorText, elementImpl);
+-  // `pseudoElement` is a pseudo-element selector (e.g. `::before`).
+-  // However, we do not support getComputedStyle(element, pseudoElement), so `match` is set to `false`.
+-  if (pseudoElement) {
+-    return {
+-      match: false
+-    };
+-  }
+-  return { ast, match, pseudoElement };
+-}
+-
+-function replaceEmptyValueAndKeywords(
+-  property,
+-  value,
+-  elementImpl,
+-  { inherit, initial, isColor, longhands }
+-) {
+-  if (value === "") {
+-    if (longhands) {
+-      return "";
+-    } else if (!inherit || !elementImpl.parentElement) {
+-      return initial;
+-    }
+-    value = getInheritedPropertyValue(property, elementImpl, { inherit, initial, isColor });
+-  }
+-
+-  if (isGlobalKeyword(value)) {
+-    value = replaceGlobalKeywords(property, value, elementImpl, { inherit, initial, isColor });
+-  }
+-
+-  return value;
+-}
+-
+-function getInheritedPropertyValue(property, elementImpl, { inherit, initial, isColor }) {
+-  const styleCache = elementImpl._ownerDocument._styleCache;
+-
+-  let parent = elementImpl.parentElement;
+-  while (parent) {
+-    let declaration, value;
+-    if (styleCache.has(parent)) {
+-      declaration = styleCache.get(parent);
+-    } else {
+-      declaration = prepareComputedStyleDeclaration(parent, styleCache);
+-    }
+-    if (isColor) {
+-      // For color-related properties, unset the _computed flag to retrieve the specified value.
+-      // @asamuzakjp/css-color handles the resolution of the specified value.
+-      declaration._computed = false;
+-      value = declaration.getPropertyValue(property);
+-      // Restore the _computed flag.
+-      declaration._computed = true;
+-      // If the value is a system color value, retrieve it again as a computed value.
+-      if (value && systemColors.has(asciiLowercase(value))) {
+-        value = declaration.getPropertyValue(property);
+-      }
+-    } else {
+-      // Inheritance transfers the computed value, not the resolved value getPropertyValue() returns.
+-      // The parent's computed value already accounts for inheritance, even when it is empty.
+-      return declaration._getComputedPropertyValue(property);
+-    }
+-    if (value) {
+-      if (isColor && isGlobalKeyword(value)) {
+-        return replaceGlobalKeywords(property, value, parent, { inherit, initial, isColor });
+-      }
+-      return value;
+-    } else if (!parent.parentElement || !inherit) {
+-      break;
+-    }
+-    parent = parent.parentElement;
+-  }
+-
+-  return initial;
+-}
+-
+-function replaceGlobalKeywords(property, value, elementImpl, { inherit, initial, isColor }) {
+-  let element = elementImpl;
+-  while (element) {
+-    switch (value) {
+-      case "initial": {
+-        return initial;
+-      }
+-      case "inherit": {
+-        if (!element.parentElement) {
+-          return initial;
+-        }
+-        value = getInheritedPropertyValue(property, element, { inherit, initial, isColor });
+-        break;
+-      }
+-      case "unset": {
+-        if (!inherit || !element.parentElement) {
+-          return initial;
+-        }
+-        value = getInheritedPropertyValue(property, element, { inherit, initial, isColor });
+-        break;
+-      }
+-      case "revert-layer": {
+-        // TODO: https://drafts.csswg.org/css-cascade-5/#revert-layer
+-        return value;
+-      }
+-      case "revert": {
+-        // TODO: https://drafts.csswg.org/css-cascade-5/#default
+-        return value;
+-      }
+-      default: {
+-        // fall through; value is not a CSS-wide keyword.
+-      }
+-    }
+-    if (element.parentElement) {
+-      if (!value) {
+-        element = element.parentElement;
+-      } else if (isGlobalKeyword(value)) {
+-        return replaceGlobalKeywords(property, value, element, { inherit, initial, isColor });
+-      } else {
+-        return value;
+-      }
+-    } else {
+-      return initial;
+-    }
+-  }
+-
+-  return value;
+-}
+-
+-function getParentFontSizeInPixels(elementImpl) {
+-  const styleCache = elementImpl._ownerDocument._styleCache;
+-  const parent = elementImpl.parentElement;
+-  let declaration;
+-  if (styleCache.has(parent)) {
+-    declaration = styleCache.get(parent);
+-  } else {
+-    declaration = prepareComputedStyleDeclaration(parent, styleCache);
+-  }
+-
+-  const fontSize = declaration.getPropertyValue("font-size");
+-  if (absoluteFontSize.has(fontSize)) {
+-    return absoluteFontSize.get(fontSize).px;
+-  }
+-
+-  const parsed = parseFloat(fontSize);
+-  if (!Number.isNaN(parsed)) {
+-    return parsed;
+-  }
+-
+-  // Fallback to initial font-size (medium)
+-  return absoluteFontSize.get("medium").px;
+-}
+-
+ exports.SHADOW_DOM_PSEUDO_REGEXP = /^::(?:part|slotted)\(/i;
+ exports.getComputedStyleDeclaration = getComputedStyleDeclaration;
+-exports.getInheritedPropertyValue = getInheritedPropertyValue;
+-exports.getParentFontSizeInPixels = getParentFontSizeInPixels;
+-exports.replaceEmptyValueAndKeywords = replaceEmptyValueAndKeywords;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
 index 6bd7b86035..122e17dd34 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/css-parser.js
@@ -1484,15 +4077,71 @@ index 6bd7b86035..122e17dd34 100644
  exports.parseStyleSheet = parseStyleSheet;
  exports.parseIntoStyleSheet = parseIntoStyleSheet;
  exports.parseRule = parseRule;
+diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/rules.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/rules.js
+new file mode 100644
+index 0000000000..d832403ea5
+--- /dev/null
++++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/rules.js
+@@ -0,0 +1,47 @@ function interfaces() {
++"use strict";
++/* global Deno */
++const DOMException = require("../../../../generated/idl/DOMException.js");
++
++// Sheets and rules live in miniclient's style engine; a JS object holds the id it reaches its
++// stylo object by. The ops are looked up per call, as the snapshot is built without them.
++exports.call = (name, ...args) => Deno.core.ops[name]?.(...args);
++
++// The registry is made on first use: a snapshot cannot hold one.
++let registry;
++exports.track = (impl, id) => {
++  registry ??= new FinalizationRegistry(held => exports.call("op_css_release", held));
++  registry.register(impl, id);
++};
++
++exports.throwIfError = (globalObject, name, message) => {
++  if (name) {
++    throw DOMException.create(globalObject, [message, name]);
++  }
++};
++
++// Required on use, as these modules require this one.
++function interfaces() {
++  return {
++    CSSStyleRule: require("../../../../generated/idl/CSSStyleRule.js"),
++    CSSImportRule: require("../../../../generated/idl/CSSImportRule.js"),
++    CSSMediaRule: require("../../../../generated/idl/CSSMediaRule.js"),
++    CSSFontFaceRule: require("../../../../generated/idl/CSSFontFaceRule.js"),
++    CSSPageRule: require("../../../../generated/idl/CSSPageRule.js"),
++    CSSKeyframesRule: require("../../../../generated/idl/CSSKeyframesRule.js"),
++    CSSKeyframeRule: require("../../../../generated/idl/CSSKeyframeRule.js"),
++    CSSNamespaceRule: require("../../../../generated/idl/CSSNamespaceRule.js"),
++    CSSCounterStyleRule: require("../../../../generated/idl/CSSCounterStyleRule.js"),
++    CSSSupportsRule: require("../../../../generated/idl/CSSSupportsRule.js"),
++    CSSLayerBlockRule: require("../../../../generated/idl/CSSLayerBlockRule.js"),
++    CSSLayerStatementRule: require("../../../../generated/idl/CSSLayerStatementRule.js"),
++    CSSContainerRule: require("../../../../generated/idl/CSSContainerRule.js"),
++    CSSScopeRule: require("../../../../generated/idl/CSSScopeRule.js"),
++    CSSNestedDeclarations: require("../../../../generated/idl/CSSNestedDeclarations.js"),
++    CSSGroupingRule: require("../../../../generated/idl/CSSGroupingRule.js"),
++    CSSRule: require("../../../../generated/idl/CSSRule.js")
++  };
++}
++
++exports.createRule = (globalObject, [id, name], parentRule, parentStyleSheet) => {
++  return interfaces()[name].createImpl(globalObject, [], { id, parentRule, parentStyleSheet });
++};
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..277b03b90a 100644
+index 270a6209f5..c2e03c971a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-@@ -2,6 +2,7 @@
+@@ -1,7 +1,8 @@
+ "use strict";
  const { legacyHookDecode } = require("@exodus/bytes/encoding.js");
- const whatwgURL = require("whatwg-url");
- const { parseStyleSheet, parseIntoStyleSheet } = require("./css-parser");
-+const { sheetLoaded, sheetRemoved } = require("../../helpers/dom-tree");
+-const whatwgURL = require("whatwg-url");
+-const { parseStyleSheet, parseIntoStyleSheet } = require("./css-parser");
++const CSSStyleSheet = require("../../../../generated/idl/CSSStyleSheet.js");
++const { wire } = require("../../helpers/dom-tree");
++const { call } = require("./rules.js");
  
  // TODO: this should really implement https://html.spec.whatwg.org/multipage/links.html#link-type-stylesheet
  // It (and the things it calls) is nowhere close right now.
@@ -1511,7 +4160,7 @@ index 270a6209f5..277b03b90a 100644
    function onStyleSheetLoad(data, response) {
      if (!response.ok) {
        throw new Error("Status code: " + response.status);
-@@ -27,9 +36,7 @@ function onStyleSheetLoad(data, response) {
+@@ -27,12 +36,12 @@ function onStyleSheetLoad(data, response) {
      const css = legacyHookDecode(data, defaultEncodingLabel);
  
      // TODO: MIME type checking?
@@ -1521,13 +4170,14 @@ index 270a6209f5..277b03b90a 100644
 +    removeOldSheet();
  
      if (importRule) {
-       parseImportedStyleSheet(css, importRule);
-@@ -38,11 +45,13 @@ function onStyleSheetLoad(data, response) {
+-      parseImportedStyleSheet(css, importRule);
++      call("op_css_import_loaded", elementImpl._wire, urlString, css);
++      importRule.styleSheet.cssRules._reset();
++      scanForImportRules(importRule.styleSheet, css, elementImpl, [...importRule._chain, urlString]);
+       document._clearStyleCache();
+     } else {
        const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
-       exports.addStyleSheet(createdSheet, elementImpl);
-     }
-+    sheetLoaded(elementImpl, urlString, css, Boolean(importRule));
-   }
+@@ -42,7 +51,8 @@ function onStyleSheetLoad(data, response) {
  
    resourceLoader.fetch(urlString, {
      element: elementImpl,
@@ -1537,37 +4187,140 @@ index 270a6209f5..277b03b90a 100644
    });
  };
  
-@@ -53,6 +62,7 @@ function onStyleSheetLoad(data, response) {
+@@ -53,58 +63,31 @@ function onStyleSheetLoad(data, response) {
  
    // Remove the association explicitly; in the spec it's implicit so this step doesn't exist.
    elementImpl.sheet = null;
-+  sheetRemoved(elementImpl);
++  call("op_css_sheet_detach", sheet._id);
  
    elementImpl._ownerDocument._clearStyleCache();
  
-@@ -71,7 +81,11 @@ function onStyleSheetLoad(data, response) {
-   const globalObject = elementImpl._globalObject;
-   const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
+-  sheet.parentStyleSheet = null;
+   sheet.ownerNode = null;
+   sheet.ownerRule = null;
+ };
  
-+  // `@import` rules must be found (and fetched) at creation, so only sheets that cannot contain
-+  // one -- including CSS-escaped spellings, hence `@\\` -- are parsed lazily.
-+  const defer = !/@import|@\\/i.test(cssText);
-   const sheetImpl = parseStyleSheet(cssText, globalObject, {
-+    defer,
+-// https://drafts.csswg.org/cssom/#create-a-css-style-sheet kinda:
+-// - Parsing failures are now handled gracefully
+-// - Like the browser's behaviour, when css-tree encounters invalid CSS
+-//   it will try its best to ignore the invalid parts without blocking the parsing operations
+-//   returning a stylesheet with the valid parts only.
+-// - The import rules stuff seems out of place, and probably should affect the load event...
++// https://drafts.csswg.org/cssom/#create-a-css-style-sheet, except that the native style engine
++// parses the text and drops what does not parse.
+ exports.createStyleSheetForElement = (cssText, elementImpl, href) => {
+-  const globalObject = elementImpl._globalObject;
+-  const baseURLString = href ?? elementImpl._ownerDocument.baseURLSerialized();
+-
+-  const sheetImpl = parseStyleSheet(cssText, globalObject, {
++  const document = elementImpl._ownerDocument;
++  const baseURLString = href ?? document.baseURLSerialized();
++  const media = elementImpl.getAttributeNS(null, "media") || "";
++  const id = call("op_css_sheet_new", wire(document), wire(elementImpl), cssText, baseURLString, media);
++  const sheetImpl = CSSStyleSheet.createImpl(elementImpl._globalObject, [], {
++    id,
      href,
      ownerNode: elementImpl,
-     mediaText: elementImpl.getAttributeNS(null, "media") || "",
-@@ -85,7 +99,9 @@ onError(err) {
-     }
+-    mediaText: elementImpl.getAttributeNS(null, "media") || "",
+-    title: elementImpl.getAttributeNS(null, "title"),
+-    onError(err) {
+-      const error = new Error("Could not parse CSS stylesheet", { cause: err });
+-      error.sheetText = cssText;
+-      error.type = "css-parsing";
+-
+-      globalObject._settings.virtualConsole.emit("jsdomError", error);
+-    }
++    title: elementImpl.getAttributeNS(null, "title")
    });
- 
+-
 -  scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
-+  if (!defer) {
-+    scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
-+  }
- 
+-
++  scanForImportRules(sheetImpl, cssText, elementImpl, [baseURLString]);
    return sheetImpl;
  };
+ 
+-function parseImportedStyleSheet(cssText, importRule) {
+-  const globalObject = importRule._globalObject;
+-  const baseURLString = importRule.styleSheet.href;
+-
+-  parseIntoStyleSheet(cssText, globalObject, importRule.styleSheet, err => {
+-    const error = new Error("Could not parse CSS stylesheet", { cause: err });
+-    error.sheetText = cssText;
+-    error.type = "css-parsing";
+-
+-    globalObject._settings.virtualConsole.emit("jsdomError", error);
+-  });
+-
+-  scanForImportRules(globalObject, importRule.styleSheet.cssRules._list, baseURLString);
+-}
+-
+ // https://drafts.csswg.org/cssom/#add-a-css-style-sheet
+ exports.addStyleSheet = (sheet, elementImpl) => {
+   elementImpl._ownerDocument.styleSheets._add(sheet);
+@@ -117,40 +100,30 @@ function onStyleSheetLoad(data, response) {
+   // TODO: title and disabled stuff
+ };
+ 
++// Fetches the `@import`s of `sheetImpl`, whose text is `cssText`, for `elementImpl`'s sheet;
++// `chain` holds the URLs of the sheets above, so a sheet importing itself is not fetched again.
+ // Tracking in https://github.com/jsdom/jsdom/issues/2124
+-function scanForImportRules(globalObject, ruleImpls, baseURLString) {
+-  for (const ruleImpl of ruleImpls) {
+-    if (ruleImpl.cssRules) {
+-      // @media rule: keep searching inside it.
+-      scanForImportRules(globalObject, ruleImpl.cssRules._list, baseURLString);
+-    } else if (ruleImpl.href) {
+-      // @import rule: fetch the resource and evaluate it.
+-
+-      // Use `whatwgURL.URL` instead of `whatwgURL.parseURL()` so that we get an error we can use as the `cause` if the
+-      // URL doesn't parse. (All resource loading errors in jsdom must have `cause`s.)
+-      let parsed;
+-      try {
+-        parsed = new whatwgURL.URL(ruleImpl.href, baseURLString);
+-      } catch (cause) {
+-        const error = new Error(
+-          `Could not parse CSS @import URL "${ruleImpl.href}" relative to base URL "${baseURLString}"`,
+-          { cause }
+-        );
+-        error.type = "resource-loading";
+-        error.url = ruleImpl.href;
+-        globalObject._settings.virtualConsole.emit("jsdomError", error);
+-      }
+-
+-      if (parsed) {
+-        ruleImpl.styleSheet.href = parsed.href;
+-
+-        // We need the ownerNode element to fetch. Walk up from the sheet to find it.
+-        let sheet = ruleImpl.parentStyleSheet;
+-        while (sheet.ownerRule) {
+-          sheet = sheet.ownerRule.parentStyleSheet;
+-        }
+-        exports.fetchStyleSheet(sheet.ownerNode, parsed.href, ruleImpl);
+-      }
++function scanForImportRules(sheetImpl, cssText, elementImpl, chain) {
++  // Only text that can hold one -- including CSS-escaped spellings, hence `@\\` -- is read for rules.
++  if (!/@import|@\\/i.test(cssText)) {
++    return;
++  }
++  for (const ruleImpl of sheetImpl.cssRules._list) {
++    if (ruleImpl.type !== 3) {
++      continue;
++    }
++    const url = ruleImpl.styleSheet.href;
++    if (url === null) {
++      // All resource loading errors in jsdom must have `cause`s.
++      const error = new Error(`Could not parse CSS @import URL "${ruleImpl.href}"`, {
++        cause: new TypeError("Invalid URL")
++      });
++      error.type = "resource-loading";
++      error.url = ruleImpl.href;
++      elementImpl._globalObject._settings.virtualConsole.emit("jsdomError", error);
++    } else if (!chain.includes(url)) {
++      ruleImpl._chain = chain;
++      exports.fetchStyleSheet(elementImpl, url, ruleImpl);
+     }
+   }
+ }
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/style-property-names.json b/node_modules/jsdom/lib/jsdom/living/css/style-property-names.json
 new file mode 100644
 index 0000000000..f2c11fb239
@@ -2532,10 +5285,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..01dac2d874 100644
+index 7eb8408fc8..885b6941f9 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,388 @@ function bind(node, w) {
+@@ -6,31 +6,374 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -2843,14 +5596,16 @@ index 7eb8408fc8..01dac2d874 100644
 +  return Deno.core.ops.op_css_computed_values(element._wire, focus, targetWire(doc), props, doc.baseURLSerialized());
 +}
 +
-+// A declaration block's text (a `style` attribute), read and edited by the native style
-+// engine. The set and remove ops return the new text, or null when the block is unchanged.
++// A declaration block's text, read and edited by the native style engine against `base`. The
++// set and remove ops return the new text, or null when the block is unchanged.
 +const declarations = {
-+  text: text => Deno.core.ops.op_css_declarations_text(text),
-+  names: text => Deno.core.ops.op_css_declaration_names(text),
-+  value: (text, property) => Deno.core.ops.op_css_declaration_value(text, property),
-+  set: (text, property, value, important) => Deno.core.ops.op_css_set_declaration(text, property, value, important),
-+  remove: (text, property) => Deno.core.ops.op_css_remove_declaration(text, property)
++  text: (text, base) => Deno.core.ops.op_css_declarations_text(text, base),
++  names: (text, base) => Deno.core.ops.op_css_declaration_names(text, base),
++  value: (text, base, property) => Deno.core.ops.op_css_declaration_value(text, base, property),
++  set(text, base, property, value, important) {
++    return Deno.core.ops.op_css_set_declaration(text, base, property, value, important);
++  },
++  remove: (text, base, property) => Deno.core.ops.op_css_remove_declaration(text, base, property)
 +};
 +
 +// The longhands `element`'s computed style enumerates: every one, fetched once per isolate, or
@@ -2862,22 +5617,6 @@ index 7eb8408fc8..01dac2d874 100644
 +  }
 +  longhands ??= Deno.core.ops.op_css_computed_longhands();
 +  return longhands;
-+}
-+
-+// Hands the native style engine a sheet fetched for `element`: its `<link>` sheet, or an
-+// `@import` (`isImport`) of the sheet `element` owns. The snapshot build runs without the ops,
-+// and styles nothing.
-+function sheetLoaded(element, url, css, isImport) {
-+  if (element._wire >= 0) {
-+    Deno.core.ops.op_css_sheet_loaded?.(element._wire, url, css, isImport);
-+  }
-+}
-+
-+// `element`'s `<link>` sheet no longer applies.
-+function sheetRemoved(element) {
-+  if (element._wire >= 0) {
-+    Deno.core.ops.op_css_sheet_removed?.(element._wire);
-+  }
 +}
 +
 +// The first element in `document`'s tree, in tree order, whose `id` is `id`.
@@ -2948,7 +5687,7 @@ index 7eb8408fc8..01dac2d874 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +397,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +383,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -2985,7 +5724,7 @@ index 7eb8408fc8..01dac2d874 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +463,6 @@ next() {
+@@ -136,28 +449,6 @@ next() {
    }
  }
  
@@ -3014,7 +5753,7 @@ index 7eb8408fc8..01dac2d874 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +558,13 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +544,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -3131,7 +5870,6 @@ index 7eb8408fc8..01dac2d874 100644
    compareTreePosition, commonAncestorInfo,
 -  treeIndex, appendChild, insertBefore, remove
 +  treeIndex, appendChild, insertBefore, remove, link, computedValues, declarations, computedLonghands,
-+  sheetLoaded, sheetRemoved,
 +  QUERY, query, impl, wire, materialize, materializedCount, setChecked, setTemplateContents, clearBindings
  };
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js b/node_modules/jsdom/lib/jsdom/living/helpers/mutation-observers.js

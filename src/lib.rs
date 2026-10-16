@@ -9,6 +9,7 @@ use crate::runtime::{EvalError, EvalOutcome, Wait};
 
 pub mod browser;
 pub mod css;
+pub mod cssom;
 pub mod dom;
 pub mod dom_ops;
 pub mod dom_query;

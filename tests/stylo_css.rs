@@ -181,6 +181,41 @@ fn reflects_mutations() {
 }
 
 #[test]
+fn cssom_writes_reach_the_cascade() {
+    let rt = runtime();
+    let markup = "<head><style>p { color: rgb(1, 2, 3) }</style></head><body><p>x</p></body>";
+    assert_eq!(computed(&rt, markup, "p", &["color"]), ["rgb(1, 2, 3)"]);
+    let colors: Vec<String> = rt.eval(
+        r#"const sheet = document.styleSheets[0];
+        const color = () => getComputedStyle(document.querySelector("p")).color;
+        const seen = [];
+        sheet.insertRule("p { color: rgb(4, 5, 6) }", 1);
+        seen.push(color());
+        sheet.cssRules[1].style.color = "rgb(7, 8, 9)";
+        seen.push(color());
+        sheet.disabled = true;
+        seen.push(color());
+        sheet.disabled = false;
+        seen.push(color());
+        const rule = sheet.cssRules[1];
+        sheet.deleteRule(1);
+        seen.push(color(), rule.cssText);
+        seen"#,
+    );
+    assert_eq!(
+        colors,
+        [
+            "rgb(4, 5, 6)",
+            "rgb(7, 8, 9)",
+            "rgb(0, 0, 0)",
+            "rgb(7, 8, 9)",
+            "rgb(1, 2, 3)",
+            "p { color: rgb(7, 8, 9); }"
+        ]
+    );
+}
+
+#[test]
 fn hidden_ancestor_is_not_focusable() {
     let rt = runtime();
     let focused: Vec<bool> = rt.eval(

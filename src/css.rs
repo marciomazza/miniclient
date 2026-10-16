@@ -5,8 +5,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::{LazyLock, Mutex, Once};
+use std::hash::Hash;
+use std::sync::{LazyLock, Mutex, Once, RwLock};
 
 use cssparser::{Parser, SourceLocation};
 use deno_core::{OpState, op2};
@@ -44,7 +44,7 @@ use style::servo_arc::{Arc, ArcBorrow};
 use style::shared_lock::{Locked, SharedRwLock, StylesheetGuards};
 use style::stylesheets::import_rule::{ImportLayer, ImportSheet, ImportSupportsCondition};
 use style::stylesheets::{
-    AllowImportRules, CssRuleType, DocumentStyleSheet, ImportRule, Origin, Stylesheet,
+    AllowImportRules, CssRule, CssRuleType, DocumentStyleSheet, ImportRule, Origin, Stylesheet,
     StylesheetLoader, UrlExtraData,
 };
 use style::stylist::{RuleInclusion, Stylist};
@@ -72,13 +72,17 @@ const SHEET_CACHE_SIZE: usize = 256;
 
 // One process-wide lock: stylo asserts a sheet is read through the lock it was created with,
 // and parsed sheets are shared by every isolate.
-fn lock() -> &'static SharedRwLock {
+pub(crate) fn lock() -> &'static SharedRwLock {
     &GLOBAL_STYLE_DATA.shared_lock
 }
 
+// That lock panics instead of waiting when isolates on other threads collide, so op entry points
+// take this one first: shared to compute styles, exclusive to write sheets.
+pub(crate) static GATE: RwLock<()> = RwLock::new(());
+
 /// `base` resolves the sheet's relative `url()`s; one that does not parse falls back to
 /// about:blank, as for a document without a URL.
-fn url_data(base: &str) -> UrlExtraData {
+pub(crate) fn url_data(base: &str) -> UrlExtraData {
     static BLANK: LazyLock<url::Url> =
         LazyLock::new(|| url::Url::parse("about:blank").expect("static URL"));
     UrlExtraData::from(url::Url::parse(base).unwrap_or_else(|_| BLANK.clone()))
@@ -87,13 +91,13 @@ fn url_data(base: &str) -> UrlExtraData {
 /// One author sheet: its text, the URL its relative `url()`s and `@import`s resolve against,
 /// and its owner's `media` attribute.
 #[derive(Clone, PartialEq, Eq, Hash)]
-struct Source {
-    css: String,
-    base: String,
-    media: String,
+pub(crate) struct Source {
+    pub(crate) css: String,
+    pub(crate) base: String,
+    pub(crate) media: String,
 }
 
-fn media_list(media: &str, base: &UrlExtraData, quirks: QuirksMode) -> MediaList {
+pub(crate) fn media_list(media: &str, base: &UrlExtraData, quirks: QuirksMode) -> MediaList {
     let mut context = ParserContext::new(
         Origin::Author,
         base,
@@ -109,12 +113,13 @@ fn media_list(media: &str, base: &UrlExtraData, quirks: QuirksMode) -> MediaList
 }
 
 /// Answers `@import` from the bodies the page already fetched, so parsing stays synchronous. An
-/// import not fetched yet, or one that would import itself again, contributes no rules.
-struct ImportLoader<'a> {
-    imports: &'a BTreeMap<String, String>,
-    quirks: QuirksMode,
+/// import not fetched yet, or one that would import itself again, gets an empty sheet that keeps
+/// its media; the fetch fills it in place, so the rule objects the page holds stay valid.
+pub(crate) struct ImportLoader<'a> {
+    pub(crate) imports: &'a BTreeMap<String, String>,
+    pub(crate) quirks: QuirksMode,
     /// URLs of the sheets being parsed, outermost first.
-    chain: RefCell<Vec<String>>,
+    pub(crate) chain: RefCell<Vec<String>>,
 }
 
 impl StylesheetLoader for ImportLoader<'_> {
@@ -132,25 +137,24 @@ impl StylesheetLoader for ImportLoader<'_> {
             .as_ref()
             .filter(|href| !self.chain.borrow().contains(href))
             .and_then(|href| self.imports.get(href));
-        let stylesheet = match (href, css) {
-            _ if supports.as_ref().is_some_and(|s| !s.enabled) => ImportSheet::new_refused(),
-            (Some(href), Some(css)) => {
-                self.chain.borrow_mut().push(href.clone());
-                let sheet = Stylesheet::from_str(
-                    css,
-                    url_data(&href),
-                    Origin::Author,
-                    media,
-                    lock.clone(),
-                    Some(self),
-                    None,
-                    self.quirks,
-                    AllowImportRules::Yes,
-                );
-                self.chain.borrow_mut().pop();
-                ImportSheet::new(Arc::new(sheet))
-            }
-            _ => ImportSheet::new_pending(),
+        let stylesheet = if supports.as_ref().is_some_and(|s| !s.enabled) {
+            ImportSheet::new_refused()
+        } else {
+            let href = href.unwrap_or_else(|| "about:blank".to_owned());
+            self.chain.borrow_mut().push(href.clone());
+            let sheet = Stylesheet::from_str(
+                &preprocess(css.map_or("", String::as_str)),
+                url_data(&href),
+                Origin::Author,
+                media,
+                lock.clone(),
+                Some(self),
+                None,
+                self.quirks,
+                AllowImportRules::Yes,
+            );
+            self.chain.borrow_mut().pop();
+            ImportSheet::new(Arc::new(sheet))
         };
         Arc::new(lock.wrap(ImportRule {
             url,
@@ -162,12 +166,16 @@ impl StylesheetLoader for ImportLoader<'_> {
     }
 }
 
-fn sheet(
+/// `src` parsed, with `@import` answered from `imports`; a constructed sheet allows none.
+pub(crate) fn sheet(
     src: &Source,
     origin: Origin,
     quirks: QuirksMode,
     imports: &BTreeMap<String, String>,
+    allow_imports: AllowImportRules,
 ) -> DocumentStyleSheet {
+    // Pref-gated rules such as `@scope` are dropped at parse time, before any cascade.
+    enable_prefs();
     let base = url_data(&src.base);
     let media = media_list(&src.media, &base, quirks);
     let loader = ImportLoader {
@@ -176,7 +184,7 @@ fn sheet(
         chain: RefCell::new(vec![src.base.clone()]),
     };
     DocumentStyleSheet(Arc::new(Stylesheet::from_str(
-        &src.css,
+        &preprocess(&src.css),
         base,
         origin,
         Arc::new(lock().wrap(media)),
@@ -184,35 +192,46 @@ fn sheet(
         Some(&loader),
         None,
         quirks,
-        AllowImportRules::Yes,
+        allow_imports,
     )))
 }
 
+fn has_imports(sheet: &Stylesheet) -> bool {
+    let guard = lock().read();
+    let contents = sheet.contents.read_with(&guard);
+    contents
+        .rules(&guard)
+        .iter()
+        .any(|r| matches!(r, CssRule::Import(_)))
+}
+
 /// Every page of a test suite tends to ship the same sheets, so they parse once per process.
-/// `imports` is part of the key, as `@import` bodies end up inside the parsed sheet.
-fn author_sheet(
+/// The flag tells whether the sheet came from the cache, so is shared and copied before a write.
+/// A sheet with `@import` is never shared, as fetches fill its imports in place.
+pub(crate) fn author_sheet(
     src: &Source,
     quirks: QuirksMode,
     imports: &BTreeMap<String, String>,
-) -> DocumentStyleSheet {
-    type Key = (Source, QuirksMode, u64);
+) -> (DocumentStyleSheet, bool) {
+    type Key = (Source, QuirksMode);
     static SHEETS: LazyLock<Mutex<HashMap<Key, DocumentStyleSheet>>> =
         LazyLock::new(Default::default);
     let mut sheets = SHEETS.lock().unwrap_or_else(|e| e.into_inner());
-    let mut hasher = DefaultHasher::new();
-    imports.hash(&mut hasher);
-    let key = (src.clone(), quirks, hasher.finish());
+    let key = (src.clone(), quirks);
     if let Some(sheet) = sheets.get(&key) {
-        return sheet.clone();
+        return (sheet.clone(), true);
     }
-    // shortcut: dropping the whole cache when full beats LRU bookkeeping on every hit; move to
+    let parsed = sheet(src, Origin::Author, quirks, imports, AllowImportRules::Yes);
+    if has_imports(&parsed.0) {
+        return (parsed, false);
+    }
+    // shortcut: dropping the whole cache when full beats LRU bookkeeping on every hit, move to
     // LRU if a page cycles through more distinct sheets than the cache holds.
     if sheets.len() >= SHEET_CACHE_SIZE {
         sheets.clear();
     }
-    let parsed = sheet(src, Origin::Author, quirks, imports);
     sheets.insert(key, parsed.clone());
-    parsed
+    (parsed, true)
 }
 
 // Parsed once per process.
@@ -228,12 +247,13 @@ static UA_SHEET: LazyLock<DocumentStyleSheet> = LazyLock::new(|| {
         Origin::UserAgent,
         QuirksMode::NoQuirks,
         &BTreeMap::new(),
+        AllowImportRules::Yes,
     )
 });
 
 // Stylo gates selectors and properties browsers ship behind prefs read at parse time, so they
 // are set before the first sheet; no thread pool, as styling runs on the isolate's thread.
-fn enable_prefs() {
+pub(crate) fn enable_prefs() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         stylo_static_prefs::set_pref!("layout.threads", 0);
@@ -299,7 +319,7 @@ pub struct DocStyle {
     quirks: QuirksMode,
     html: bool,
     base: String,
-    sheets: Vec<Source>,
+    sheets: Vec<DocumentStyleSheet>,
     stylist: Stylist,
     query: QueryState,
     /// Filled as stylo reaches each element. Boxed so a handed-out `&Extra` stays put while
@@ -307,24 +327,18 @@ pub struct DocStyle {
     extras: RefCell<HashMap<NodeId, Box<Extra>>>,
 }
 
-/// The op's state: one style table per document read from, and the sheet bodies the page
-/// fetched.
+/// The op's state: one style table per document read from, the sheet bodies the page fetched
+/// for `@import`, and the sheets and rules the CSSOM reaches by id.
 #[derive(Default)]
 pub struct CssState {
-    docs: HashMap<NodeId, DocStyle>,
-    links: HashMap<NodeId, LinkSheet>,
+    pub(crate) docs: HashMap<NodeId, DocStyle>,
     /// `@import` bodies by URL, per document.
-    imports: HashMap<NodeId, BTreeMap<String, String>>,
+    pub(crate) imports: HashMap<NodeId, BTreeMap<String, String>>,
+    pub(crate) handles: crate::cssom::Handles,
 }
 
-/// A `<link>`'s fetched sheet.
-struct LinkSheet {
-    css: String,
-    url: String,
-}
-
-fn stylist(quirks: QuirksMode, sheets: &[Source], imports: &BTreeMap<String, String>) -> Stylist {
-    let device = Device::new(
+pub(crate) fn device(quirks: QuirksMode) -> Device {
+    Device::new(
         MediaType::screen(),
         quirks,
         euclid::Size2D::new(VIEWPORT.0, VIEWPORT.1),
@@ -335,32 +349,26 @@ fn stylist(quirks: QuirksMode, sheets: &[Source], imports: &BTreeMap<String, Str
         PrefersColorScheme::Light,
         PointerCapabilities::default(),
         PointerCapabilities::default(),
-    );
-    let mut stylist = Stylist::new(device, quirks);
+    )
+}
+
+fn stylist(quirks: QuirksMode, sheets: &[DocumentStyleSheet]) -> Stylist {
+    let mut stylist = Stylist::new(device(quirks), quirks);
     let guard = lock().read();
     stylist.append_stylesheet(UA_SHEET.clone(), &guard);
     let mut seen = HashSet::new();
-    for src in sheets {
+    for sheet in sheets {
         // stylo takes each sheet once, and a repeat still counts at its own place in the order.
-        let sheet = if seen.insert(src) {
-            author_sheet(src, quirks, imports)
+        let sheet = if seen.insert(&*sheet.0 as *const _) {
+            sheet.clone()
         } else {
-            sheet(src, Origin::Author, quirks, imports)
+            DocumentStyleSheet(Arc::new((*sheet.0).clone()))
         };
         stylist.append_stylesheet(sheet, &guard);
     }
     let guards = StylesheetGuards::same(&guard);
     let _ = stylist.flush(&guards);
     stylist
-}
-
-fn text_of(node: NodeRef<Node>) -> String {
-    node.children()
-        .filter_map(|c| match c.value() {
-            Node::Text(t) => Some(t.text.as_str()),
-            _ => None,
-        })
-        .collect()
 }
 
 fn has_token(list: Option<&str>, token: &str) -> bool {
@@ -373,40 +381,30 @@ fn has_token(list: Option<&str>, token: &str) -> bool {
 /// leaves off: a foreign `type`, `disabled`, alternates, and titled sheets outside the first
 /// title's set.
 // shortcut: tree order stands in for the order sheets were created, which differs only when a
-// `<link>` loads after a later `<style>` gave the first title; track creation order once a page
+// `<link>` loads after a later `<style>` gave the first title, track creation order once a page
 // relies on that.
-fn author_sheets(
-    root: NodeRef<Node>,
-    base: &str,
-    links: &HashMap<NodeId, LinkSheet>,
-) -> Vec<Source> {
+fn author_sheets(root: NodeRef<Node>, handles: &crate::cssom::Handles) -> Vec<DocumentStyleSheet> {
     let mut preferred = None;
     root.descendants()
         .filter_map(|n| {
             let e = n.value().as_element().filter(|e| e.name.ns == ns!(html))?;
-            let (css, base) = match e.name.local {
-                local_name!("style")
-                    if e.attr("type")
-                        .is_none_or(|t| t.is_empty() || t.eq_ignore_ascii_case("text/css")) =>
-                {
-                    (text_of(n), base.to_owned())
-                }
-                local_name!("link")
-                    if has_token(e.attr("rel"), "stylesheet")
+            let applies = match e.name.local {
+                local_name!("style") => e
+                    .attr("type")
+                    .is_none_or(|t| t.is_empty() || t.eq_ignore_ascii_case("text/css")),
+                local_name!("link") => {
+                    has_token(e.attr("rel"), "stylesheet")
                         && !has_token(e.attr("rel"), "alternate")
-                        && e.attr("disabled").is_none() =>
-                {
-                    let link = links.get(&n.id())?;
-                    (link.css.clone(), link.url.clone())
+                        && e.attr("disabled").is_none()
                 }
-                _ => return None,
+                _ => false,
             };
+            let sheet = handles.owned_sheet(n.id()).filter(|_| applies)?;
             let title = e.attr("title").unwrap_or("");
             if !title.is_empty() && *preferred.get_or_insert_with(|| title.to_owned()) != title {
                 return None;
             }
-            let media = e.attr("media").unwrap_or("").to_owned();
-            Some(Source { css, base, media })
+            Some(sheet)
         })
         .collect()
 }
@@ -440,7 +438,7 @@ fn element_state(node: NodeRef<Node>, query: &QueryState) -> ElementState {
 impl DocStyle {
     /// Rebuilt whenever anything it read may have changed: the document's change counter
     /// covers structure, attributes and text, and focus/target cover element state. The
-    /// stylist survives while the sheets and base URL stay the same.
+    /// stylist survives while the same sheets apply; a CSSOM write drops the table instead.
     // shortcut: whole-table invalidation; stylo snapshots are the upgrade if this shows up in
     // profiles.
     fn build(
@@ -449,18 +447,25 @@ impl DocStyle {
         key: (u32, i32, i32),
         base: &str,
         reuse: Option<DocStyle>,
-        links: &HashMap<NodeId, LinkSheet>,
-        imports: &BTreeMap<String, String>,
+        handles: &crate::cssom::Handles,
     ) -> Self {
         enable_prefs();
         let html = matches!(root.value(), Node::Document(d) if !d.xml);
         // shortcut: standards mode for every document, as jsdom's cascade did; pass the mode
         // through the op once quirks pages matter.
         let quirks = QuirksMode::NoQuirks;
-        let sheets = author_sheets(root, base, links);
+        let sheets = author_sheets(root, handles);
+        let same = |old: &DocStyle| {
+            old.sheets.len() == sheets.len()
+                && old
+                    .sheets
+                    .iter()
+                    .zip(&sheets)
+                    .all(|(a, b)| Arc::ptr_eq(&a.0, &b.0))
+        };
         let stylist = match reuse {
-            Some(old) if old.sheets == sheets && old.base == base => old.stylist,
-            _ => stylist(quirks, &sheets, imports),
+            Some(old) if same(&old) => old.stylist,
+            _ => stylist(quirks, &sheets),
         };
         Self {
             key,
@@ -536,6 +541,15 @@ impl DocStyle {
     }
 }
 
+/// Drops what released documents left behind.
+pub(crate) fn sweep(css: &mut CssState, dom: &DomState) {
+    css.docs.retain(|root, _| dom.doc_version(*root).is_some());
+    css.imports
+        .retain(|root, _| dom.doc_version(*root).is_some());
+    css.handles
+        .retain_docs(|root| dom.doc_version(root).is_some());
+}
+
 /// The element's computed style, `None` outside a document. `base` is the document's base
 /// URL, which resolves relative `url()`s.
 fn style_of(
@@ -546,15 +560,10 @@ fn style_of(
     target: i32,
     base: &str,
 ) -> Option<Arc<ComputedValues>> {
-    // shortcut: a released document's table lingers until the next read; hook `release` if
+    let _gate = GATE.read().unwrap_or_else(|e| e.into_inner());
+    // shortcut: a released document's table lingers until the next read, hook `release` if
     // pages that never read styles again hold many.
-    css.docs.retain(|root, _| dom.doc_version(*root).is_some());
-    css.imports
-        .retain(|root, _| dom.doc_version(*root).is_some());
-    css.links.retain(|id, _| {
-        let root = dom.arena.get(*id).and_then(|n| n.ancestors().last());
-        root.is_some_and(|r| dom.doc_version(r.id()).is_some())
-    });
+    sweep(css, dom);
     let node = dom.resolve(wire).and_then(|id| dom.arena.get(id))?;
     let root = node.ancestors().last().unwrap_or(node);
     if !node.value().is_element() {
@@ -563,10 +572,7 @@ fn style_of(
     let key = (dom.doc_version(root.id())?, focus, target);
     let doc = match css.docs.remove(&root.id()) {
         Some(doc) if doc.key == key && doc.base == base => doc,
-        old => {
-            let imports = css.imports.get(&root.id()).cloned().unwrap_or_default();
-            DocStyle::build(dom, root, key, base, old, &css.links, &imports)
-        }
+        old => DocStyle::build(dom, root, key, base, old, &css.handles),
     };
     let style = doc.computed(&dom.arena, node);
     css.docs.insert(root.id(), doc);
@@ -650,74 +656,44 @@ pub fn op_css_computed_values(
     values
 }
 
-/// The node `wire` names and the root of its tree.
-fn node_and_root(dom: &DomState, wire: u32) -> Option<(NodeId, NodeId)> {
-    let node = dom.resolve(wire).and_then(|id| dom.arena.get(id))?;
-    Some((node.id(), node.ancestors().last().unwrap_or(node).id()))
-}
-
-/// A sheet the page fetched for `owner`, a `<link>` or, for an `@import`, the element whose
-/// sheet imports it; `url` is where it came from. The owner's document restyles on next read.
-#[op2(fast)]
-pub fn op_css_sheet_loaded(
-    state: &mut OpState,
-    owner: u32,
-    #[string] url: String,
-    #[string] body: String,
-    import: bool,
-) {
-    let Some((id, root)) = node_and_root(state.borrow::<DomState>(), owner) else {
-        return;
-    };
-    let mut css = state.try_take::<CssState>().unwrap_or_default();
-    if import {
-        css.imports.entry(root).or_default().insert(url, body);
-    } else {
-        css.links.insert(id, LinkSheet { css: body, url });
-    }
-    css.docs.remove(&root);
-    state.put(css);
-}
-
-/// `owner`'s `<link>` sheet is gone, until it loads again.
-#[op2(fast)]
-pub fn op_css_sheet_removed(state: &mut OpState, owner: u32) {
-    let Some((id, root)) = node_and_root(state.borrow::<DomState>(), owner) else {
-        return;
-    };
-    if let Some(css) = state.try_borrow_mut::<CssState>() {
-        css.links.remove(&id);
-        css.docs.remove(&root);
-    }
-}
-
-/// Runs `f` on the declaration block `text` parses to. The CSSOM keeps no block of its own, so
-/// a `style` attribute is parsed here, once per distinct text.
-fn with_block<R>(text: &str, f: impl FnOnce(&PropertyDeclarationBlock) -> R) -> R {
-    static BLOCKS: LazyLock<Mutex<HashMap<String, PropertyDeclarationBlock>>> =
+/// Runs `f` on the declaration block `text` parses to, its relative `url()`s resolved against
+/// `base`. The CSSOM keeps no block of its own, so a `style` attribute is parsed here, once per
+/// distinct text and base.
+fn with_block<R>(text: &str, base: &str, f: impl FnOnce(&PropertyDeclarationBlock) -> R) -> R {
+    static BLOCKS: LazyLock<Mutex<HashMap<(String, String), PropertyDeclarationBlock>>> =
         LazyLock::new(Default::default);
     let mut blocks = BLOCKS.lock().unwrap_or_else(|e| e.into_inner());
-    if !blocks.contains_key(text) {
+    let key = (text.to_owned(), base.to_owned());
+    if !blocks.contains_key(&key) {
         // shortcut: drops the whole cache when full, as the sheet cache does.
         if blocks.len() >= SHEET_CACHE_SIZE {
             blocks.clear();
         }
-        enable_prefs();
-        let block = parse_style_attribute(
-            &preprocess(text),
-            &url_data("about:blank"),
-            None,
-            QuirksMode::NoQuirks,
-            CssRuleType::Style,
-        );
-        blocks.insert(text.to_owned(), block);
+        let block = parse_block(text, &url_data(base), CssRuleType::Style);
+        blocks.insert(key.clone(), block);
     }
-    f(&blocks[text])
+    f(&blocks[&key])
+}
+
+/// `text` as the declarations of a rule of `rule_type`.
+pub(crate) fn parse_block(
+    text: &str,
+    base: &UrlExtraData,
+    rule_type: CssRuleType,
+) -> PropertyDeclarationBlock {
+    enable_prefs();
+    parse_style_attribute(
+        &preprocess(text),
+        base,
+        None,
+        QuirksMode::NoQuirks,
+        rule_type,
+    )
 }
 
 /// CSS input preprocessing, which stylo leaves to its embedder: custom property values keep
 /// their source text, so a raw CR or form feed would otherwise survive serialisation.
-fn preprocess(text: &str) -> String {
+pub(crate) fn preprocess(text: &str) -> String {
     text.replace("\r\n", "\n")
         .replace(['\r', '\u{c}'], "\n")
         .replace('\0', "\u{fffd}")
@@ -739,20 +715,20 @@ fn property_id(name: &str) -> Option<PropertyId> {
     PropertyId::parse_enabled_for_all_content(name).ok()
 }
 
-fn block_text(block: &PropertyDeclarationBlock) -> String {
+pub(crate) fn block_text(block: &PropertyDeclarationBlock) -> String {
     let mut s = String::new();
     let _ = block.to_css(&mut s);
     s
 }
 
 /// The serialization of the declarations in `text`, for `style.cssText`.
-pub fn declarations_text(text: &str) -> String {
-    with_block(text, block_text)
+pub fn declarations_text(text: &str, base: &str) -> String {
+    with_block(text, base, block_text)
 }
 
 /// The longhands `text` declares, in order, for `style.length` and `style.item()`.
-pub fn declaration_names(text: &str) -> Vec<String> {
-    with_block(text, |block| {
+pub fn declaration_names(text: &str, base: &str) -> Vec<String> {
+    with_block(text, base, |block| {
         block
             .declarations()
             .iter()
@@ -762,11 +738,11 @@ pub fn declaration_names(text: &str) -> Vec<String> {
 }
 
 /// `property`'s value and whether it is `!important`; `""` for an unknown or undeclared one.
-pub fn declaration_value(text: &str, property: &str) -> (String, bool) {
+pub fn declaration_value(text: &str, base: &str, property: &str) -> (String, bool) {
     let Some(id) = property_id(property) else {
         return (String::new(), false);
     };
-    with_block(text, |block| {
+    with_block(text, base, |block| {
         let mut value = String::new();
         let _ = block.property_value_to_css(&id, &mut value);
         (value, block.property_priority(&id).important())
@@ -775,7 +751,13 @@ pub fn declaration_value(text: &str, property: &str) -> (String, bool) {
 
 /// The serialization of `text` with `property` set to `value`, or `None` when the name is
 /// unknown, the value does not parse, or nothing would change.
-pub fn set_declaration(text: &str, property: &str, value: &str, important: bool) -> Option<String> {
+pub fn set_declaration(
+    text: &str,
+    base: &str,
+    property: &str,
+    value: &str,
+    important: bool,
+) -> Option<String> {
     let id = property_id(property)?;
     enable_prefs();
     let mut source = SourcePropertyDeclaration::default();
@@ -784,7 +766,7 @@ pub fn set_declaration(text: &str, property: &str, value: &str, important: bool)
         id,
         &preprocess(value),
         Origin::Author,
-        &url_data("about:blank"),
+        &url_data(base),
         None,
         ParsingMode::DEFAULT,
         QuirksMode::NoQuirks,
@@ -796,7 +778,7 @@ pub fn set_declaration(text: &str, property: &str, value: &str, important: bool)
     } else {
         Importance::Normal
     };
-    with_block(text, |block| {
+    with_block(text, base, |block| {
         let mut block = block.clone();
         let mut updates = SourcePropertyDeclarationUpdate::default();
         if !block.prepare_for_update(&source, importance, &mut updates) {
@@ -809,9 +791,9 @@ pub fn set_declaration(text: &str, property: &str, value: &str, important: bool)
 
 /// The serialization of `text` without `property` (and, for a shorthand, its longhands), or
 /// `None` when it declares none of them.
-pub fn remove_declaration(text: &str, property: &str) -> Option<String> {
+pub fn remove_declaration(text: &str, base: &str, property: &str) -> Option<String> {
     let id = property_id(property)?;
-    with_block(text, |block| {
+    with_block(text, base, |block| {
         let first = block.first_declaration_to_remove(&id)?;
         let mut block = block.clone();
         block.remove_property(&id, first);
@@ -835,37 +817,46 @@ pub fn computed_longhands() -> Vec<String> {
 
 #[op2]
 #[string]
-pub fn op_css_declarations_text(#[string] text: &str) -> String {
-    declarations_text(text)
+pub fn op_css_declarations_text(#[string] text: &str, #[string] base: &str) -> String {
+    declarations_text(text, base)
 }
 
 #[op2]
 #[serde]
-pub fn op_css_declaration_names(#[string] text: &str) -> Vec<String> {
-    declaration_names(text)
+pub fn op_css_declaration_names(#[string] text: &str, #[string] base: &str) -> Vec<String> {
+    declaration_names(text, base)
 }
 
 #[op2]
 #[serde]
-pub fn op_css_declaration_value(#[string] text: &str, #[string] property: &str) -> (String, bool) {
-    declaration_value(text, property)
+pub fn op_css_declaration_value(
+    #[string] text: &str,
+    #[string] base: &str,
+    #[string] property: &str,
+) -> (String, bool) {
+    declaration_value(text, base, property)
 }
 
 #[op2]
 #[string]
 pub fn op_css_set_declaration(
     #[string] text: &str,
+    #[string] base: &str,
     #[string] property: &str,
     #[string] value: &str,
     important: bool,
 ) -> Option<String> {
-    set_declaration(text, property, value, important)
+    set_declaration(text, base, property, value, important)
 }
 
 #[op2]
 #[string]
-pub fn op_css_remove_declaration(#[string] text: &str, #[string] property: &str) -> Option<String> {
-    remove_declaration(text, property)
+pub fn op_css_remove_declaration(
+    #[string] text: &str,
+    #[string] base: &str,
+    #[string] property: &str,
+) -> Option<String> {
+    remove_declaration(text, base, property)
 }
 
 #[op2]
@@ -1444,7 +1435,7 @@ impl<'a> TElement for N<'a> {
         .map(|v| AtomString::from(v.as_str()))
     }
 
-    // shortcut: equality or `-` prefix match only, no RFC 4647 `*` wildcards; upgrade when a
+    // shortcut: equality or `-` prefix match only, no RFC 4647 `*` wildcards, upgrade when a
     // page uses `:lang("*-CH")`.
     fn match_element_lang(
         &self,
@@ -1472,7 +1463,7 @@ impl<'a> TElement for N<'a> {
                 .is_some_and(|p| N::is_root(&self.with(p)))
     }
 
-    // shortcut: no presentational hints (`bgcolor`, `width=`, `hidden` is in the UA sheet);
+    // shortcut: no presentational hints (`bgcolor`, `width=`, `hidden` is in the UA sheet),
     // port Blitz's table when the corpus shows them.
     fn synthesize_presentational_hints_for_legacy_attributes<V>(
         &self,
@@ -1548,6 +1539,9 @@ mod tests {
         let b = dom.parse_document("<p>b</p>");
         let (pa, pb) = (element(&mut dom, a, "p"), element(&mut dom, b, "p"));
         let mut css = CssState::default();
+        let style = element(&mut dom, a, "style");
+        let style = dom.resolve(style);
+        css.sheet_new(a, style, "p { color: rgb(1, 2, 3) }", "about:blank", "");
         let color = |css: &mut CssState, dom: &DomState, wire| {
             computed_values(css, dom, wire, -1, -1, "about:blank", &["color".into()]).remove(0)
         };
@@ -1572,11 +1566,11 @@ mod tests {
     fn declarations_read_and_write_through_text() {
         let text = "COLOR: red; margin: 1px 2px; --Gap: 3px; bogus: 1";
         assert_eq!(
-            declarations_text(text),
+            declarations_text(text, "about:blank"),
             "color: red; margin: 1px 2px; --Gap: 3px;"
         );
         assert_eq!(
-            declaration_names(text),
+            declaration_names(text, "about:blank"),
             [
                 "color",
                 "margin-top",
@@ -1587,27 +1581,48 @@ mod tests {
             ]
         );
         assert_eq!(
-            declaration_value(text, "margin-left"),
+            declaration_value(text, "about:blank", "margin-left"),
             ("2px".into(), false)
         );
-        assert_eq!(declaration_value(text, "bogus"), (String::new(), false));
+        assert_eq!(
+            declaration_value(text, "about:blank", "bogus"),
+            (String::new(), false)
+        );
 
-        let set = set_declaration(text, "Color", "blue", true).unwrap();
+        let set = set_declaration(text, "about:blank", "Color", "blue", true).unwrap();
         assert_eq!(set, "color: blue !important; margin: 1px 2px; --Gap: 3px;");
-        assert_eq!(declaration_value(&set, "color"), ("blue".into(), true));
-        assert_eq!(set_declaration(&set, "color", "blue", true), None);
-        assert_eq!(set_declaration(text, "color", "1px", false), None);
-        assert_eq!(set_declaration(text, "bogus", "1", false), None);
+        assert_eq!(
+            declaration_value(&set, "about:blank", "color"),
+            ("blue".into(), true)
+        );
+        assert_eq!(
+            set_declaration(&set, "about:blank", "color", "blue", true),
+            None
+        );
+        assert_eq!(
+            set_declaration(text, "about:blank", "color", "1px", false),
+            None
+        );
+        assert_eq!(
+            set_declaration(text, "about:blank", "bogus", "1", false),
+            None
+        );
 
         assert_eq!(
-            remove_declaration(text, "margin").unwrap(),
+            remove_declaration(text, "about:blank", "margin").unwrap(),
             "color: red; --Gap: 3px;"
         );
-        assert_eq!(remove_declaration(text, "padding"), None);
+        assert_eq!(remove_declaration(text, "about:blank", "padding"), None);
 
-        assert_eq!(declarations_text("--x: a\r\nb\u{c}c"), "--x: a\nb\nc;");
-        assert_eq!(set_declaration("", "--x ", "1", false), None);
-        assert_eq!(set_declaration("", "--x y", "1", false), None);
+        assert_eq!(
+            declarations_text("--x: a\r\nb\u{c}c", "about:blank"),
+            "--x: a\nb\nc;"
+        );
+        assert_eq!(set_declaration("", "about:blank", "--x ", "1", false), None);
+        assert_eq!(
+            set_declaration("", "about:blank", "--x y", "1", false),
+            None
+        );
     }
 
     #[test]
