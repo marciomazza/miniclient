@@ -9,8 +9,10 @@ Needs vendor/jsdom with its test/web-platform-tests submodule checked out, and a
 """
 
 import asyncio
+import contextlib
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -91,6 +93,9 @@ def serve():
         cwd=WPT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        # wpt serve forks one process per port; killing the group keeps none alive to answer
+        # the next run with a stale config.
+        start_new_session=True,
     )
     for _ in range(300):
         try:
@@ -98,8 +103,14 @@ def serve():
             return server
         except OSError:
             time.sleep(0.5)
-    server.kill()
+    stop(server, signal.SIGKILL)
     sys.exit("wpt serve did not come up")
+
+
+def stop(server, sig):
+    # Already gone is fine; raising here would mask the error that ended the run.
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(server.pid, sig)
 
 
 def passing(result):
@@ -129,7 +140,7 @@ def main():
                         break
                     now[p] = sorted(set(now[p]) | set(passing(run_file(p)[1])))
     finally:
-        server.terminate()
+        stop(server, signal.SIGTERM)
 
     total = sum(len(r["tests"]) for r in results.values())
     print(f"{sum(map(len, now.values()))} / {total} subtests pass in {len(paths)} files")
