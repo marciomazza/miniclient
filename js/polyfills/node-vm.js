@@ -1,14 +1,6 @@
-// jsdom's createWindow() needs vm.createContext/runInContext/isContext/constants to give
-// window scripts (page <script> tags, inline hx-on handlers) a global scope with real
-// var/function hoisting -- a `with` + eval shim can't do that, only genuine global-code eval
-// can. Real Node gives each Window its own V8 context; this runtime has exactly one V8
-// context per Runtime and mini only ever runs one Window per Runtime (no tabs), so there is
-// nothing to actually isolate -- "the context" is a plain object during construction (kept
-// distinct from globalThis so jsdom's own property setup during createWindow can't collide
-// with bootstrap.js's later copy-onto-globalThis step), and real global code for everything
-// else: by the time any page script actually runs, that copy step has already synced the
-// window's properties onto globalThis, so indirect eval landing on globalThis (rather than a
-// separate context) sees exactly the same state a real per-window realm would.
+// jsdom's createWindow() needs node:vm. mini runs one Window per V8 context, so the "context" is
+// a plain object during construction, and page scripts run as global code on globalThis, which
+// bootstrap.js has synced with the window's properties by then.
 const constants = { DONT_CONTEXTIFY: Symbol("DONT_CONTEXTIFY") };
 const _contexts = new WeakSet();
 
@@ -24,9 +16,15 @@ function isContext(ctx) {
 
 // jsdom's own "give me this context's global proxy" bootstrap call -- there is no separate
 // realm to proxy into, so the context object doubles as its own global proxy.
-function runInContext(code, context) {
+function runInContext(code, context, options) {
     if (code === "this") return context;
-    return (0, eval)(code);
+    // Compiled as a Script, not an indirect eval: a strict eval keeps its declarations to
+    // itself, but a "use strict" classic script still declares globals.
+    const filename = options?.filename;
+    const specifier = filename && URL.canParse(filename) ? filename : "about:blank";
+    const [result, error] = Deno.core.evalContext(code, specifier);
+    if (error) throw error.thrown;
+    return result;
 }
 
 export { constants, createContext, isContext, runInContext };

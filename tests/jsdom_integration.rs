@@ -36,6 +36,19 @@ fn script_executed_on_dom_insertion() {
 }
 
 #[test]
+fn strict_script_declares_globals() {
+    // A classic script is global code even under "use strict", unlike a strict eval.
+    let rt = runtime();
+    let js = r#"
+        const script = document.createElement('script');
+        script.textContent = "'use strict'; function strictFn() {} var strictVar = 1;";
+        document.body.append(script);
+        typeof strictFn + ' ' + typeof strictVar;
+    "#;
+    assert_eq!(rt.eval::<String>(js), "function number");
+}
+
+#[test]
 fn script_with_data_uri_src_executed() {
     // document.write's script is parser-inserted, so it fetches and executes automatically.
     let rt = runtime();

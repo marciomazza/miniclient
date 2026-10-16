@@ -993,12 +993,7 @@
  "/eventsource/request-status-error.window.html": [],
  "/fetch/api/abort/cache.https.any.html": [],
  "/fetch/api/abort/destroyed-context.html": [],
- "/fetch/api/abort/general.any.html": [
-  "Aborting rejects with AbortError",
-  "Aborting rejects with AbortError - no-cors",
-  "Aborting rejects with abort reason",
-  "Aborting rejects with abort reason when aborted after fetch() called"
- ],
+ "/fetch/api/abort/general.any.html": [],
  "/fetch/api/abort/keepalive.html": [],
  "/fetch/api/abort/request.any.html": [
   "Aborting a request after calling arrayBuffer()",
