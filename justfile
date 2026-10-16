@@ -21,7 +21,11 @@ test-wpt: develop
 test-wpt-extended: develop
     uv run python tests/wpt/run.py --extended
 
-# Re-record the WPT baseline (3 runs); pass --extended for the larger set.
+# CSS and CSSOM WPT set; fails on regressions from tests/wpt/expected-css.json.
+test-wpt-css: develop
+    uv run python tests/wpt/run.py --css
+
+# Re-record the WPT baseline (3 runs); pass --extended or --css for the other sets.
 update-wpt *args: develop
     uv run python tests/wpt/run.py --update {{args}}
 

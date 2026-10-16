@@ -1,8 +1,9 @@
-"""Runs the WPT fetch/CORS window tests inside miniclient and compares with expected.json.
+"""Runs WPT window tests inside miniclient and compares with expected.json.
 
     uv run python tests/wpt/run.py            # fail on regressions
     uv run python tests/wpt/run.py --update   # record what passes in 3 runs as the new baseline
     uv run python tests/wpt/run.py --extended # the larger file set (files-extended.txt)
+    uv run python tests/wpt/run.py --css      # CSS and CSSOM tests (files-css.txt)
 
 Needs vendor/jsdom with its test/web-platform-tests submodule checked out, and a built extension
 (`just develop`).
@@ -119,7 +120,11 @@ def passing(result):
 
 def main():
     update = "--update" in sys.argv
-    suffix = "-extended" if "--extended" in sys.argv else ""
+    suffix = ""
+    if "--extended" in sys.argv:
+        suffix = "-extended"
+    if "--css" in sys.argv:
+        suffix = "-css"
     expected_file = HERE / f"expected{suffix}.json"
     expected = {} if update else json.loads(expected_file.read_text())
     paths = HERE.joinpath(f"files{suffix}.txt").read_text().split()
@@ -144,6 +149,10 @@ def main():
 
     total = sum(len(r["tests"]) for r in results.values())
     print(f"{sum(map(len, now.values()))} / {total} subtests pass in {len(paths)} files")
+    # A file that never reports records no passes, like one that fails everything: name it.
+    for p, r in results.items():
+        if r["status"] == "ERROR":
+            print(f"no result: {p}: {r['message']}")
     if update:
         expected_file.write_text(json.dumps(now, indent=1, sort_keys=True) + "\n")
         return

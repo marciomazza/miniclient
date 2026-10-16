@@ -70,3 +70,12 @@ XMLHttpRequest, iframes, workers or HTTP/2, which miniclient does not provide. T
 `just test-wpt-extended` runs a larger set (`files-extended.txt`: the rest of
 `fetch/api`, `xhr`, form submission, DOM events, timers, `url` and `eventsource`) against
 `expected-extended.json`. A single run takes about 20 minutes, so it is not part of `just test-wpt`.
+
+`just test-wpt-css` runs the CSS files in `files-css.txt` (about 20 seconds) against
+`expected-css.json`: every file jsdom runs from `cssom`, `css-cascade`, `css-conditional`,
+`css-nesting`, `css-variables`, `css-syntax`, `css-values`, `css-animations` and `mediaqueries`, the
+`parsing/` directories of the other CSS modules, and jsdom's `to-upstream/css` tests, served under
+`/to-upstream/`. Left out: files jsdom skips as slow or timing out, `selectors` (selector matching),
+`cssom-view` and `geometry` (layout), and the few files that hang until the per-file timeout. Every
+run names the files that ended with no result (`no result: ...`), since they record no passes just
+like a file that fails everything.

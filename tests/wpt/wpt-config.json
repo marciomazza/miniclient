@@ -1,1 +1,1 @@
-{"browser_host":"localhost","check_subdomains":false,"ports":{"http":[8000,8001],"https":[8443,8444],"ws":[8888],"wss":[8889]},"server_host":"127.0.0.1"}
+{"aliases":[{"url-path":"/to-upstream/","local-dir":"../to-upstream/"}],"browser_host":"localhost","check_subdomains":false,"ports":{"http":[8000,8001],"https":[8443,8444],"ws":[8888],"wss":[8889]},"server_host":"127.0.0.1"}
