@@ -46,7 +46,28 @@
  ],
  "/css/css-animations/parsing/keyframe-selectors.html": [],
  "/css/css-animations/parsing/keyframes-allowed-properties.html": [],
- "/css/css-animations/parsing/keyframes-name-invalid.html": [],
+ "/css/css-animations/parsing/keyframes-name-invalid.html": [
+  "invalid: @keyframes \"\" { }",
+  "invalid: @keyframes -12 { }",
+  "invalid: @keyframes 12 { }",
+  "invalid: @keyframes 12foo { }",
+  "invalid: @keyframes default { }",
+  "invalid: @keyframes default, two { }",
+  "invalid: @keyframes foo.bar { }",
+  "invalid: @keyframes inherit { }",
+  "invalid: @keyframes initial { }",
+  "invalid: @keyframes none { }",
+  "invalid: @keyframes one two { }",
+  "invalid: @keyframes one, inherit { }",
+  "invalid: @keyframes one, initial { }",
+  "invalid: @keyframes one, two { }",
+  "invalid: @keyframes one, unset { }",
+  "invalid: @keyframes revert { }",
+  "invalid: @keyframes revert, three { }",
+  "invalid: @keyframes revert-layer { }",
+  "invalid: @keyframes revert-layer, four { }",
+  "invalid: @keyframes unset { }"
+ ],
  "/css/css-animations/parsing/keyframes-name-valid.html": [
   "valid: @keyframes   foo { }",
   "valid: @keyframes  foo  { }",
@@ -5112,7 +5133,9 @@
  "/css/css-conditional/at-media-matches-001.html": [],
  "/css/css-conditional/at-supports-at-rule-serialization.html": [
   "@supports at-rule",
+  "@supports at-rule 1",
   "@supports at-rule 10",
+  "@supports at-rule 11",
   "@supports at-rule 12",
   "@supports at-rule 13",
   "@supports at-rule 14",
@@ -5121,6 +5144,7 @@
   "@supports at-rule 17",
   "@supports at-rule 18",
   "@supports at-rule 19",
+  "@supports at-rule 2",
   "@supports at-rule 20",
   "@supports at-rule 21",
   "@supports at-rule 22",
@@ -5363,6 +5387,8 @@
   "insertRule of @import into @supports",
   "insertRule of empty string into @media",
   "insertRule of empty string into @supports",
+  "insertRule of invalid @media into @media",
+  "insertRule of invalid @media into @supports",
   "insertRule of mutiple valid @media into @media",
   "insertRule of mutiple valid @media into @supports",
   "insertRule of two valid style rules into @media",
@@ -5742,9 +5768,13 @@
   "font-stretch: condensed is valid",
   "font-stretch: normal is valid",
   "font-stretch: normal, expanded is invalid",
+  "font-width and font-stretch address the same descriptor",
   "font-width: -1% is invalid",
   "font-width: 125 is invalid",
+  "font-width: 125% is valid",
   "font-width: condensed expanded normal is invalid",
+  "font-width: condensed is valid",
+  "font-width: normal is valid",
   "font-width: normal, expanded is invalid"
  ],
  "/css/css-fonts/parsing/font-family-computed.html": [],
@@ -8644,9 +8674,11 @@
   "CSSStyleRule is a CSSGroupingRule",
   "Simple CSSOM manipulation of subrules",
   "Simple CSSOM manipulation of subrules 1",
+  "Simple CSSOM manipulation of subrules 10",
   "Simple CSSOM manipulation of subrules 2",
   "Simple CSSOM manipulation of subrules 3",
   "Simple CSSOM manipulation of subrules 4",
+  "Simple CSSOM manipulation of subrules 5",
   "Simple CSSOM manipulation of subrules 6",
   "Simple CSSOM manipulation of subrules 7",
   "Simple CSSOM manipulation of subrules 8",
@@ -8667,7 +8699,9 @@
  "/css/css-nesting/invalidation-003.html": [
   "CSS Selectors nested invalidation with :has()"
  ],
- "/css/css-nesting/invalidation-004.html": [],
+ "/css/css-nesting/invalidation-004.html": [
+  "CSS Selectors nested invalidation through @media by selectorText"
+ ],
  "/css/css-nesting/mixed-declarations-rules.html": [
   "Nested declarations and rules should be handled correctly"
  ],
@@ -9092,45 +9126,89 @@
   "\"+ n\" becomes \"parse error\"",
   "\"+ n- 5\" becomes \"parse error\"",
   "\"+ n-5\" becomes \"parse error\"",
+  "\"+1\" becomes \"1\"",
   "\"+2 n\" becomes \"parse error\"",
   "\"+n + +5\" becomes \"parse error\"",
   "\"+n + -5\" becomes \"parse error\"",
+  "\"+n + 5\" becomes \"n+5\"",
+  "\"+n +5\" becomes \"n+5\"",
   "\"+n - +5\" becomes \"parse error\"",
   "\"+n - -5\" becomes \"parse error\"",
+  "\"+n - 5\" becomes \"n-5\"",
+  "\"+n -5\" becomes \"n-5\"",
+  "\"+n\" becomes \"n\"",
+  "\"+n- 5\" becomes \"n-5\"",
+  "\"+n-5\" becomes \"n-5\"",
   "\"- 2n\" becomes \"parse error\"",
   "\"-1 + n\" becomes \"parse error\"",
   "\"-1\" becomes \"-1\"",
+  "\"-5n- 5\" becomes \"-5n-5\"",
+  "\"-N\" becomes \"-n\"",
   "\"-n + +5\" becomes \"parse error\"",
   "\"-n + -5\" becomes \"parse error\"",
+  "\"-n + 5\" becomes \"-n+5\"",
+  "\"-n +5\" becomes \"-n+5\"",
   "\"-n - +5\" becomes \"parse error\"",
   "\"-n - -5\" becomes \"parse error\"",
+  "\"-n - 5\" becomes \"-n-5\"",
+  "\"-n -5\" becomes \"-n-5\"",
   "\"-n 5\" becomes \"parse error\"",
   "\"-n\" becomes \"-n\"",
   "\"-n- +5\" becomes \"parse error\"",
   "\"-n- -5\" becomes \"parse error\"",
+  "\"-n- 5\" becomes \"-n-5\"",
   "\"-n-5\" becomes \"-n-5\"",
   "\"0 - n\" becomes \"parse error\"",
   "\"1 - n\" becomes \"parse error\"",
   "\"1\" becomes \"1\"",
   "\"2 n + 2\" becomes \"parse error\"",
+  "\"5N\" becomes \"5n\"",
   "\"5n + +5\" becomes \"parse error\"",
   "\"5n + -5\" becomes \"parse error\"",
+  "\"5n + 5\" becomes \"5n+5\"",
+  "\"5n +5\" becomes \"5n+5\"",
   "\"5n - +5\" becomes \"parse error\"",
   "\"5n - -5\" becomes \"parse error\"",
+  "\"5n - 5\" becomes \"5n-5\"",
+  "\"5n -5\" becomes \"5n-5\"",
   "\"5n\" becomes \"5n\"",
   "\"5n- +5\" becomes \"parse error\"",
   "\"5n- -5\" becomes \"parse error\"",
+  "\"5n- 5\" becomes \"5n-5\"",
   "\"5n-5\" becomes \"5n-5\"",
+  "\"N\" becomes \"n\"",
+  "\"even\" becomes \"2n\"",
+  "\"n + 5\" becomes \"n+5\"",
+  "\"n +5\" becomes \"n+5\"",
   "\"n 5\" becomes \"parse error\"",
   "\"n\" becomes \"n\"",
   "\"n- +5\" becomes \"parse error\"",
   "\"n- -5\" becomes \"parse error\"",
-  "\"n-5\" becomes \"n-5\""
+  "\"n- 5\" becomes \"n-5\"",
+  "\"n-5\" becomes \"n-5\"",
+  "\"odd\" becomes \"2n+1\""
  ],
  "/css/css-syntax/anb-serialization.html": [
+  "\"+1\" becomes \"1\"",
+  "\"+n+1\" becomes \"n+1\"",
   "\"-1\" becomes \"-1\"",
+  "\"-1n + 1\" becomes \"-n+1\"",
+  "\"-1n - 0\" becomes \"-n\"",
+  "\"-1n - 1\" becomes \"-n-1\"",
+  "\"-1n\" becomes \"-n\"",
+  "\"-2n - 2\" becomes \"-2n-2\"",
   "\"-n-1\" becomes \"-n-1\"",
-  "\"1\" becomes \"1\""
+  "\"0n + 0\" becomes \"0\"",
+  "\"0n + 1\" becomes \"1\"",
+  "\"0n - 1\" becomes \"-1\"",
+  "\"1\" becomes \"1\"",
+  "\"1n + 1\" becomes \"n+1\"",
+  "\"1n - 0\" becomes \"n\"",
+  "\"1n - 1\" becomes \"n-1\"",
+  "\"1n\" becomes \"n\"",
+  "\"2n + 2\" becomes \"2n+2\"",
+  "\"n + 0\" becomes \"n\"",
+  "\"n - 0\" becomes \"n\""
  ],
  "/css/css-syntax/at-rule-in-declaration-list.html": [],
  "/css/css-syntax/cdc-vs-ident-tokens.html": [
@@ -9244,7 +9322,18 @@
   "\"foo\u001f\" becomes \"parse error\"",
   "\"foo\u007f\" becomes \"parse error\""
  ],
- "/css/css-syntax/input-preprocessing.html": [],
+ "/css/css-syntax/input-preprocessing.html": [
+  "\"\u0000\u0000\u0000\" becomes \"\ufffd\ufffd\ufffd\"",
+  "\"\u0000\" becomes \"\ufffd\"",
+  "\"\u0000foo\" becomes \"\ufffdfoo\"",
+  "\"U+d800\" becomes \"\ufffd\"",
+  "\"U+d800U+d800U+d800\" becomes \"\ufffd\ufffd\ufffd\"",
+  "\"U+d800foo\" becomes \"\ufffdfoo\"",
+  "\"f\u0000oo\" becomes \"f\ufffdoo\"",
+  "\"fU+d800oo\" becomes \"f\ufffdoo\"",
+  "\"foo\u0000\" becomes \"foo\ufffd\"",
+  "\"fooU+d800\" becomes \"foo\ufffd\""
+ ],
  "/css/css-syntax/invalid-nested-rules.html": [],
  "/css/css-syntax/non-ascii-codepoints.html": [
   "Codepoint U+11bf is a valid 'non-ASCII ident codepoint'.",
@@ -9359,7 +9448,9 @@
  "/css/css-syntax/unicode-range-selector.html": [
   "Unicode range is not a token, and doesn't cause confusion in selectors"
  ],
- "/css/css-syntax/urange-parsing.html": [],
+ "/css/css-syntax/urange-parsing.html": [
+  "u+a is a valid selector"
+ ],
  "/css/css-syntax/url-whitespace-consumption.html": [
   "whitespace is optional between url( token and the string token"
  ],
@@ -10518,11 +10609,15 @@
  "/css/cssom/CSSFontFaceRule.html": [
   "CSSFontFaceRule.cssText doesn't serialize with newlines"
  ],
- "/css/cssom/CSSFontFeatureValuesRule.html": [],
+ "/css/cssom/CSSFontFeatureValuesRule.html": [
+  "CSSFontFeatureValuesRule family is settable and readable."
+ ],
  "/css/cssom/CSSGroupingRule-cssRules.html": [
   "[SameObject] is honored"
  ],
- "/css/cssom/CSSGroupingRule-insertRule-computed.html": [],
+ "/css/cssom/CSSGroupingRule-insertRule-computed.html": [
+  "Styles should be recomputed correctly after insertRule and deleteRule on a CSSGroupingRule."
+ ],
  "/css/cssom/CSSGroupingRule-insertRule.html": [
   "CSS parsing error",
   "constraint violation",
@@ -10661,8 +10756,11 @@
   "selectorText getter returns the initial selector"
  ],
  "/css/cssom/CSSStyleRule-set-selectorText-namespace.html": [
+  "CSSStyleRule: selectorText value: | *.style1  | isMatch: false",
+  "CSSStyleRule: selectorText value: |*|*.style1  | isMatch: true",
   "CSSStyleRule: selectorText value: |.style1| isMatch: false",
-  "CSSStyleRule: selectorText value: |p| isMatch: false"
+  "CSSStyleRule: selectorText value: |p| isMatch: false",
+  "CSSStyleRule: selectorText value: |svg|*.style1  | isMatch: true"
  ],
  "/css/cssom/CSSStyleRule-set-selectorText.html": [
   "CSSStyleRule: Can read selectorText value.",
@@ -10679,29 +10777,69 @@
   "CSSStyleRule: Invalid CSS selector: :",
   "CSSStyleRule: Invalid CSS selector: ::",
   "CSSStyleRule: Invalid CSS selector: :::",
+  "CSSStyleRule: Invalid CSS selector: ::gibberish",
+  "CSSStyleRule: Invalid CSS selector: :gibberish",
   "CSSStyleRule: Invalid CSS selector: [",
   "CSSStyleRule: Invalid CSS selector: []",
   "CSSStyleRule: Invalid CSS selector: {",
   "CSSStyleRule: Invalid CSS selector: {}",
+  "CSSStyleRule: selectorText value: |  #container | isMatch: true",
+  "CSSStyleRule: selectorText value: |#container  | isMatch: true",
+  "CSSStyleRule: selectorText value: |#container| isMatch: true",
   "CSSStyleRule: selectorText value: |#no-match| isMatch: false",
+  "CSSStyleRule: selectorText value: |*:not(:active)| isMatch: true",
+  "CSSStyleRule: selectorText value: |*| isMatch: true",
+  "CSSStyleRule: selectorText value: |*|*| isMatch: true",
+  "CSSStyleRule: selectorText value: |*|a| isMatch: false",
+  "CSSStyleRule: selectorText value: |*|div| isMatch: true",
+  "CSSStyleRule: selectorText value: |.style1| isMatch: true",
   "CSSStyleRule: selectorText value: |::after| isMatch: false",
   "CSSStyleRule: selectorText value: |::before| isMatch: false",
   "CSSStyleRule: selectorText value: |::first-letter| isMatch: false",
   "CSSStyleRule: selectorText value: |::first-line| isMatch: false",
   "CSSStyleRule: selectorText value: |:active| isMatch: false",
+  "CSSStyleRule: selectorText value: |:after| isMatch: false",
+  "CSSStyleRule: selectorText value: |:before| isMatch: false",
+  "CSSStyleRule: selectorText value: |:first-letter| isMatch: false",
   "CSSStyleRule: selectorText value: |:lang(tr-AZ)| isMatch: false",
+  "CSSStyleRule: selectorText value: |:lang(zh)| isMatch: true",
+  "CSSStyleRule: selectorText value: |:lang(zh-CN)| isMatch: true",
+  "CSSStyleRule: selectorText value: |:not(:active)| isMatch: true",
+  "CSSStyleRule: selectorText value: |[*|lang]| isMatch: true",
+  "CSSStyleRule: selectorText value: |[lang*=\"-\"]| isMatch: true",
   "CSSStyleRule: selectorText value: |[lang*=\"ab\"]| isMatch: false",
+  "CSSStyleRule: selectorText value: |[lang*=\"h-\"]| isMatch: true",
   "CSSStyleRule: selectorText value: |[lang=\"ab-CD\"]| isMatch: false",
+  "CSSStyleRule: selectorText value: |[lang=\"zh-CN\"]| isMatch: true",
   "CSSStyleRule: selectorText value: |[lang^=\"ab\"]| isMatch: false",
+  "CSSStyleRule: selectorText value: |[lang^=\"z\"]| isMatch: true",
   "CSSStyleRule: selectorText value: |[language-no]| isMatch: false",
+  "CSSStyleRule: selectorText value: |[language]| isMatch: true",
   "CSSStyleRule: selectorText value: |[lang|=\"ab\"]| isMatch: false",
   "CSSStyleRule: selectorText value: |[lang|=\"z\"]| isMatch: false",
+  "CSSStyleRule: selectorText value: |[lang|=\"zh\"]| isMatch: true",
+  "CSSStyleRule: selectorText value: |[lang|=\"zh-CN\"]| isMatch: true",
+  "CSSStyleRule: selectorText value: |[segment$=\"3\"]| isMatch: true",
   "CSSStyleRule: selectorText value: |[segment$=\"42\"]| isMatch: false",
+  "CSSStyleRule: selectorText value: |[segment$=\"43\"]| isMatch: true",
+  "CSSStyleRule: selectorText value: |[segment~=\"42\"]| isMatch: true",
+  "CSSStyleRule: selectorText value: |[segment~=\"43\"]| isMatch: true",
+  "CSSStyleRule: selectorText value: |[|lang]| isMatch: true",
   "CSSStyleRule: selectorText value: |div > div| isMatch: false",
   "CSSStyleRule: selectorText value: |div div| isMatch: false",
+  "CSSStyleRule: selectorText value: |div.style1| isMatch: true",
   "CSSStyleRule: selectorText value: |div:active| isMatch: false",
   "CSSStyleRule: selectorText value: |div:focus:not([lang=\"zh-CN\"])| isMatch: false",
+  "CSSStyleRule: selectorText value: |div:not(#non-existing-id)| isMatch: true",
+  "CSSStyleRule: selectorText value: |div:not(:active)| isMatch: true",
+  "CSSStyleRule: selectorText value: |div[lang=\"zh-CN\"]:not(:focus)| isMatch: true",
+  "CSSStyleRule: selectorText value: |div| isMatch: true",
+  "CSSStyleRule: selectorText value: |p + div| isMatch: true",
+  "CSSStyleRule: selectorText value: |p ~ div| isMatch: true",
+  "CSSStyleRule: selectorText value: |span  div  | isMatch: true",
   "CSSStyleRule: selectorText value: |span + div| isMatch: false",
+  "CSSStyleRule: selectorText value: |span > div| isMatch: true",
+  "CSSStyleRule: selectorText value: |span div| isMatch: true",
   "CSSStyleRule: selectorText value: |span ~ div| isMatch: false",
   "CSSStyleRule: selectorText value: ||div| isMatch: false",
   "CSSStyleRule: selectorText value: |\u00c7\u011e\u0131\u0130| isMatch: false",
@@ -10719,7 +10857,9 @@
   "Values of CSSStyleRule attributes",
   "Writability of CSSRule attributes"
  ],
- "/css/cssom/CSSStyleSheet-constructable-baseURL.html": [],
+ "/css/cssom/CSSStyleSheet-constructable-baseURL.html": [
+  "Constructing sheet with invalid base URL throws a NotAllowedError"
+ ],
  "/css/cssom/CSSStyleSheet-constructable-cssRules.html": [],
  "/css/cssom/CSSStyleSheet-constructable-disabled-regular-sheet-insertion.html": [],
  "/css/cssom/CSSStyleSheet-constructable-disallow-import.tentative.html": [
@@ -10736,10 +10876,14 @@
   "CSSStyleSheet.replace/replaceSync() when stylesheet is a thenable"
  ],
  "/css/cssom/CSSStyleSheet-constructable.html": [
+  "CSSStyleSheet.replace produces Promise<CSSStyleSheet>",
   "document.adoptedStyleSheets should initially have length 0.",
+  "new CSSStyleSheet produces empty CSSStyleSheet",
   "title can be set in the CSSStyleSheet constructor"
  ],
- "/css/cssom/CSSStyleSheet-insertRule-computed.html": [],
+ "/css/cssom/CSSStyleSheet-insertRule-computed.html": [
+  "Styles should be recomputed correctly after insertRule even if the style cache was warmed up."
+ ],
  "/css/cssom/CSSStyleSheet-modify-after-removal.html": [],
  "/css/cssom/CSSStyleSheet-replace-detach-old-rules.html": [
   "replace() nullifies parentStyleSheet on old nested rules after replacement",
@@ -10908,9 +11052,15 @@
   "Mutating the style declaration doesn't remove the style attribute"
  ],
  "/css/cssom/css-style-declaration-modifications.html": [
-  "Reading CSSStyleDeclaration initialized from a style element"
+  "Calling CSSStyleDeclaration#setProperty",
+  "Reading CSSStyleDeclaration initialized from a style element",
+  "Setting CSSStyleDeclaration#cssText",
+  "setProperty priority should be case-insensitive"
  ],
- "/css/cssom/css-style-reparse.html": [],
+ "/css/cssom/css-style-reparse.html": [
+  "style.innerHTML modification",
+  "style.textContent modification"
+ ],
  "/css/cssom/cssimportrule-parent.html": [
   "@import stylesheet is properly unlinked from parent after removal"
  ],
@@ -11055,16 +11205,22 @@
  "/css/cssom/cssstyledeclaration-all-shorthand.html": [
   "getPropertyValue('all') returns css-wide keyword if possible",
   "getPropertyValue('all') returns css-wide keyword when 'all' overrides prior property",
+  "getPropertyValue('all') returns css-wide keyword when 'all' overrides prior property via insertRule",
   "getPropertyValue('all') returns css-wide keyword when 'all' overrides shorthand 'margin'",
+  "getPropertyValue('all') returns css-wide keyword when 'all' overrides shorthand 'margin' via insertRule",
   "getPropertyValue('all') returns css-wide keyword when 'all' overrides shorthand 'margin' via setProperty",
   "getPropertyValue('all') returns empty string",
   "getPropertyValue('all') returns empty string when property overridden after 'all'",
+  "getPropertyValue('all') returns empty string when property overridden after 'all' via insertRule",
   "getPropertyValue('all') returns empty string when property overridden after 'all' via setProperty",
+  "getPropertyValue('all') returns empty string when single property overridden after 'all' via insertRule",
   "getPropertyValue('all') returns empty string when single property overriden",
   "getPropertyValue('all') returns empty string when single property overriden via setProperty",
   "getPropertyValue('all') returns empty string with shorthand 'margin'",
+  "getPropertyValue('all') returns empty string with shorthand 'margin' via insertRule",
   "getPropertyValue('all') returns empty string with shorthand 'margin' via setProperty",
   "getPropertyValue('all') returns later 'all' value when it overrides earlier 'all' and properties",
+  "getPropertyValue('all') returns later 'all' value when it overrides earlier 'all' and properties via insertRule",
   "getPropertyValue('margin') returns all's value when 'all' after 'margin-top'",
   "getPropertyValue('margin') returns all's value when 'all' is redeclared after margin longhands",
   "getPropertyValue('margin') returns all's value when all of 'margin's longhands are overridden by 'all'",
@@ -11119,6 +11275,7 @@
  "/css/cssom/cssstyledeclaration-custom-properties.html": [],
  "/css/cssom/cssstyledeclaration-mutability.html": [
   "HTMLElement's CSSStyleDeclaration is mutable",
+  "StyleSheet's CSSStyleDeclaration is mutable",
   "getComputedStyle's CSSStyleDeclaration is not mutable"
  ],
  "/css/cssom/cssstyledeclaration-mutationrecord-001.html": [
@@ -11136,7 +11293,9 @@
  "/css/cssom/cssstyledeclaration-mutationrecord-005.html": [
   "CSSStyleDeclaration.setPropertyValue doesn't queue a mutation record when setting invalid values"
  ],
- "/css/cssom/cssstyledeclaration-nested.html": [],
+ "/css/cssom/cssstyledeclaration-nested.html": [
+  "CSSNestedDeclarationBlock cssom interactions"
+ ],
  "/css/cssom/cssstyledeclaration-properties.html": [
   "CSS Test: CSSStyleDeclaration properties are defined as WebIDL attributes, not using getOwnPropertyNames()"
  ],
@@ -11183,6 +11342,9 @@
   "Various tests"
  ],
  "/css/cssom/flex-serialization.html": [
+  "Multiple values flex with CSS-wide and two non-CSS-wide-keyword values should serialize correctly.",
+  "Multiple values flex with CSS-wide keyword should serialize correctly.",
+  "Multiple values flex with CSS-wide keywords and non-CSS-wide value should serialize correctly.",
   "Single value flex with CSS-wide keyword should serialize correctly."
  ],
  "/css/cssom/font-family-serialization-001.html": [
@@ -11899,13 +12061,16 @@
  "/css/cssom/insertRule-syntax-error-01.html": [
   "A syntax error in insertRule should throw and not affect the style of the page"
  ],
- "/css/cssom/invalid-pseudo-elements.html": [],
+ "/css/cssom/invalid-pseudo-elements.html": [
+  "CSSOM: Test that rules with invalid pseudo elements are not found"
+ ],
  "/css/cssom/link-element-stylesheet-title.html": [],
  "/css/cssom/medialist-appendmedium-parse-single-and-dedup.html": [
   "appendMedium does not append a duplicate medium"
  ],
  "/css/cssom/medialist-deletemedium-parse-and-remove-all.html": [
-  "deleteMedium matches a query that differs only in whitespace"
+  "deleteMedium matches a query that differs only in whitespace",
+  "deleteMedium removes every matching query, not only the first"
  ],
  "/css/cssom/medialist-interfaces-001.html": [
   "mediatest_medialist_serialize_comma",
@@ -11933,6 +12098,9 @@
   "Overflow-x/y longhands on element with different keywords should serialize correctly.",
   "Overflow-x/y longhands on element with same CSS-wide keyword should serialize correctly.",
   "Overflow-x/y longhands on element with same non-CSS-wide keyword should serialize correctly.",
+  "Overflow-x/y longhands with different keywords should serialize correctly.",
+  "Overflow-x/y longhands with same CSS-wide keyword should serialize correctly.",
+  "Overflow-x/y longhands with same non-CSS-wide keyword should serialize correctly.",
   "Single value overflow on element with CSS-wide keyword should serialize correctly.",
   "Single value overflow on element with non-CSS-wide keyword should serialize correctly.",
   "Single value overflow with CSS-wide keyword should serialize correctly.",
@@ -11960,17 +12128,26 @@
  ],
  "/css/cssom/rule-restrictions.html": [],
  "/css/cssom/selectorSerialize.html": [
+  ":nth-child serialization produces canonical form",
   "escaped character (*) in element prefix",
   "escaped character (@) in attribute name",
   "escaped character (\\) in element name",
   "escaped character (\\) in element name with any namespace with default",
+  "escaped character (\\) in element name with any namespace without default",
   "escaped character (\\) in element name with no namespace",
+  "escaped character as code point in attribute name",
   "escaped character in attribute name",
   "escaped character in attribute name with any namespace",
   "escaped character in attribute prefix",
   "escaped character in both attribute prefix and name",
   "single class (simple) selector in the sequence of simple selectors that is not a universal selector",
   "single id (simple) selector in the sequence of simple selectors that is not a universal selector",
+  "single pseudo (simple) selector \":not\" which accepts arguments in the sequence of simple selectors that is not a universal selector",
+  "single pseudo (simple) selector \":nth-last-of-type\" which accepts arguments in the sequence of simple selectors that is not a universal selector",
+  "single pseudo (simple) selector \"lang\" which accepts arguments in the sequence of simple selectors that is not a universal selector",
+  "single pseudo (simple) selector \"nth-child\" which accepts arguments in the sequence of simple selectors that is not a universal selector",
+  "single pseudo (simple) selector \"nth-last-child\" which accepts arguments in the sequence of simple selectors that is not a universal selector",
+  "single pseudo (simple) selector \"nth-of-child\" which accepts arguments in the sequence of simple selectors that is not a universal selector",
   "single pseudo (simple) selector which does not accept arguments in the sequence of simple selectors that is not a universal selector",
   "single type (simple) selector in the sequence of simple selectors that is not a universal selector",
   "single universal selector shows '*' when serialized."
@@ -12019,7 +12196,8 @@
   "type - inclusion of negated all",
   "type - no features",
   "type - no features - character case normalization",
-  "type - no features - negation"
+  "type - no features - negation",
+  "type - omission of all"
  ],
  "/css/cssom/serialize-namespaced-type-selectors.html": [
   "Simple type selector",
@@ -12028,7 +12206,19 @@
   "Simple type selector followed by id",
   "Simple type selector followed by pseudo class",
   "Simple type selector followed by pseudo element",
+  "Type selector with any namespace",
+  "Type selector with any namespace followed by attribute selector",
+  "Type selector with any namespace followed by class",
+  "Type selector with any namespace followed by id",
+  "Type selector with any namespace followed by pseudo class",
+  "Type selector with any namespace followed by pseudo element",
   "Type selector with namespace",
+  "Type selector with namespace equal to default namespace",
+  "Type selector with namespace equal to default namespace followed by attribute selector",
+  "Type selector with namespace equal to default namespace followed by class",
+  "Type selector with namespace equal to default namespace followed by id",
+  "Type selector with namespace equal to default namespace followed by pseudo class",
+  "Type selector with namespace equal to default namespace followed by pseudo element",
   "Type selector with namespace followed by attribute selector",
   "Type selector with namespace followed by class",
   "Type selector with namespace followed by id",
@@ -12041,7 +12231,24 @@
   "Type selector without a namespace followed by pseudo class",
   "Type selector without a namespace followed by pseudo element",
   "Universal selector",
+  "Universal selector followed by attribute selector",
+  "Universal selector followed by class",
+  "Universal selector followed by id",
+  "Universal selector followed by pseudo class",
+  "Universal selector followed by pseudo element",
+  "Universal selector in any namespace",
+  "Universal selector in any namespace followed by attribute selector",
+  "Universal selector in any namespace followed by class",
+  "Universal selector in any namespace followed by id",
+  "Universal selector in any namespace followed by pseudo class",
+  "Universal selector in any namespace followed by pseudo element",
   "Universal selector with namespace",
+  "Universal selector with namespace equal to default namespace",
+  "Universal selector with namespace equal to default namespace followed by attribute selector",
+  "Universal selector with namespace equal to default namespace followed by class",
+  "Universal selector with namespace equal to default namespace followed by id",
+  "Universal selector with namespace equal to default namespace followed by pseudo class",
+  "Universal selector with namespace equal to default namespace followed by pseudo element",
   "Universal selector with namespace followed by attribute selector",
   "Universal selector with namespace followed by class",
   "Universal selector with namespace followed by id",
@@ -12816,7 +13023,8 @@
  "/css/cssom/style-cssText-mutations.html": [
   "Reading cssText preserves style mutation records",
   "cssText reflects style attribute replacement and removal",
-  "inline cssText reflects property, priority, shorthand, and declaration replacements"
+  "inline cssText reflects property, priority, shorthand, and declaration replacements",
+  "rule cssText reflects property, priority, shorthand, and declaration replacements"
  ],
  "/css/cssom/style-element-inline-important.html": [
   "Element CSS inline style with !important"
@@ -12919,7 +13127,9 @@
  "/css/cssom/xml-stylesheet-pi-in-doctype.xhtml": [
   "xml-stylesheet processing instruction in doctype internal subset"
  ],
- "/css/mediaqueries/nested-media-queries.html": [],
+ "/css/mediaqueries/nested-media-queries.html": [
+  "Nested media queries should parse correctly"
+ ],
  "/to-upstream/css/css-backgrounds/background-no-whitespace.html": [
   "A declaration value without a property name is ignored by cssText",
   "A function containing nested functions followed by an identifier via cssText before another declaration",
@@ -13280,7 +13490,9 @@
   "An SVG element inside a div has the initial fill value",
   "An SVG element inside a div has the initial stroke value"
  ],
- "/to-upstream/css/cssom/getComputedStyle-imported-rule-style-mutation.html": [],
+ "/to-upstream/css/cssom/getComputedStyle-imported-rule-style-mutation.html": [
+  "Declaration mutations in imports, media rules in imports, and nested imports update computed styles"
+ ],
  "/to-upstream/css/cssom/getComputedStyle-imported-rules.html": [
   "Media rules in imported style sheets are evaluated before applying their declarations",
   "Rules from nested imports contribute to computed styles"
@@ -13299,10 +13511,31 @@
   "Repeated computed styles stay read-only and new calls reflect mutations"
  ],
  "/to-upstream/css/cssom/getComputedStyle-rule-invalidation.html": [
+  "Changing a media rule through appendMedium invalidates computed styles",
+  "Changing a media rule through deleteMedium invalidates computed styles",
+  "Changing a media rule through mediaText invalidates computed styles",
+  "Changing selectorText updates selector subject filtering and computed styles",
+  "Declaration edits inside an inserted grouping rule invalidate computed styles",
   "Inserting a grouping rule inside a grouping rule attaches its descendants",
   "Inserting a grouping rule into a sheet attaches its descendants"
  ],
- "/to-upstream/css/cssom/getComputedStyle-rule-style-mutation.html": [],
+ "/to-upstream/css/cssom/getComputedStyle-rule-style-mutation.html": [
+  "Changing only a declaration's priority updates computed styles",
+  "Mutating a rule also updates inherited styles on descendants",
+  "Shorthand mutations update all affected computed longhands",
+  "clearing a property updates computed styles for a rule inside @media",
+  "clearing a property updates computed styles for a style rule",
+  "clearing cssText updates computed styles for a rule inside @media",
+  "clearing cssText updates computed styles for a style rule",
+  "cssText updates computed styles for a rule inside @media",
+  "cssText updates computed styles for a style rule",
+  "property assignment updates computed styles for a rule inside @media",
+  "property assignment updates computed styles for a style rule",
+  "removeProperty updates computed styles for a rule inside @media",
+  "removeProperty updates computed styles for a style rule",
+  "setProperty updates computed styles for a rule inside @media",
+  "setProperty updates computed styles for a style rule"
+ ],
  "/to-upstream/css/cssom/getComputedStyle-system-color-shorthand.html": [
   "A dark child inherits its light parent's resolved system border color",
   "A light child inherits its dark parent's resolved system border color",
@@ -13488,6 +13721,7 @@
   "padding-top updating padding via setProperty"
  ],
  "/to-upstream/css/cssom/stylesheet-html-comment-markers.html": [
+  "HTML comment-wrapped CSS preserves source markers, serializes rules, and applies",
   "HTML comment-wrapped body CSS allows a following rule to override it",
   "HTML comment-wrapped body CSS applies"
  ],
