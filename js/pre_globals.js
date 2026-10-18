@@ -218,8 +218,15 @@ globalThis.clearImmediate ??= () => {};
     };
 }
 
-// @ts-expect-error -- only CSS.escape is provided
+// @ts-expect-error -- only CSS.escape and CSS.supports are provided
 globalThis.CSS = {
+    supports(property, value) {
+        if (arguments.length === 0) throw new TypeError("CSS.supports requires an argument");
+        return Deno.core.ops.op_css_supports(
+            String(property),
+            arguments.length > 1 ? String(value) : null,
+        );
+    },
     escape(value) {
         value = String(value);
         if (value.length === 0) return value;

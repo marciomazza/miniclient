@@ -713,3 +713,29 @@ fn chromium_golden() {
         regressions.len()
     );
 }
+
+#[test]
+fn css_supports_answers_from_stylo() {
+    let rt = runtime();
+    let got: Vec<bool> = rt.eval(
+        r#"[
+            CSS.supports("COLOR", "red"),
+            CSS.supports("color", "nonsense"),
+            CSS.supports("color", "red !important"),
+            CSS.supports("not-a-prop", "red"),
+            CSS.supports("grid-template-columns", "subgrid"),
+            CSS.supports("--x", "anything"),
+            CSS.supports("color: red"),
+            CSS.supports("(color: red) and (not (color: nonsense))"),
+            CSS.supports("(color: nonsense) or (display: grid)"),
+            CSS.supports("color: nonsense"),
+            CSS.supports("(color: red) junk"),
+        ]"#,
+    );
+    assert_eq!(
+        got,
+        [
+            true, false, false, false, true, true, true, true, true, false, false
+        ]
+    );
+}

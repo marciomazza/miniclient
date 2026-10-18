@@ -43,6 +43,7 @@ use style::servo::media_features::PointerCapabilities;
 use style::servo_arc::{Arc, ArcBorrow};
 use style::shared_lock::{Locked, SharedRwLock, StylesheetGuards};
 use style::stylesheets::import_rule::{ImportLayer, ImportSheet, ImportSupportsCondition};
+use style::stylesheets::supports_rule::parse_condition_or_declaration;
 use style::stylesheets::{
     AllowImportRules, CssRule, CssRuleType, DocumentStyleSheet, ImportRule, Origin, Stylesheet,
     StylesheetLoader, UrlExtraData,
@@ -801,6 +802,43 @@ pub fn remove_declaration(text: &str, base: &str, property: &str) -> Option<Stri
     })
 }
 
+/// `CSS.supports(property, value)`, or `CSS.supports(conditionText)` when `value` is `None`.
+pub fn supports(property: &str, value: Option<&str>) -> bool {
+    enable_prefs();
+    let base = url_data("about:blank");
+    let Some(value) = value else {
+        let context = ParserContext::new(
+            Origin::Author,
+            &base,
+            Some(CssRuleType::Style),
+            ParsingMode::DEFAULT,
+            QuirksMode::NoQuirks,
+            Default::default(),
+            None,
+            None,
+            Default::default(),
+        );
+        return Parser::new(&preprocess(property))
+            .parse_entirely(parse_condition_or_declaration)
+            .is_ok_and(|condition| condition.eval(&context));
+    };
+    let Some(id) = property_id(property) else {
+        return false;
+    };
+    parse_one_declaration_into(
+        &mut SourcePropertyDeclaration::default(),
+        id,
+        &preprocess(value),
+        Origin::Author,
+        &base,
+        None,
+        ParsingMode::DEFAULT,
+        QuirksMode::NoQuirks,
+        CssRuleType::Style,
+    )
+    .is_ok()
+}
+
 /// The longhands `getComputedStyle` enumerates: every enabled one, by name, prefixed ones last.
 pub fn computed_longhands() -> Vec<String> {
     enable_prefs();
@@ -857,6 +895,11 @@ pub fn op_css_remove_declaration(
     #[string] property: &str,
 ) -> Option<String> {
     remove_declaration(text, base, property)
+}
+
+#[op2]
+pub fn op_css_supports(#[string] property: &str, #[string] value: Option<String>) -> bool {
+    supports(property, value.as_deref())
 }
 
 #[op2]
