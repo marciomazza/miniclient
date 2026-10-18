@@ -98,18 +98,26 @@ pub(crate) struct Source {
     pub(crate) media: String,
 }
 
-pub(crate) fn media_list(media: &str, base: &UrlExtraData, quirks: QuirksMode) -> MediaList {
-    let mut context = ParserContext::new(
+fn author_context(
+    base: &UrlExtraData,
+    rule_type: CssRuleType,
+    quirks: QuirksMode,
+) -> ParserContext<'_> {
+    ParserContext::new(
         Origin::Author,
         base,
-        Some(CssRuleType::Media),
+        Some(rule_type),
         ParsingMode::DEFAULT,
         quirks,
         Default::default(),
         None,
         None,
         Default::default(),
-    );
+    )
+}
+
+pub(crate) fn media_list(media: &str, base: &UrlExtraData, quirks: QuirksMode) -> MediaList {
+    let mut context = author_context(base, CssRuleType::Media, quirks);
     MediaList::parse(&mut context, &mut Parser::new(media))
 }
 
@@ -750,6 +758,29 @@ pub fn declaration_value(text: &str, base: &str, property: &str) -> (String, boo
     })
 }
 
+/// `value` parsed as `id`'s declarations, as a style rule would hold them.
+fn parse_value(
+    id: PropertyId,
+    value: &str,
+    base: &UrlExtraData,
+) -> Option<SourcePropertyDeclaration> {
+    enable_prefs();
+    let mut source = SourcePropertyDeclaration::default();
+    parse_one_declaration_into(
+        &mut source,
+        id,
+        &preprocess(value),
+        Origin::Author,
+        base,
+        None,
+        ParsingMode::DEFAULT,
+        QuirksMode::NoQuirks,
+        CssRuleType::Style,
+    )
+    .ok()?;
+    Some(source)
+}
+
 /// The serialization of `text` with `property` set to `value`, or `None` when the name is
 /// unknown, the value does not parse, or nothing would change.
 pub fn set_declaration(
@@ -760,20 +791,7 @@ pub fn set_declaration(
     important: bool,
 ) -> Option<String> {
     let id = property_id(property)?;
-    enable_prefs();
-    let mut source = SourcePropertyDeclaration::default();
-    parse_one_declaration_into(
-        &mut source,
-        id,
-        &preprocess(value),
-        Origin::Author,
-        &url_data(base),
-        None,
-        ParsingMode::DEFAULT,
-        QuirksMode::NoQuirks,
-        CssRuleType::Style,
-    )
-    .ok()?;
+    let mut source = parse_value(id, value, &url_data(base))?;
     let importance = if important {
         Importance::Important
     } else {
@@ -807,17 +825,7 @@ pub fn supports(property: &str, value: Option<&str>) -> bool {
     enable_prefs();
     let base = url_data("about:blank");
     let Some(value) = value else {
-        let context = ParserContext::new(
-            Origin::Author,
-            &base,
-            Some(CssRuleType::Style),
-            ParsingMode::DEFAULT,
-            QuirksMode::NoQuirks,
-            Default::default(),
-            None,
-            None,
-            Default::default(),
-        );
+        let context = author_context(&base, CssRuleType::Style, QuirksMode::NoQuirks);
         return Parser::new(&preprocess(property))
             .parse_entirely(parse_condition_or_declaration)
             .is_ok_and(|condition| condition.eval(&context));
@@ -826,18 +834,7 @@ pub fn supports(property: &str, value: Option<&str>) -> bool {
     let Ok(id) = PropertyId::parse_enabled_for_all_content(property) else {
         return false;
     };
-    parse_one_declaration_into(
-        &mut SourcePropertyDeclaration::default(),
-        id,
-        &preprocess(value),
-        Origin::Author,
-        &base,
-        None,
-        ParsingMode::DEFAULT,
-        QuirksMode::NoQuirks,
-        CssRuleType::Style,
-    )
-    .is_ok()
+    parse_value(id, value, &base).is_some()
 }
 
 /// The longhands `getComputedStyle` enumerates: every enabled one, by name, prefixed ones last.
