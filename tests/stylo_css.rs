@@ -346,6 +346,26 @@ fn nested_import_resolves_against_its_own_sheet() {
 }
 
 #[test]
+fn stylo_discovers_escaped_import_keyword() {
+    let mock = MockFetchBackend::new();
+    mock.text(
+        "http://localhost/a.css",
+        r#"@i\6d port "b.css"; p { color: red }"#,
+    );
+    mock.text(
+        "http://localhost/b.css",
+        "p { color: rgb(1, 2, 3); width: 4px }",
+    );
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+        r#"["color", "width"].map(
+            (p) => getComputedStyle(document.querySelector("p")).getPropertyValue(p))"#,
+    );
+    assert_eq!(got, serde_json::json!(["rgb(255, 0, 0)", "4px"]));
+}
+
+#[test]
 fn failed_or_refused_import_adds_no_rules() {
     let mock = MockFetchBackend::new();
     mock.text(
