@@ -51,7 +51,6 @@
 /fetch/api/cors/cors-preflight-response-validation.any.html
 /fetch/api/cors/cors-preflight-star.any.html
 /fetch/api/cors/cors-preflight-status.any.html
-/fetch/api/cors/cors-preflight-unterminated-body.any.html
 /fetch/api/cors/cors-preflight.any.html
 /fetch/api/cors/cors-redirect-credentials.any.html
 /fetch/api/cors/cors-redirect-preflight.any.html
@@ -110,7 +109,6 @@
 /fetch/api/request/request-structure.any.html
 /fetch/api/request/url-encoding.html
 /fetch/api/response/json.any.html
-/fetch/api/response/many-empty-chunks-crash.html
 /fetch/api/response/response-body-read-task-handling.html
 /fetch/api/response/response-body-stashed-chunk.html
 /fetch/api/response/response-cancel-stream.any.html

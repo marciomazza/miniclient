@@ -231,7 +231,6 @@
 /fetch/api/abort/cache.https.any.html
 /fetch/api/abort/destroyed-context.html
 /fetch/api/abort/general.any.html
-/fetch/api/abort/keepalive.html
 /fetch/api/abort/request.any.html
 /fetch/api/abort/serviceworker-intercepted.https.html
 /fetch/api/basic/accept-header.any.html
@@ -288,7 +287,6 @@
 /fetch/api/cors/cors-preflight-response-validation.any.html
 /fetch/api/cors/cors-preflight-star.any.html
 /fetch/api/cors/cors-preflight-status.any.html
-/fetch/api/cors/cors-preflight-unterminated-body.any.html
 /fetch/api/cors/cors-preflight.any.html
 /fetch/api/cors/cors-redirect-credentials.any.html
 /fetch/api/cors/cors-redirect-preflight.any.html
@@ -379,7 +377,6 @@
 /fetch/api/request/request-structure.any.html
 /fetch/api/request/url-encoding.html
 /fetch/api/response/json.any.html
-/fetch/api/response/many-empty-chunks-crash.html
 /fetch/api/response/multi-globals/url-parsing.html
 /fetch/api/response/response-arraybuffer-realm.window.html
 /fetch/api/response/response-blob-realm.any.html
@@ -432,7 +429,6 @@
 /html/semantics/forms/constraints/form-validation-validity-valueMissing.html
 /html/semantics/forms/constraints/form-validation-willValidate-datalist.html
 /html/semantics/forms/constraints/form-validation-willValidate.html
-/html/semantics/forms/constraints/infinite_backtracking.tentative.html
 /html/semantics/forms/constraints/input-maxlength-emoji.html
 /html/semantics/forms/constraints/input-number-validity-dynamic-value-no-change.html
 /html/semantics/forms/constraints/input-pattern-dynamic-value.html
@@ -447,17 +443,10 @@
 /html/semantics/forms/form-submission-0/form-data-set-empty-file.window.html
 /html/semantics/forms/form-submission-0/form-data-set-usv.html
 /html/semantics/forms/form-submission-0/form-double-submit-2.html
-/html/semantics/forms/form-submission-0/form-double-submit-3.html
-/html/semantics/forms/form-submission-0/form-double-submit-default-action.html
-/html/semantics/forms/form-submission-0/form-double-submit-input-type-change.html
 /html/semantics/forms/form-submission-0/form-double-submit-multiple-targets.html
 /html/semantics/forms/form-submission-0/form-double-submit-preventdefault-click.html
 /html/semantics/forms/form-submission-0/form-double-submit-preventdefault.html
-/html/semantics/forms/form-submission-0/form-double-submit-requestsubmit.html
 /html/semantics/forms/form-submission-0/form-double-submit-to-different-origin-frame.html
-/html/semantics/forms/form-submission-0/form-double-submit.html
-/html/semantics/forms/form-submission-0/form-submission-algorithm.html
-/html/semantics/forms/form-submission-0/form-submit-action.html
 /html/semantics/forms/form-submission-0/form-submit-iframe-then-location-navigate.html
 /html/semantics/forms/form-submission-0/form-submit-invalid.html
 /html/semantics/forms/form-submission-0/form-submitters.html
@@ -469,9 +458,6 @@
 /html/semantics/forms/form-submission-0/multipart-formdata.window.html
 /html/semantics/forms/form-submission-0/newline-normalization.html
 /html/semantics/forms/form-submission-0/reparent-form-during-planned-navigation-task.html
-/html/semantics/forms/form-submission-0/request-submit-activation.html
-/html/semantics/forms/form-submission-0/submission-checks.window.html
-/html/semantics/forms/form-submission-0/submit-button-clicked-in-data-document.html
 /html/semantics/forms/form-submission-0/submit-entity-body.html
 /html/semantics/forms/form-submission-0/submit-event-shadow-host.html
 /html/semantics/forms/form-submission-0/submit-event.html
@@ -500,8 +486,6 @@
 /html/semantics/forms/the-form-element/form-length.html
 /html/semantics/forms/the-form-element/form-nameditem.html
 /html/semantics/forms/the-form-element/form-requestsubmit.html
-/html/webappapis/timers/arguments.html
-/html/webappapis/timers/clearinterval-from-callback.any.html
 /html/webappapis/timers/cleartimeout-clearinterval.any.html
 /html/webappapis/timers/errors.html
 /html/webappapis/timers/evil-spec-example.any.html

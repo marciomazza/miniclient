@@ -680,7 +680,6 @@
   "Preflight answered with status 504",
   "Preflight answered with status 505"
  ],
- "/fetch/api/cors/cors-preflight-unterminated-body.any.html": [],
  "/fetch/api/cors/cors-preflight.any.html": [
   "\"authorization\" should be covered by \"authorization\"",
   "\"authorization\" should not be covered by the wildcard symbol",
@@ -1661,7 +1660,6 @@
   "Ensure UTF-16 results in an error",
   "Ensure the correct JSON parser is used"
  ],
- "/fetch/api/response/many-empty-chunks-crash.html": [],
  "/fetch/api/response/response-body-read-task-handling.html": [
   "piping from a body stream to a JS-written WritableStream should occur in a microtask scope",
   "reading from a body stream should occur in a microtask scope"

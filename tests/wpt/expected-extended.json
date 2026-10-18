@@ -994,7 +994,6 @@
  "/fetch/api/abort/cache.https.any.html": [],
  "/fetch/api/abort/destroyed-context.html": [],
  "/fetch/api/abort/general.any.html": [],
- "/fetch/api/abort/keepalive.html": [],
  "/fetch/api/abort/request.any.html": [
   "Aborting a request after calling arrayBuffer()",
   "Aborting a request after calling blob()",
@@ -1644,7 +1643,6 @@
   "Preflight answered with status 504",
   "Preflight answered with status 505"
  ],
- "/fetch/api/cors/cors-preflight-unterminated-body.any.html": [],
  "/fetch/api/cors/cors-preflight.any.html": [
   "\"authorization\" should be covered by \"authorization\"",
   "\"authorization\" should not be covered by the wildcard symbol",
@@ -2795,7 +2793,6 @@
   "Ensure UTF-16 results in an error",
   "Ensure the correct JSON parser is used"
  ],
- "/fetch/api/response/many-empty-chunks-crash.html": [],
  "/fetch/api/response/multi-globals/url-parsing.html": [],
  "/fetch/api/response/response-arraybuffer-realm.window.html": [],
  "/fetch/api/response/response-blob-realm.any.html": [],
@@ -4038,7 +4035,6 @@
   "[textarea]  The willValidate attribute must be false if it has a datalist ancestor",
   "[textarea]  The willValidate attribute must be true if an element is mutable"
  ],
- "/html/semantics/forms/constraints/infinite_backtracking.tentative.html": [],
  "/html/semantics/forms/constraints/input-maxlength-emoji.html": [],
  "/html/semantics/forms/constraints/input-number-validity-dynamic-value-no-change.html": [
   "number input number validation is updated correctly after value attribute change which doesn't change input value"
@@ -4087,17 +4083,10 @@
  ],
  "/html/semantics/forms/form-submission-0/form-data-set-usv.html": [],
  "/html/semantics/forms/form-submission-0/form-double-submit-2.html": [],
- "/html/semantics/forms/form-submission-0/form-double-submit-3.html": [],
- "/html/semantics/forms/form-submission-0/form-double-submit-default-action.html": [],
- "/html/semantics/forms/form-submission-0/form-double-submit-input-type-change.html": [],
  "/html/semantics/forms/form-submission-0/form-double-submit-multiple-targets.html": [],
  "/html/semantics/forms/form-submission-0/form-double-submit-preventdefault-click.html": [],
  "/html/semantics/forms/form-submission-0/form-double-submit-preventdefault.html": [],
- "/html/semantics/forms/form-submission-0/form-double-submit-requestsubmit.html": [],
  "/html/semantics/forms/form-submission-0/form-double-submit-to-different-origin-frame.html": [],
- "/html/semantics/forms/form-submission-0/form-double-submit.html": [],
- "/html/semantics/forms/form-submission-0/form-submission-algorithm.html": [],
- "/html/semantics/forms/form-submission-0/form-submit-action.html": [],
  "/html/semantics/forms/form-submission-0/form-submit-iframe-then-location-navigate.html": [],
  "/html/semantics/forms/form-submission-0/form-submit-invalid.html": [
   "Form can be submitted when it contains invalid inputs and has novalidate attribute",
@@ -4134,9 +4123,6 @@
   "Constructing the entry list shouldn't perform newline normalization: \\r\\n in the value"
  ],
  "/html/semantics/forms/form-submission-0/reparent-form-during-planned-navigation-task.html": [],
- "/html/semantics/forms/form-submission-0/request-submit-activation.html": [],
- "/html/semantics/forms/form-submission-0/submission-checks.window.html": [],
- "/html/semantics/forms/form-submission-0/submit-button-clicked-in-data-document.html": [],
  "/html/semantics/forms/form-submission-0/submit-entity-body.html": [],
  "/html/semantics/forms/form-submission-0/submit-event-shadow-host.html": [],
  "/html/semantics/forms/form-submission-0/submit-event.html": [
@@ -4215,8 +4201,6 @@
   "Trying to set a non-configurable expando that shadows a named property that gets added later"
  ],
  "/html/semantics/forms/the-form-element/form-requestsubmit.html": [],
- "/html/webappapis/timers/arguments.html": [],
- "/html/webappapis/timers/clearinterval-from-callback.any.html": [],
  "/html/webappapis/timers/cleartimeout-clearinterval.any.html": [
   "Clear interval with clearTimeout",
   "Clear timeout with clearInterval"
