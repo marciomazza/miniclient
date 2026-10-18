@@ -822,7 +822,8 @@ pub fn supports(property: &str, value: Option<&str>) -> bool {
             .parse_entirely(parse_condition_or_declaration)
             .is_ok_and(|condition| condition.eval(&context));
     };
-    let Some(id) = property_id(property) else {
+    // Unlike `property_id`, any name after `--` counts: CSS.supports only asks for the prefix.
+    let Ok(id) = PropertyId::parse_enabled_for_all_content(property) else {
         return false;
     };
     parse_one_declaration_into(

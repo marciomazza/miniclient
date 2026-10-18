@@ -717,25 +717,28 @@ fn chromium_golden() {
 #[test]
 fn css_supports_answers_from_stylo() {
     let rt = runtime();
-    let got: Vec<bool> = rt.eval(
-        r#"[
-            CSS.supports("COLOR", "red"),
-            CSS.supports("color", "nonsense"),
-            CSS.supports("color", "red !important"),
-            CSS.supports("not-a-prop", "red"),
-            CSS.supports("grid-template-columns", "subgrid"),
-            CSS.supports("--x", "anything"),
-            CSS.supports("color: red"),
-            CSS.supports("(color: red) and (not (color: nonsense))"),
-            CSS.supports("(color: nonsense) or (display: grid)"),
-            CSS.supports("color: nonsense"),
-            CSS.supports("(color: red) junk"),
-        ]"#,
-    );
-    assert_eq!(
-        got,
-        [
-            true, false, false, false, true, true, true, true, true, false, false
-        ]
-    );
+    let cases = [
+        (r#"CSS.supports("COLOR", "red")"#, true),
+        (r#"CSS.supports("color", "nonsense")"#, false),
+        (r#"CSS.supports("color", "red !important")"#, false),
+        (r#"CSS.supports("not-a-prop", "red")"#, false),
+        (r#"CSS.supports("grid-template-columns", "subgrid")"#, true),
+        (r#"CSS.supports("--x", "anything")"#, true),
+        (r#"CSS.supports("--a b", "x")"#, true),
+        (r#"CSS.supports("color: red")"#, true),
+        (
+            r#"CSS.supports("(color: red) and (not (color: nonsense))")"#,
+            true,
+        ),
+        (
+            r#"CSS.supports("(color: nonsense) or (display: grid)")"#,
+            true,
+        ),
+        (r#"CSS.supports("color: nonsense")"#, false),
+        (r#"CSS.supports("(color: red) junk")"#, false),
+    ];
+    for (expr, expected) in cases {
+        let got: bool = rt.eval(expr);
+        assert_eq!(got, expected, "{expr}");
+    }
 }
