@@ -366,6 +366,23 @@ fn stylo_discovers_escaped_import_keyword() {
 }
 
 #[test]
+fn imported_sheet_discovers_escaped_import_keyword() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/a.css", r#"@import "b.css";"#);
+    mock.text(
+        "http://localhost/b.css",
+        r#"@\69 mport "c.css"; .md\:p { color: red }"#,
+    );
+    mock.text("http://localhost/c.css", "p { width: 4px }");
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+        r#"getComputedStyle(document.querySelector("p")).width"#,
+    );
+    assert_eq!(got, serde_json::json!("4px"));
+}
+
+#[test]
 fn failed_or_refused_import_adds_no_rules() {
     let mock = MockFetchBackend::new();
     mock.text(

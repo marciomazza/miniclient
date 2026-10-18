@@ -1,4 +1,4 @@
-# fork: mozvzvkrymtw 3160469dda5d
+# fork: rrsmskuluwsr e26961a1ba25
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -4131,7 +4131,7 @@ index 0000000000..d832403ea5
 +  return interfaces()[name].createImpl(globalObject, [], { id, parentRule, parentStyleSheet });
 +};
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..857a38bbde 100644
+index 270a6209f5..a0394c2cf0 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 @@ -1,7 +1,8 @@
@@ -4173,7 +4173,7 @@ index 270a6209f5..857a38bbde 100644
 -      parseImportedStyleSheet(css, importRule);
 +      call("op_css_import_loaded", elementImpl._wire, urlString, css);
 +      importRule.styleSheet.cssRules._reset();
-+      scanForImportRules(importRule.styleSheet, elementImpl, [...importRule._chain, urlString]);
++      scanForImportRules(importRule.styleSheet, css, elementImpl, [...importRule._chain, urlString]);
        document._clearStyleCache();
      } else {
        const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
@@ -4235,7 +4235,7 @@ index 270a6209f5..857a38bbde 100644
 -
 -  scanForImportRules(globalObject, sheetImpl.cssRules._list, baseURLString);
 -
-+  scanForImportRules(sheetImpl, elementImpl, [baseURLString]);
++  scanForImportRules(sheetImpl, cssText, elementImpl, [baseURLString]);
    return sheetImpl;
  };
  
@@ -4257,12 +4257,12 @@ index 270a6209f5..857a38bbde 100644
  // https://drafts.csswg.org/cssom/#add-a-css-style-sheet
  exports.addStyleSheet = (sheet, elementImpl) => {
    elementImpl._ownerDocument.styleSheets._add(sheet);
-@@ -117,40 +100,26 @@ function onStyleSheetLoad(data, response) {
+@@ -117,40 +100,31 @@ function onStyleSheetLoad(data, response) {
    // TODO: title and disabled stuff
  };
  
-+// Fetches the `@import`s of `sheetImpl` for `elementImpl`'s sheet; `chain` holds the URLs of the
-+// sheets above, so a sheet importing itself is not fetched again.
++// Fetches the `@import`s of `sheetImpl`, whose text is `cssText`, for `elementImpl`'s sheet;
++// `chain` holds the URLs of the sheets above, so a sheet importing itself is not fetched again.
  // Tracking in https://github.com/jsdom/jsdom/issues/2124
 -function scanForImportRules(globalObject, ruleImpls, baseURLString) {
 -  for (const ruleImpl of ruleImpls) {
@@ -4297,7 +4297,12 @@ index 270a6209f5..857a38bbde 100644
 -        }
 -        exports.fetchStyleSheet(sheet.ownerNode, parsed.href, ruleImpl);
 -      }
-+function scanForImportRules(sheetImpl, elementImpl, chain) {
++function scanForImportRules(sheetImpl, cssText, elementImpl, chain) {
++  // Reading the rules builds a JS object per rule, so only text that can hold an `@import` is read:
++  // a literal one, or an at-keyword spelled with CSS escapes (the `@` itself cannot be escaped).
++  if (!/@(import|[\w-]*\\)/i.test(cssText)) {
++    return;
++  }
 +  for (const ruleImpl of sheetImpl.cssRules._list) {
 +    if (ruleImpl.type !== 3) {
 +      continue;
