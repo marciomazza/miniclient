@@ -1,6 +1,6 @@
-//! `querySelector`, `querySelectorAll`, `closest` and `matches` through the public API. Most
-//! selectors match natively over the arena; the ones the native matcher declines (`:lang`,
-//! `:hover`, ...) go to `dom-selector`. Either way the answers are a browser's.
+//! `querySelector`, `querySelectorAll`, `closest` and `matches` through the public API. Selectors
+//! parse as stylo parses them and match natively over the arena; only those reading state jsdom
+//! alone has (validity, `:placeholder-shown`, ...) go to `dom-selector`.
 
 mod common;
 
@@ -170,6 +170,48 @@ fn invalid_selectors_throw_a_syntax_error_from_the_page_realm() {
     }
 }
 
+/// Pseudo-classes stylo's parser does not know throw from every selector API, as in a browser
+/// without them.
+#[test]
+fn pseudo_classes_stylo_does_not_know_throw() {
+    let rt = runtime();
+    for name in [
+        "blank",
+        "buffering",
+        "current",
+        "future",
+        "has-slotted",
+        "heading",
+        "muted",
+        "past",
+        "paused",
+        "picture-in-picture",
+        "playing",
+        "seeking",
+        "stalled",
+        "volume-locked",
+    ] {
+        for call in [
+            format!(r#"document.querySelectorAll(":{name}").length"#),
+            format!(r#"document.body.matches("p:{name}")"#),
+            format!(r#"document.querySelector(":{name}")"#),
+            format!(r#"document.body.closest(":{name}")"#),
+        ] {
+            let (error, _, _) = js_error(rt.try_eval(&call));
+            assert_eq!(error, "SyntaxError", "{call}");
+        }
+    }
+    for selector in [
+        ":dir(ltr)",
+        "p::first-line",
+        ":-webkit-autofill",
+        "[x=':in-range']",
+    ] {
+        let call = format!(r#"document.querySelectorAll("{selector}").length >= 0"#);
+        assert_eq!(rt.eval_json(&call).as_deref(), Some("true"), "{selector}");
+    }
+}
+
 #[test]
 fn escapes_dash_match_selector_lists_and_unclosed_blocks() {
     let rt = runtime();
@@ -191,12 +233,12 @@ fn legal_but_unsupported_pseudos_parse_and_never_match() {
     let rt = runtime();
     let out: Vec<usize> = rt.eval(&format!(
         r##"{PAGE}
-        [":visited", ":modal", ":popover-open", ":-webkit-autofill", "p::before", "::after",
-            "p:before", "::backdrop", "::-webkit-scrollbar"]
+        [":visited", ":modal", ":popover-open", ":hover", "p::before", "::after", "p:before",
+            "::backdrop"]
             .map((s) => document.querySelectorAll(s).length)
             .concat(document.querySelectorAll("p:not(:visited)").length)"##
     ));
-    assert_eq!(out, [0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+    assert_eq!(out, [0, 0, 0, 0, 0, 0, 0, 0, 2]);
 }
 
 #[test]
@@ -217,19 +259,30 @@ fn declined_selectors_keep_working() {
     assert_eq!(out, ["p1", "p1 p2", "i1 cb", "cb", "i1", "a", "i1", ""]);
 }
 
-/// Every selector in `CASES` must take the native path, not silently fall back.
+/// Every selector in `CASES`, and the ones `dom-selector` used to answer, takes the native path;
+/// what stylo rejects is invalid (`-2`), never a fallback (`-1`).
 #[test]
-fn cases_match_natively_and_declined_selectors_fall_back() {
+fn cases_match_natively_and_rejected_selectors_are_invalid() {
     let rt = runtime();
-    let fallbacks: Vec<String> = rt.eval(&format!(
+    let declined: Vec<(String, i32)> = rt.eval(&format!(
         r##"{PAGE}
         const wire = __jsdomImplForWrapper(document)._wire;
         const out = new Uint32Array(64);
-        {selectors:?}.concat([":lang(en)", ":dir(ltr)", ":hover", ":::"])
-            .filter((s) => Deno.core.ops.op_dom_query(wire, s, 1, true, false, -1, -1, out) < 0)"##,
+        {selectors:?}.concat([":lang(en)", ":hover", ":dir(ltr)", "svg|rect", ":-webkit-autofill",
+            "::first-line", ":::"])
+            .map((s) => [s, Deno.core.ops.op_dom_query(wire, s, 1, true, false, -1, -1, out)])
+            .filter(([, n]) => n < 0)"##,
         selectors = CASES.iter().map(|(s, _)| *s).collect::<Vec<_>>()
     ));
-    assert_eq!(fallbacks, [":lang(en)", ":dir(ltr)", ":hover", ":::"]);
+    // -1 hands a name stylo lacks but browsers accept to `dom-selector`; -2 throws.
+    let want = [
+        (":dir(ltr)", -1),
+        ("svg|rect", -2),
+        (":-webkit-autofill", -1),
+        ("::first-line", -1),
+        (":::", -2),
+    ];
+    assert_eq!(declined, want.map(|(s, n)| (s.to_owned(), n)));
 }
 
 #[test]
@@ -311,6 +364,7 @@ const STATE_CASES: &[(&str, &str, &str)] = &[
     ("", ":placeholder-shown", "t"),
     ("$('t').value = 'x'", ":placeholder-shown", ""),
     ("", ":default", "o2 sb"),
+    ("$('cb').defaultChecked = true", ":default", "cb o2 sb"),
     ("$('sb').type = 'reset'", ":default", "o2"),
     ("", ":indeterminate", "r1 r2 pg"),
     (
@@ -361,12 +415,6 @@ const STATE_CASES: &[(&str, &str, &str)] = &[
 /// `(state change, selector, a browser's ids, dom-selector's ids)`: state pseudo-classes the
 /// native matcher declines, where `dom-selector` answers wrong. Pinned so a fix shows up.
 const STATE_DIVERGENCES: &[(&str, &str, &str, &str)] = &[
-    (
-        "$('cb').defaultChecked = true",
-        ":default",
-        "cb o2 sb",
-        "o2 sb",
-    ),
     (
         "",
         "#f > :valid:not(button)",
@@ -457,7 +505,8 @@ fn checked_state_set_while_detached_is_matched_once_inserted() {
     assert_eq!(out, "o9 new copy");
 }
 
-/// Which state pseudo-classes the native matcher answers; the rest go to `dom-selector`.
+/// The state pseudo-classes whose selectors still go to `dom-selector`: their inputs live only in
+/// jsdom.
 #[test]
 fn only_the_native_state_set_matches_natively() {
     let rt = runtime();
@@ -473,17 +522,13 @@ fn only_the_native_state_set_matches_natively() {
         fallbacks,
         [
             ":placeholder-shown",
-            ":default",
             ":indeterminate",
             ":invalid",
             "form:valid",
             ":in-range",
             ":out-of-range",
-            ":focus-visible",
             "#f:not(:has(:placeholder-shown))",
-            "form:has(:default:is(option))",
             "#f :is(:in-range, :out-of-range)",
-            "#f:has(:focus-visible)",
         ]
     );
 }

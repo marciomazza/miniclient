@@ -28,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The native `Page` no longer takes a `url`: every page boots blank at `http://localhost/`.
 - The startup snapshot also warms stylesheet parsing, selectors and computed style, cutting the
   cold first `getComputedStyle`/`cssRules` read in every new `Page`.
+- `querySelector(All)`, `matches` and `closest` parse selectors as stylesheets do, so names the
+  style engine does not know now throw `SyntaxError`: `:blank`, `:buffering`, `:current`,
+  `:future`, `:has-slotted`, `:heading`, `:muted`, `:past`, `:paused`, `:picture-in-picture`,
+  `:playing`, `:seeking`, `:stalled` and `:volume-locked`, as do undeclared namespace prefixes
+  such as `svg|rect`. `:default` and `:focus-visible` now apply in stylesheets too.
 
 ## [0.2.5]
 

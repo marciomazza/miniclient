@@ -6,7 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
-use std::sync::{LazyLock, Mutex, Once, RwLock};
+use std::sync::{LazyLock, Mutex, RwLock};
 
 use cssparser::{Parser, SourceLocation};
 use deno_core::{OpState, op2};
@@ -61,7 +61,8 @@ use style_traits::ParsingMode;
 use stylo_dom::ElementState;
 
 use crate::dom::DomState;
-use crate::dom_query::{MiniElement, QueryState, STATE_PSEUDO_CLASSES, StatePseudo};
+pub(crate) use crate::dom_query::enable_prefs;
+use crate::dom_query::{MiniElement, QueryState};
 use crate::node::Node;
 
 /// jsdom's window size, so media queries agree with `innerWidth` / `innerHeight`.
@@ -260,26 +261,6 @@ static UA_SHEET: LazyLock<DocumentStyleSheet> = LazyLock::new(|| {
     )
 });
 
-// Stylo gates selectors and properties browsers ship behind prefs read at parse time, so they
-// are set before the first sheet; no thread pool, as styling runs on the isolate's thread.
-pub(crate) fn enable_prefs() {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        stylo_static_prefs::set_pref!("layout.threads", 0);
-        stylo_static_prefs::set_pref!("layout.css.has-selector.enabled", true);
-        stylo_static_prefs::set_pref!("layout.css.nth-child-of.enabled", true);
-        stylo_static_prefs::set_pref!("layout.css.at-scope.enabled", true);
-        stylo_static_prefs::set_pref!("layout.container-queries.enabled", true);
-        stylo_static_prefs::set_pref!("layout.columns.enabled", true);
-        stylo_static_prefs::set_pref!("layout.grid.enabled", true);
-        stylo_static_prefs::set_pref!("layout.writing-mode.enabled", true);
-        stylo_static_prefs::set_pref!("layout.unimplemented", true);
-        stylo_static_prefs::set_pref!("layout.css.grid-template-subgrid-value.enabled", true);
-        stylo_static_prefs::set_pref!("layout.css.anchor-positioning.enabled", true);
-        stylo_static_prefs::set_pref!("layout.variable_fonts.enabled", true);
-    });
-}
-
 #[derive(Debug)]
 struct NoFonts;
 
@@ -425,26 +406,7 @@ fn element_state(node: NodeRef<Node>, query: &QueryState) -> ElementState {
     let Some(el) = MiniElement::wrap(node, query) else {
         return ElementState::empty();
     };
-    let mut state = ElementState::DEFINED;
-    for (_, pc) in STATE_PSEUDO_CLASSES {
-        if !el.in_state(pc) {
-            continue;
-        }
-        state |= match pc {
-            StatePseudo::AnyLink | StatePseudo::Link => ElementState::UNVISITED,
-            StatePseudo::Checked => ElementState::CHECKED,
-            StatePseudo::Disabled => ElementState::DISABLED,
-            StatePseudo::Enabled => ElementState::ENABLED,
-            StatePseudo::Focus => ElementState::FOCUS,
-            StatePseudo::FocusWithin => ElementState::FOCUS_WITHIN,
-            StatePseudo::Optional => ElementState::OPTIONAL_,
-            StatePseudo::ReadOnly => ElementState::READONLY,
-            StatePseudo::ReadWrite => ElementState::READWRITE,
-            StatePseudo::Required => ElementState::REQUIRED,
-            StatePseudo::Target => ElementState::URLTARGET,
-        };
-    }
-    state
+    el.element_state()
 }
 
 impl DocStyle {
@@ -1549,12 +1511,7 @@ impl<'a> TElement for N<'a> {
             std::iter::successors(Some(*self), selectors::Element::parent_element)
                 .find_map(|e| e.lang_attr())
         });
-        lang.is_some_and(|lang| {
-            let (lang, value) = (lang.as_ref(), value.as_ref());
-            lang.get(..value.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(value))
-                && matches!(lang.as_bytes().get(value.len()), None | Some(b'-'))
-        })
+        lang.is_some_and(|lang| crate::dom_query::lang_matches(lang.as_ref(), value.as_ref()))
     }
 
     fn is_html_document_body_element(&self) -> bool {

@@ -81,8 +81,11 @@ cssparser = "0.38"
 ego-tree = "0.11"
 html5ever = "0.40"
 selectors = "0.41"
-precomputed-hash = "0.1"
 serde = { version = "1.0.229", features = ["derive"] }
+stylo = "0.22"
+stylo_dom = "0.22"
+stylo_static_prefs = "0.22"
+url = "2"
 
 [lints.clippy]
 todo = "warn"

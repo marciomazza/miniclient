@@ -73,6 +73,55 @@ fn cascade_basics() {
     assert_eq!(camel, ["4px", "none", "none"]);
 }
 
+/// Queries and the cascade read element state from one place, so `matches` agrees with whether
+/// a rule using the same selector applies.
+#[test]
+fn queries_and_the_cascade_agree_on_state_selectors() {
+    let rt = runtime();
+    let selectors = [
+        ":default",
+        ":checked",
+        ":disabled",
+        ":focus",
+        ":focus-visible",
+        ":read-write",
+        ":required",
+        ":any-link",
+        ":lang(pt)",
+        ":hover",
+    ];
+    let out: Vec<(String, String, bool, bool)> = rt.eval(&format!(
+        r#"document.documentElement.innerHTML = `<body><form lang="pt-BR">
+            <input id="cb" type="checkbox" checked><input id="t" required>
+            <button id="b">go</button><input id="d" disabled><a id="a" href="/x">x</a>
+            </form></body>`;
+        document.getElementById("t").focus();
+        const style = document.createElement("style");
+        document.head.append(style);
+        const out = [];
+        for (const sel of {selectors:?}) {{
+            style.textContent = `${{sel}} {{ color: rgb(1, 2, 3) }}`;
+            for (const el of document.querySelectorAll("form *")) {{
+                const applies = getComputedStyle(el).color === "rgb(1, 2, 3)";
+                out.push([sel, el.id, el.matches(sel), applies]);
+            }}
+        }}
+        out"#
+    ));
+    let disagree: Vec<_> = out.iter().filter(|(_, _, q, c)| q != c).collect();
+    assert!(disagree.is_empty(), "{disagree:#?}");
+    let matched = |sel: &str| -> Vec<&str> {
+        out.iter()
+            .filter(|(s, _, q, _)| s == sel && *q)
+            .map(|(_, id, _, _)| id.as_str())
+            .collect()
+    };
+    assert_eq!(matched(":default"), ["cb", "b"]);
+    assert_eq!(matched(":focus-visible"), ["t"]);
+    assert_eq!(matched(":lang(pt)").len(), 5);
+    assert!(matched(":hover").is_empty());
+}
+
 #[test]
 fn inline_style_round_trips_through_the_attribute() {
     let rt = runtime();

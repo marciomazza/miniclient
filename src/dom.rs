@@ -16,7 +16,7 @@ use html5ever::{
 };
 use serde::Serialize;
 
-use crate::dom_query::{self, HTML_NS, MatchSelector, QueryMode, QueryState};
+use crate::dom_query::{self, Declined, HTML_NS, MatchSelector, QueryMode, QueryState};
 use crate::node::{Element, NO_WIRE, Node};
 
 /// Bounds the parsed-selector cache, which pages that build selectors from data would grow
@@ -110,8 +110,8 @@ pub struct DomState {
     /// filters this by document (each candidate's topmost ancestor) at read time instead of
     /// tracking connect/disconnect -- that's exactly what "topmost ancestor" already answers.
     id_index: HashMap<String, Vec<NodeId>>,
-    /// Parsed selectors by source text; `None` caches a selector that does not parse natively.
-    selectors: HashMap<String, Option<MatchSelector>>,
+    /// Parsed selectors by source text; a `Declined` is cached too.
+    selectors: HashMap<String, Result<MatchSelector, Declined>>,
 }
 
 impl DomState {
@@ -131,20 +131,20 @@ impl DomState {
         &self.arena
     }
 
-    /// The wire ids `scope` selects in `mode` (see `dom_query::query`); `None` when the
-    /// selector does not parse natively.
+    /// The wire ids `scope` selects in `mode` (see `dom_query::query`), or why the selector
+    /// gets no native answer.
     pub fn query(
         &mut self,
         scope: u32,
         selector: &str,
         mode: QueryMode,
         state: &QueryState,
-    ) -> Option<Vec<u32>> {
+    ) -> Result<Vec<u32>, Declined> {
         self.parsed(selector)?;
         let quirks = state.quirks;
-        let parsed = self.selectors.get(selector)?.as_ref()?;
+        let parsed = self.selectors[selector].as_ref().map_err(|e| *e)?;
         let Some(node) = self.resolve(scope).and_then(|id| self.arena.get(id)) else {
-            return Some(Vec::new());
+            return Ok(Vec::new());
         };
         let bearers = match mode {
             QueryMode::First | QueryMode::All => {
@@ -163,10 +163,10 @@ impl DomState {
                 dom_query::select(node, inside, parsed, mode, state)
             }
         };
-        Some(hits.into_iter().map(|id| self.wire(id)).collect())
+        Ok(hits.into_iter().map(|id| self.wire(id)).collect())
     }
 
-    fn parsed(&mut self, selector: &str) -> Option<&MatchSelector> {
+    fn parsed(&mut self, selector: &str) -> Result<&MatchSelector, Declined> {
         if !self.selectors.contains_key(selector) {
             // ponytail: dropping the whole cache when full beats LRU bookkeeping on every hit.
             if self.selectors.len() >= SELECTOR_CACHE_SIZE {
@@ -175,7 +175,7 @@ impl DomState {
             self.selectors
                 .insert(selector.to_owned(), MatchSelector::parse(selector));
         }
-        self.selectors.get(selector)?.as_ref()
+        self.selectors[selector].as_ref().map_err(|e| *e)
     }
 
     /// `focus` and `target` are wires, negative for none.

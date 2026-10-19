@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use deno_core::{Extension, OpState, op2};
 
 use crate::dom::{AttrRecord, DocumentParser, DomState, NodeRecord, ParseStep, TreeRecord};
-use crate::dom_query::QueryMode;
+use crate::dom_query::{Declined, QueryMode};
 
 /// Registered right after `deno_web` by both the runtime and the snapshot build, so the
 /// snapshot's extension list stays a prefix of the runtime's.
@@ -356,8 +356,8 @@ pub fn op_dom_tree_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32]) 
 }
 
 /// `mode` is a `QueryMode` index (first, all, closest, matches); `focus` and `target` are the
-/// focused and target elements' wires, `-1` for none. Returns `-1` when the selector does not
-/// parse natively, so JS falls back to `dom-selector`.
+/// focused and target elements' wires, `-1` for none. Returns `-1` when the selector reads state
+/// only jsdom has, so JS falls back to `dom-selector`, and `-2` when it is invalid.
 #[op2(fast)]
 pub fn op_dom_query(
     state: &mut OpState,
@@ -376,7 +376,8 @@ pub fn op_dom_query(
     let dom = dom(state);
     let query_state = dom.query_state(html, quirks, focus, target);
     match dom.query(scope, selector, mode, &query_state) {
-        Some(wires) => fill(out, wires) as i32,
-        None => -1,
+        Ok(wires) => fill(out, wires) as i32,
+        Err(Declined::NeedsJs) => -1,
+        Err(Declined::Invalid) => -2,
     }
 }

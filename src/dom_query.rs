@@ -1,76 +1,61 @@
 //! CSS selector matching over the arena: a `selectors::SelectorImpl` and a `selectors::Element`
 //! over `ego_tree::NodeRef<Node>`.
 
-use std::cell::Cell;
+use std::sync::Once;
 
 use crate::node::{Element as ElementData, Node};
-use cssparser::{CowRcStr, ParseError, Parser as CssParser, ToCss};
+use cssparser::Parser as CssParser;
 use ego_tree::{NodeId, NodeRef};
 use html5ever::{LocalName, Namespace};
-use precomputed_hash::PrecomputedHash;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::bloom::BloomFilter;
 use selectors::matching::{
     self, ElementSelectorFlags, MatchingContext, MatchingForInvalidation, MatchingMode,
     NeedsSelectorFlags, QuirksMode, SelectorCaches,
 };
-use selectors::parser::{self, Component, ParseRelative, SelectorList, SelectorParseErrorKind};
+use selectors::parser::{Component, ParseRelative, RelativeSelector, SelectorList};
+use selectors::visitor::SelectorVisitor;
 use selectors::{Element, OpaqueElement};
+use style::selector_parser::{NonTSPseudoClass, PseudoElement, SelectorImpl, SelectorParser};
+use style::stylesheets::UrlExtraData;
+use style::stylesheets::{Namespaces, Origin};
+use style::values::{AtomIdent, AtomString, GenericAtomIdent};
+use stylo_dom::ElementState;
 
 pub(crate) const HTML_NS: &str = "http://www.w3.org/1999/xhtml";
 
-/// Legal pseudo-classes no element can be in here: no history, media, fullscreen or autofill.
-const NEVER_MATCHING_PSEUDO_CLASSES: [&str; 21] = [
-    "autofill",
-    "blank",
-    "buffering",
-    "current",
-    "fullscreen",
-    "future",
-    "has-slotted",
-    "heading",
-    "modal",
-    "muted",
-    "past",
-    "paused",
-    "picture-in-picture",
-    "playing",
-    "popover-open",
-    "seeking",
-    "stalled",
-    "user-invalid",
-    "user-valid",
-    "visited",
-    "volume-locked",
-];
-
-/// Pseudo-elements are never in the tree, so they parse and never match.
-const PSEUDO_ELEMENTS: [&str; 12] = [
-    "after",
-    "backdrop",
-    "before",
-    "cue",
-    "cue-region",
-    "file-selector-button",
-    "first-letter",
-    "first-line",
-    "marker",
-    "placeholder",
-    "selection",
-    "target-text",
-];
+// Stylo gates selectors and properties browsers ship behind prefs read at parse time, so they
+// are set before the first sheet; no thread pool, as styling runs on the isolate's thread.
+pub(crate) fn enable_prefs() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        stylo_static_prefs::set_pref!("layout.threads", 0);
+        stylo_static_prefs::set_pref!("layout.css.has-selector.enabled", true);
+        stylo_static_prefs::set_pref!("layout.css.nth-child-of.enabled", true);
+        stylo_static_prefs::set_pref!("layout.css.at-scope.enabled", true);
+        stylo_static_prefs::set_pref!("layout.container-queries.enabled", true);
+        stylo_static_prefs::set_pref!("layout.columns.enabled", true);
+        stylo_static_prefs::set_pref!("layout.grid.enabled", true);
+        stylo_static_prefs::set_pref!("layout.writing-mode.enabled", true);
+        stylo_static_prefs::set_pref!("layout.unimplemented", true);
+        stylo_static_prefs::set_pref!("layout.css.grid-template-subgrid-value.enabled", true);
+        stylo_static_prefs::set_pref!("layout.css.anchor-positioning.enabled", true);
+        stylo_static_prefs::set_pref!("layout.variable_fonts.enabled", true);
+    });
+}
 
 /// The state pseudo-classes matched natively: focus and target come from `QueryState`, the rest
-/// derive from attributes and the tree. Any other state pseudo-class fails to parse.
+/// derive from attributes and the tree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatePseudo {
     AnyLink,
     Checked,
+    Default,
     Disabled,
     Enabled,
     Focus,
+    FocusVisible,
     FocusWithin,
-    Link,
     Optional,
     ReadOnly,
     ReadWrite,
@@ -78,29 +63,33 @@ pub enum StatePseudo {
     Target,
 }
 
-pub const STATE_PSEUDO_CLASSES: [(&str, StatePseudo); 12] = [
-    ("any-link", StatePseudo::AnyLink),
-    ("checked", StatePseudo::Checked),
-    ("disabled", StatePseudo::Disabled),
-    ("enabled", StatePseudo::Enabled),
-    ("focus", StatePseudo::Focus),
-    ("focus-within", StatePseudo::FocusWithin),
-    ("link", StatePseudo::Link),
-    ("optional", StatePseudo::Optional),
-    ("read-only", StatePseudo::ReadOnly),
-    ("read-write", StatePseudo::ReadWrite),
-    ("required", StatePseudo::Required),
-    ("target", StatePseudo::Target),
+/// Each native state and the stylo flag it sets. Pseudo-classes outside it (`:hover`,
+/// `:visited`, `:modal`, ...) parse and never match.
+const STATE_FLAGS: [(StatePseudo, ElementState); 13] = [
+    (StatePseudo::AnyLink, ElementState::UNVISITED),
+    (StatePseudo::Checked, ElementState::CHECKED),
+    (StatePseudo::Default, ElementState::DEFAULT),
+    (StatePseudo::Disabled, ElementState::DISABLED),
+    (StatePseudo::Enabled, ElementState::ENABLED),
+    (StatePseudo::Focus, ElementState::FOCUS),
+    (StatePseudo::FocusVisible, ElementState::FOCUSRING),
+    (StatePseudo::FocusWithin, ElementState::FOCUS_WITHIN),
+    (StatePseudo::Optional, ElementState::OPTIONAL_),
+    (StatePseudo::ReadOnly, ElementState::READONLY),
+    (StatePseudo::ReadWrite, ElementState::READWRITE),
+    (StatePseudo::Required, ElementState::REQUIRED),
+    (StatePseudo::Target, ElementState::URLTARGET),
 ];
 
-impl StatePseudo {
-    fn name(self) -> &'static str {
-        STATE_PSEUDO_CLASSES
-            .iter()
-            .find(|(_, p)| *p == self)
-            .expect("every variant is in the table")
-            .0
-    }
+/// State pseudo-classes whose inputs (values, validity, `indeterminate`) live only in jsdom.
+// shortcut: selectors using them still go to `dom-selector`; drop this once jsdom hands their
+// state to Rust.
+fn needs_js_state(pc: &NonTSPseudoClass) -> bool {
+    use NonTSPseudoClass as P;
+    matches!(
+        pc,
+        P::PlaceholderShown | P::Indeterminate | P::Valid | P::Invalid | P::InRange | P::OutOfRange
+    )
 }
 
 /// What a query knows beyond the arena: the document type, focus and target.
@@ -132,19 +121,48 @@ impl QueryMode {
     }
 }
 
+/// Why a selector gets no native answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Declined {
+    /// Not a valid selector: the caller throws `SyntaxError`.
+    Invalid,
+    /// Valid, but it reads state only jsdom has.
+    NeedsJs,
+}
+
 /// A compiled selector group (comma-separated list).
 pub struct MatchSelector {
-    list: SelectorList<MiniImpl>,
+    list: SelectorList<SelectorImpl>,
 }
 
 impl MatchSelector {
-    /// `None` when the selector is invalid or needs what this matcher lacks (namespace
-    /// prefixes, `:lang`, state pseudo-classes, ...).
-    pub fn parse(selector: &str) -> Option<Self> {
-        let mut parser = CssParser::new(selector);
-        let mini = MiniParser::default();
-        let list = SelectorList::parse(&mini, &mut parser, ParseRelative::No).ok()?;
-        (!mini.unsupported.get()).then_some(Self { list })
+    /// Parsed as the cascade parses author selectors, under the same prefs.
+    pub fn parse(selector: &str) -> Result<Self, Declined> {
+        enable_prefs();
+        let url_data = UrlExtraData::from(url::Url::parse("about:blank").expect("static URL"));
+        let parser = SelectorParser {
+            stylesheet_origin: Origin::Author,
+            namespaces: &Namespaces::default(),
+            url_data: &url_data,
+            for_supports_rule: false,
+        };
+        let list = CssParser::new(selector)
+            .parse_entirely(|i| SelectorList::parse(&parser, i, ParseRelative::No))
+            .map_err(|_| {
+                if names_browsers_accept(&mut CssParser::new(selector)) {
+                    Declined::NeedsJs
+                } else {
+                    Declined::Invalid
+                }
+            })?;
+        let mut js = JsState(false);
+        for s in list.slice() {
+            s.visit(&mut js);
+        }
+        if js.0 {
+            return Err(Declined::NeedsJs);
+        }
+        Ok(Self { list })
     }
 
     /// The id every match must bear: the list is one selector whose subject compound has an
@@ -154,17 +172,59 @@ impl MatchSelector {
             return None;
         };
         selector.iter().find_map(|c| match c {
-            Component::ID(id) => Some(id.0.as_ref()),
+            Component::ID(id) => Some(&*id.0),
             _ => None,
         })
     }
 
-    fn matches(&self, element: &MiniElement, context: &mut MatchingContext<MiniImpl>) -> bool {
+    fn matches(&self, element: &MiniElement, context: &mut MatchingContext<SelectorImpl>) -> bool {
         self.list
             .slice()
             .iter()
             .any(|s| matching::matches_selector(s, 0, None, element, context))
     }
+}
+
+/// Whether a selector stylo rejects names a pseudo-class or pseudo-element browsers accept, so it
+/// goes to `dom-selector` instead of throwing.
+// shortcut: stylo 0.22 lacks these names (`in-range` has a variant but no name), so they keep the
+// JS fallback; drop each one once stylo parses it.
+fn names_browsers_accept(input: &mut CssParser) -> bool {
+    use cssparser::Token;
+    const NAMES: [&str; 7] = [
+        "in-range",
+        "dir",
+        "first-line",
+        "first-letter",
+        "cue",
+        "cue-region",
+        "target-text",
+    ];
+    let known = |name: &str| {
+        let name = name.to_ascii_lowercase();
+        name.starts_with("-webkit-") || NAMES.contains(&name.as_str())
+    };
+    let mut after_colon = false;
+    while let Ok(token) = input.next_including_whitespace() {
+        let token = token.clone();
+        match &token {
+            Token::Ident(name) | Token::Function(name) if after_colon && known(name) => {
+                return true;
+            }
+            _ => {}
+        }
+        after_colon = matches!(token, Token::Colon);
+        if matches!(
+            token,
+            Token::Function(_) | Token::ParenthesisBlock | Token::SquareBracketBlock
+        ) && input
+            .parse_nested_block(|i| Ok::<_, cssparser::ParseError<()>>(names_browsers_accept(i)))
+            == Ok(true)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// The ids of the elements `scope` selects in `mode`, in document order (ancestor order for
@@ -215,164 +275,30 @@ pub fn select<'a>(
     }
 }
 
-// --- selectors::SelectorImpl wiring -------------------------------------------------------
+/// Finds any pseudo-class `needs_js_state` names, inside `:is()`, `:not()` and `:has()` too.
+struct JsState(bool);
 
-/// An attribute value in a parsed selector.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CssString(pub String);
+impl SelectorVisitor for JsState {
+    type Impl = SelectorImpl;
 
-impl From<&str> for CssString {
-    fn from(val: &str) -> Self {
-        Self(val.to_owned())
-    }
-}
-
-impl AsRef<str> for CssString {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl ToCss for CssString {
-    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
-        cssparser::serialize_string(&self.0, dest)
-    }
-}
-
-/// A name in a parsed selector: identifier, local name or namespace prefix.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct CssLocalName(pub LocalName);
-
-impl From<&str> for CssLocalName {
-    fn from(val: &str) -> Self {
-        Self(val.into())
-    }
-}
-
-impl ToCss for CssLocalName {
-    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
-        dest.write_str(&self.0)
-    }
-}
-
-impl PrecomputedHash for CssLocalName {
-    fn precomputed_hash(&self) -> u32 {
-        self.0.precomputed_hash()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MiniImpl;
-
-impl parser::SelectorImpl for MiniImpl {
-    type AttrValue = CssString;
-    type Identifier = CssLocalName;
-    type LocalName = CssLocalName;
-    type NamespacePrefix = CssLocalName;
-    type NamespaceUrl = Namespace;
-    type BorrowedNamespaceUrl = Namespace;
-    type BorrowedLocalName = CssLocalName;
-    type NonTSPseudoClass = MiniPseudo;
-    type PseudoElement = MiniPseudoElement;
-    type ExtraMatchingData<'a> = ();
-}
-
-/// Non-tree-structural pseudo-classes this matcher accepts. Any other name is a parse error.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MiniPseudo {
-    NeverMatches(String),
-    State(StatePseudo),
-}
-
-impl parser::NonTSPseudoClass for MiniPseudo {
-    fn is_active_or_hover(&self) -> bool {
-        false
-    }
-
-    fn is_user_action_state(&self) -> bool {
-        false
-    }
-}
-
-impl ToCss for MiniPseudo {
-    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
-        match self {
-            MiniPseudo::NeverMatches(name) => write!(dest, ":{name}"),
-            MiniPseudo::State(pc) => write!(dest, ":{}", pc.name()),
+    fn visit_simple_selector(&mut self, c: &Component<SelectorImpl>) -> bool {
+        if let Component::NonTSPseudoClass(pc) = c {
+            self.0 |= needs_js_state(pc);
         }
+        !self.0
+    }
+
+    // The default skips `:has()` arguments.
+    fn visit_relative_selector_list(&mut self, list: &[RelativeSelector<SelectorImpl>]) -> bool {
+        list.iter().all(|r| r.selector.visit(self))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MiniPseudoElement(String);
-
-impl parser::PseudoElement for MiniPseudoElement {}
-
-impl ToCss for MiniPseudoElement {
-    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
-        write!(dest, "::{}", self.0)
-    }
-}
-
-/// `:is()` and `:where()` drop what fails to parse, so `unsupported` keeps those selectors
-/// away from this matcher too.
-#[derive(Default)]
-struct MiniParser {
-    unsupported: Cell<bool>,
-}
-
-impl<'i> parser::Parser<'i> for MiniParser {
-    type Impl = MiniImpl;
-    type Error = SelectorParseErrorKind;
-
-    fn parse_is_and_where(&self) -> bool {
-        true
-    }
-
-    fn parse_has(&self) -> bool {
-        true
-    }
-
-    fn parse_nth_child_of(&self) -> bool {
-        true
-    }
-
-    fn parse_non_ts_pseudo_class(
-        &self,
-        name: CowRcStr<'i>,
-    ) -> Result<MiniPseudo, ParseError<Self::Error>> {
-        let state = STATE_PSEUDO_CLASSES
-            .iter()
-            .find(|(n, _)| name.eq_ignore_ascii_case(n));
-        if let Some(&(_, pc)) = state {
-            return Ok(MiniPseudo::State(pc));
-        }
-        let known = known(&NEVER_MATCHING_PSEUDO_CLASSES, &name);
-        self.unsupported
-            .set(self.unsupported.get() || known.is_err());
-        known.map(MiniPseudo::NeverMatches)
-    }
-
-    fn parse_pseudo_element(
-        &self,
-        name: CowRcStr<'i>,
-    ) -> Result<MiniPseudoElement, ParseError<Self::Error>> {
-        let known = known(&PSEUDO_ELEMENTS, &name);
-        self.unsupported
-            .set(self.unsupported.get() || known.is_err());
-        known.map(MiniPseudoElement)
-    }
-}
-
-/// `name` lower-cased when it is in `list` or vendor-prefixed, else a parse error.
-fn known(list: &[&str], name: &str) -> Result<String, ParseError<SelectorParseErrorKind>> {
-    let lower = name.to_ascii_lowercase();
-    if list.contains(&lower.as_str()) || lower.starts_with("-webkit-") {
-        return Ok(lower);
-    }
-    Err(ParseError::custom(
-        SelectorParseErrorKind::UnsupportedPseudoClassOrElement,
-    ))
+/// `lang` is `value` or starts with `value` and a hyphen, ASCII case-insensitively.
+pub(crate) fn lang_matches(lang: &str, value: &str) -> bool {
+    lang.get(..value.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(value))
+        && matches!(lang.as_bytes().get(value.len()), None | Some(b'-'))
 }
 
 // --- selectors::Element newtype ---------------------------------------------------------
@@ -432,7 +358,7 @@ impl<'a> MiniElement<'a> {
         use StatePseudo as P;
         let id = self.node.id();
         match pc {
-            P::AnyLink | P::Link => self.is_link(),
+            P::AnyLink => self.is_link(),
             P::Checked => match self.html_local() {
                 Some("input") => {
                     matches!(self.input_type().as_str(), "checkbox" | "radio") && self.el().checked
@@ -440,6 +366,7 @@ impl<'a> MiniElement<'a> {
                 Some("option") => self.el().checked,
                 _ => false,
             },
+            P::Default => self.is_default(),
             P::Disabled => self.is_disabled(),
             P::Enabled => {
                 matches!(
@@ -462,10 +389,78 @@ impl<'a> MiniElement<'a> {
             }
             P::ReadWrite => self.is_read_write(),
             P::ReadOnly => !self.is_read_write(),
-            P::Focus => self.state.focus_path.first() == Some(&id),
+            // shortcut: no pointer, so every focus shows a ring; track the last input modality
+            // once a test tells mouse focus apart.
+            P::Focus | P::FocusVisible => self.state.focus_path.first() == Some(&id),
             P::FocusWithin => self.state.focus_path.contains(&id),
             P::Target => self.state.target == Some(id),
         }
+    }
+
+    /// The stylo flags of every native state this element is in.
+    pub fn element_state(&self) -> ElementState {
+        STATE_FLAGS
+            .iter()
+            .filter(|(pc, _)| self.in_state(*pc))
+            .fold(ElementState::DEFINED, |state, (_, flag)| state | *flag)
+    }
+
+    /// Checked-by-default controls, selected-by-default options and a form's default button.
+    fn is_default(&self) -> bool {
+        match self.html_local() {
+            Some("input") if matches!(self.input_type().as_str(), "checkbox" | "radio") => {
+                self.has_attr("checked")
+            }
+            Some("option") => self.has_attr("selected"),
+            Some("input" | "button") if self.is_submit_button() => {
+                // shortcut: the form owner is the nearest ancestor form; honour `form=` once a
+                // page relies on it.
+                let Some(form) = self
+                    .node
+                    .ancestors()
+                    .filter_map(|n| Self::wrap(n, self.state))
+                    .find(|e| e.html_local() == Some("form"))
+                else {
+                    return false;
+                };
+                let first = form
+                    .node
+                    .descendants()
+                    .filter_map(|n| Self::wrap(n, self.state))
+                    .find(Self::is_submit_button);
+                first.is_some_and(|b| b.node.id() == self.node.id())
+            }
+            _ => false,
+        }
+    }
+
+    fn is_submit_button(&self) -> bool {
+        match self.html_local() {
+            Some("input") => matches!(self.input_type().as_str(), "submit" | "image"),
+            Some("button") => !matches!(
+                self.el()
+                    .attr("type")
+                    .map(str::to_ascii_lowercase)
+                    .as_deref(),
+                Some("reset" | "button")
+            ),
+            _ => false,
+        }
+    }
+
+    /// The nearest `lang` attribute, `xml:lang` first, on this element or an ancestor.
+    fn lang(&self) -> Option<&'a str> {
+        std::iter::successors(Some(*self), Element::parent_element).find_map(|e| {
+            let attr = |ns: &str| {
+                e.el()
+                    .attrs
+                    .iter()
+                    .find(|a| &*a.name.ns == ns && &*a.name.local == "lang")
+            };
+            attr("http://www.w3.org/XML/1998/namespace")
+                .or_else(|| attr(""))
+                .map(|a| &*a.value)
+        })
     }
 
     /// HTML's "actually disabled".
@@ -602,7 +597,7 @@ const REQUIRED_INPUT_TYPES: [&str; 15] = [
 ];
 
 impl Element for MiniElement<'_> {
-    type Impl = MiniImpl;
+    type Impl = SelectorImpl;
 
     fn opaque(&self) -> OpaqueElement {
         OpaqueElement::new(self.node.value())
@@ -644,12 +639,12 @@ impl Element for MiniElement<'_> {
         self.state.html && &*self.el().name.ns == HTML_NS
     }
 
-    fn has_local_name(&self, name: &CssLocalName) -> bool {
-        self.el().name.local == name.0
+    fn has_local_name(&self, name: &LocalName) -> bool {
+        self.el().name.local == *name
     }
 
     fn has_namespace(&self, namespace: &Namespace) -> bool {
-        &self.el().name.ns == namespace
+        self.el().name.ns == *namespace
     }
 
     fn is_same_type(&self, other: &Self) -> bool {
@@ -658,12 +653,12 @@ impl Element for MiniElement<'_> {
 
     fn attr_matches(
         &self,
-        ns: &NamespaceConstraint<&Namespace>,
-        local_name: &CssLocalName,
-        operation: &AttrSelectorOperation<&CssString>,
+        ns: &NamespaceConstraint<&GenericAtomIdent<html5ever::NamespaceStaticSet>>,
+        local_name: &GenericAtomIdent<html5ever::LocalNameStaticSet>,
+        operation: &AttrSelectorOperation<&AtomString>,
     ) -> bool {
         self.el().attrs.iter().any(|a| {
-            !matches!(*ns, NamespaceConstraint::Specific(url) if *url != a.name.ns)
+            !matches!(*ns, NamespaceConstraint::Specific(url) if url.0 != a.name.ns)
                 && local_name.0 == a.name.local
                 && operation.eval_str(&a.value)
         })
@@ -671,19 +666,20 @@ impl Element for MiniElement<'_> {
 
     fn match_non_ts_pseudo_class(
         &self,
-        pc: &MiniPseudo,
-        _context: &mut MatchingContext<'_, MiniImpl>,
+        pc: &NonTSPseudoClass,
+        _context: &mut MatchingContext<'_, SelectorImpl>,
     ) -> bool {
-        match pc {
-            MiniPseudo::NeverMatches(_) => false,
-            MiniPseudo::State(pc) => self.in_state(*pc),
+        if let NonTSPseudoClass::Lang(value) = pc {
+            return self.lang().is_some_and(|lang| lang_matches(lang, value));
         }
+        let flag = pc.state_flag();
+        !flag.is_empty() && self.element_state().intersects(flag)
     }
 
     fn match_pseudo_element(
         &self,
-        _pe: &MiniPseudoElement,
-        _context: &mut MatchingContext<'_, MiniImpl>,
+        _pe: &PseudoElement,
+        _context: &mut MatchingContext<'_, SelectorImpl>,
     ) -> bool {
         false
     }
@@ -698,26 +694,25 @@ impl Element for MiniElement<'_> {
         self.local() == "slot"
     }
 
-    fn has_id(&self, id: &CssLocalName, case_sensitivity: CaseSensitivity) -> bool {
-        match self.el().id() {
-            Some(val) => case_sensitivity.eq(id.0.as_bytes(), val.as_bytes()),
-            None => false,
-        }
+    fn has_id(&self, id: &AtomIdent, case_sensitivity: CaseSensitivity) -> bool {
+        self.el()
+            .id()
+            .is_some_and(|own| case_sensitivity.eq(id.as_bytes(), own.as_bytes()))
     }
 
-    fn has_class(&self, name: &CssLocalName, case_sensitivity: CaseSensitivity) -> bool {
-        self.el().has_class(&name.0, case_sensitivity)
+    fn has_class(&self, name: &AtomIdent, case_sensitivity: CaseSensitivity) -> bool {
+        self.el().has_class(name, case_sensitivity)
     }
 
-    fn has_custom_state(&self, _name: &CssLocalName) -> bool {
+    fn has_custom_state(&self, _name: &AtomIdent) -> bool {
         false
     }
 
-    fn imported_part(&self, _name: &CssLocalName) -> Option<CssLocalName> {
+    fn imported_part(&self, _name: &AtomIdent) -> Option<AtomIdent> {
         None
     }
 
-    fn is_part(&self, _name: &CssLocalName) -> bool {
+    fn is_part(&self, _name: &AtomIdent) -> bool {
         false
     }
 
@@ -739,7 +734,7 @@ impl Element for MiniElement<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MatchSelector, QueryMode, QueryState};
+    use super::{Declined, MatchSelector, QueryMode, QueryState};
     use crate::dom::DomState;
 
     fn html() -> QueryState {
@@ -806,14 +801,14 @@ mod tests {
         let (mut dom, root) = doc("<html><body><div><p><b></b></p></div></body></html>");
         let b = dom.query(root, "b", QueryMode::First, &html()).unwrap()[0];
         let closest = |dom: &mut DomState, s| dom.query(b, s, QueryMode::Closest, &html());
-        assert_eq!(closest(&mut dom, "b"), Some(vec![b]));
+        assert_eq!(closest(&mut dom, "b"), Ok(vec![b]));
         let hit = closest(&mut dom, "div, p").unwrap();
         assert_eq!(dom.nodes(&hit)[0].name.as_deref(), Some("P"));
         assert_eq!(
             dom.query(b, "p b", QueryMode::Matches, &html()),
-            Some(vec![b])
+            Ok(vec![b])
         );
-        assert_eq!(dom.query(b, "p", QueryMode::Matches, &html()), Some(vec![]));
+        assert_eq!(dom.query(b, "p", QueryMode::Matches, &html()), Ok(vec![]));
     }
 
     #[test]
@@ -826,35 +821,42 @@ mod tests {
     }
 
     #[test]
-    fn invalid_or_unsupported_selector_is_a_parse_error() {
+    fn invalid_selectors_and_jsdom_state_are_declined() {
+        let parse = |s| MatchSelector::parse(s).err();
         for selector in [
             ":::",
             "div::??",
             ":totallyfake",
-            ":hover",
-            ":lang(en)",
             "svg|rect",
+            "[x=':in-range']:::",
         ] {
-            assert!(MatchSelector::parse(selector).is_none(), "{selector}");
+            assert_eq!(parse(selector), Some(Declined::Invalid), "{selector}");
         }
+        for selector in [
+            ":invalid",
+            "p:is(a, :not(:placeholder-shown))",
+            ":has(:invalid)",
+            ":nth-child(1 of :valid)",
+            "input:IN-RANGE",
+            "p:not(:dir(ltr))",
+            ":-webkit-autofill",
+            "p::first-line",
+        ] {
+            assert_eq!(parse(selector), Some(Declined::NeedsJs), "{selector}");
+        }
+        assert_eq!(parse(":hover, :lang(en)"), None);
         let (mut dom, root) = doc("<html><body><div></div></body></html>");
-        assert_eq!(dom.query(root, ":::", QueryMode::All, &html()), None);
         assert_eq!(
-            dom.query(9999, "div", QueryMode::All, &html()),
-            Some(vec![])
+            dom.query(root, ":::", QueryMode::All, &html()),
+            Err(Declined::Invalid)
         );
+        assert_eq!(dom.query(9999, "div", QueryMode::All, &html()), Ok(vec![]));
     }
 
     #[test]
     fn legal_but_unsupported_pseudos_parse_and_never_match() {
         let (mut dom, root) = doc("<html><body><a href='/'>x</a><p>y</p></body></html>");
-        for selector in [
-            ":visited",
-            ":modal",
-            "a:-webkit-autofill",
-            "p::before",
-            "p:after",
-        ] {
+        for selector in [":visited", ":modal", ":hover", "p::before", "p:after"] {
             assert!(q(&mut dom, root, selector, true).is_empty(), "{selector}");
         }
         assert_eq!(q(&mut dom, root, "a:not(:visited)", true), ["A"]);
