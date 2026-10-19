@@ -90,6 +90,7 @@ declare namespace Deno {
       op_crypto_random_uuid(): `${string}-${string}-${string}-${string}-${string}`;
       op_crypto_random_bytes(n: number): Uint8Array;
       op_now(): number;
+      op_css_supports(property: string, value: string | null): boolean;
     };
   };
 }

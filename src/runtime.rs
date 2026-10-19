@@ -100,6 +100,7 @@ pub(crate) fn miniclient_extension() -> Extension {
             crate::css::op_css_set_declaration(),
             crate::css::op_css_remove_declaration(),
             crate::css::op_css_computed_longhands(),
+            crate::css::op_css_supports(),
         ]),
         ..Default::default()
     }

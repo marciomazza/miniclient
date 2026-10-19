@@ -713,3 +713,32 @@ fn chromium_golden() {
         regressions.len()
     );
 }
+
+#[test]
+fn css_supports_answers_from_stylo() {
+    let rt = runtime();
+    let cases = [
+        (r#"CSS.supports("COLOR", "red")"#, true),
+        (r#"CSS.supports("color", "nonsense")"#, false),
+        (r#"CSS.supports("color", "red !important")"#, false),
+        (r#"CSS.supports("not-a-prop", "red")"#, false),
+        (r#"CSS.supports("grid-template-columns", "subgrid")"#, true),
+        (r#"CSS.supports("--x", "anything")"#, true),
+        (r#"CSS.supports("--a b", "x")"#, true),
+        (r#"CSS.supports("color: red")"#, true),
+        (
+            r#"CSS.supports("(color: red) and (not (color: nonsense))")"#,
+            true,
+        ),
+        (
+            r#"CSS.supports("(color: nonsense) or (display: grid)")"#,
+            true,
+        ),
+        (r#"CSS.supports("color: nonsense")"#, false),
+        (r#"CSS.supports("(color: red) junk")"#, false),
+    ];
+    for (expr, expected) in cases {
+        let got: bool = rt.eval(expr);
+        assert_eq!(got, expected, "{expr}");
+    }
+}
