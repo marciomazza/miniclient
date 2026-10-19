@@ -13,12 +13,14 @@ import asyncio
 import contextlib
 import json
 import os
+import select
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx2 as httpx
@@ -28,6 +30,9 @@ from miniclient.browser import AsyncPage, Browser
 HERE = Path(__file__).parent
 WPT = HERE.parent.parent / "vendor" / "jsdom" / "test" / "web-platform-tests" / "tests"
 FILE_TIMEOUT = 90
+# Synchronous JS (a runaway regex) blocks the page's event loop, so FILE_TIMEOUT never fires:
+# past this the worker process is killed. Covers goto + wait + close at their own limits.
+HARD_TIMEOUT = 2 * FILE_TIMEOUT + 20
 
 # Replaces WPT's reporter so the page leaves its results in `window.__wpt`.
 REPORTER = (HERE / "reporter.js").read_bytes()
@@ -83,8 +88,54 @@ async def run_page(path):
             pass
 
 
+def worker():
+    results = os.fdopen(os.dup(1), "w")
+    # Whatever the page prints goes to stderr, so it cannot corrupt the result stream.
+    os.dup2(2, 1)
+    for line in sys.stdin:
+        print(json.dumps(asyncio.run(run_page(line.strip()))), file=results, flush=True)
+
+
+class Worker:
+    """A `worker()` subprocess, killed and replaced when a file outlives HARD_TIMEOUT."""
+
+    def __init__(self):
+        self.proc = None
+
+    def run(self, path):
+        proc = self.proc = self.proc or subprocess.Popen(
+            [sys.executable, __file__, "--worker"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        assert proc.stdin and proc.stdout
+        proc.stdin.write(path + "\n")
+        proc.stdin.flush()
+        ready, _, _ = select.select([proc.stdout], [], [], HARD_TIMEOUT)
+        line = proc.stdout.readline() if ready else ""
+        if line:
+            return json.loads(line)
+        self.close()
+        message = "worker died" if ready else f"killed after {HARD_TIMEOUT}s"
+        return {"status": "ERROR", "message": message, "tests": []}
+
+    def close(self):
+        if self.proc is not None:
+            self.proc.kill()
+            self.proc.wait()
+            self.proc = None
+
+
+local = threading.local()
+workers = []
+
+
 def run_file(path):
-    return path, asyncio.run(run_page(path))
+    if not hasattr(local, "worker"):
+        local.worker = Worker()
+        workers.append(local.worker)
+    return path, local.worker.run(path)
 
 
 def serve():
@@ -132,7 +183,7 @@ def main():
     try:
         # The baseline keeps only what passes in every one of three runs, so flaky subtests
         # are not tracked.
-        with ProcessPoolExecutor(int(os.environ.get("JOBS", "8"))) as pool:
+        with ThreadPoolExecutor(int(os.environ.get("JOBS", "8"))) as pool:
             runs = [dict(pool.map(run_file, paths)) for _ in range(3 if update else 1)]
         results = runs[0]
         now = {p: sorted(set.intersection(*(set(passing(r[p])) for r in runs))) for p in results}
@@ -145,6 +196,8 @@ def main():
                         break
                     now[p] = sorted(set(now[p]) | set(passing(run_file(p)[1])))
     finally:
+        for w in workers:
+            w.close()
         stop(server, signal.SIGTERM)
 
     total = sum(len(r["tests"]) for r in results.values())
@@ -168,4 +221,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    worker() if "--worker" in sys.argv else main()
