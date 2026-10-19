@@ -19745,6 +19745,7 @@
   "Trailing declarations"
  ],
  "/css/css-nesting/nested-declarations-matching.html": [
+  "Bare declartaion in nested grouping rule can match pseudo-element",
   "Nested @scope rules behave like :where(:scope)",
   "Nested @scope rules behave like :where(:scope) (trailing)",
   "Nested declarations rule has same specificity as outer selector",
@@ -22689,13 +22690,15 @@
   "Computed style properties should be sorted lexicographically"
  ],
  "/css/cssom/getComputedStyle-pseudo-checkmark.html": [
-  "Resolution of width is correct when pseudo-element argument is ignored (due to no colon)"
+  "Resolution of width is correct when pseudo-element argument is ignored (due to no colon)",
+  "Resolution of width is correct when pseudo-element argument is ignored (due to single-colon)"
  ],
  "/css/cssom/getComputedStyle-pseudo-class.html": [
   "getComputedStyle should return the default style, not :hover style"
  ],
  "/css/cssom/getComputedStyle-pseudo-picker-icon.html": [
-  "Resolution of width is correct when pseudo-element argument is ignored (due to no colon)"
+  "Resolution of width is correct when pseudo-element argument is ignored (due to no colon)",
+  "Resolution of width is correct when pseudo-element argument is ignored (due to single-colon)"
  ],
  "/css/cssom/getComputedStyle-pseudo-picker.html": [
   "::picker(select) on non-select element with no rules resolves the style",
@@ -22727,9 +22730,16 @@
   "This pseudo-element should not parse: :view-transition-old(name)"
  ],
  "/css/cssom/getComputedStyle-pseudo.html": [
+  "::file-selector-button resolves to the file input button element",
   "CSSStyleDeclaration is immutable",
   "Prefixed ::-webkit-file-upload-button does not resolve in getComputedStyle",
-  "Resolution of width is correct when pseudo-element argument is ignored (due to no colon)"
+  "Resolution of width is correct when pseudo-element argument is ignored (due to no colon)",
+  "Resolution of width is correct when pseudo-element argument is invalid (due to a trailing token)",
+  "Unknown pseudo-element with a known identifier: backdrop",
+  "Unknown pseudo-element with a known identifier: file-selector-button",
+  "Unknown pseudo-element with a known identifier: marker",
+  "Unknown pseudo-element with a known identifier: placeholder",
+  "Unknown pseudo-elements"
  ],
  "/css/cssom/getComputedStyle-resolved-colors.html": [
   "The resolved value for 'background-color' is the used value",

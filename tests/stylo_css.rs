@@ -129,9 +129,41 @@ fn computed_style_enumerates_its_longhands() {
     assert!(got.0 > 200, "{got:?}");
     assert!(got.1 && !got.2, "{got:?}");
     assert_eq!(got.3, "");
-    // pseudo-element computed style is unimplemented, so it enumerates nothing
     let pseudo: u32 = rt.eval(r#"getComputedStyle(document.body, "::before").length"#);
-    assert_eq!(pseudo, 0);
+    assert!(pseudo > 200);
+    let unsupported: u32 = rt.eval(r#"getComputedStyle(document.body, "::unknown").length"#);
+    assert_eq!(unsupported, 0);
+    let edges: Vec<String> = rt.eval(
+        r#"document.body.style.width = "7px";
+        [getComputedStyle(document.body, "unknown").width,
+            getComputedStyle(document.body, "::picker(select)").backgroundColor]"#,
+    );
+    assert_eq!(edges, ["7px", "rgba(0, 0, 0, 0)"]);
+}
+
+#[test]
+fn pseudo_element_computed_style_uses_its_own_cascade() {
+    let rt = runtime();
+    let got: Vec<String> = rt.eval(
+        r#"document.documentElement.innerHTML = `<head><style>
+            p { color: rgb(0, 0, 255) }
+            p::before { content: "x"; color: rgb(255, 0, 0) }
+            li::marker { color: rgb(0, 128, 0) }
+        </style></head><body><p>x</p><li>y</li></body>`;
+        const p = document.querySelector("p");
+        const before = getComputedStyle(p, "::before");
+        [before.content, before.color, getComputedStyle(p).color,
+            getComputedStyle(document.querySelector("li"), "::marker").color]"#,
+    );
+    assert_eq!(
+        got,
+        [
+            r#""x""#,
+            "rgb(255, 0, 0)",
+            "rgb(0, 0, 255)",
+            "rgb(0, 128, 0)"
+        ]
+    );
 }
 
 #[test]

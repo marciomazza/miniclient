@@ -507,17 +507,40 @@ impl DocStyle {
         }
     }
 
-    fn computed(&self, arena: &ego_tree::Tree<Node>, node: NodeRef<Node>) -> Arc<ComputedValues> {
+    fn computed(
+        &self,
+        arena: &ego_tree::Tree<Node>,
+        node: NodeRef<Node>,
+        pseudo: Option<PseudoElement>,
+    ) -> Option<Arc<ComputedValues>> {
         let ctx = Ctx { arena, doc: self };
-        with_ctx(&ctx, || self.resolve(N::of(node)))
+        with_ctx(&ctx, || self.resolve(N::of(node), pseudo))
     }
 
-    fn resolve(&self, el: N) -> Arc<ComputedValues> {
-        if let Some(style) = el
-            .borrow_data()
-            .and_then(|d| d.styles.get_primary().cloned())
-        {
+    fn resolve(&self, el: N, pseudo: Option<PseudoElement>) -> Option<Arc<ComputedValues>> {
+        if let Some(pseudo) = pseudo.filter(|p| p.is_lazy()) {
+            let primary = self.resolve(el, None)?;
+            let guard = lock().read();
+            thread_state::enter(ThreadState::LAYOUT);
+            let style = self.stylist.lazily_compute_pseudo_element_style(
+                &StylesheetGuards::same(&guard),
+                el,
+                &pseudo,
+                RuleInclusion::All,
+                &primary,
+                false,
+                None,
+            );
+            thread_state::exit(ThreadState::LAYOUT);
             return style;
+        }
+        if let Some(data) = el.borrow_data()
+            && data.styles.get_primary().is_some()
+        {
+            return match pseudo {
+                Some(pseudo) => data.styles.pseudos.get(&pseudo).cloned(),
+                None => data.styles.get_primary().cloned(),
+            };
         }
         let guard = lock().read();
         let shared = SharedStyleContext {
@@ -538,15 +561,18 @@ impl DocStyle {
                 shared: &shared,
                 thread_local: &mut thread_local,
             };
-            resolve_style(&mut context, el, RuleInclusion::All, None, None)
+            resolve_style(&mut context, el, RuleInclusion::All, pseudo.as_ref(), None)
         };
         thread_state::exit(ThreadState::LAYOUT);
-        let primary = styles.primary().clone();
-        // Kept so later reads of this element and its descendants stop the ancestor walk here.
+        let style = match pseudo {
+            Some(pseudo) => styles.pseudos.get(&pseudo).cloned(),
+            None => Some(styles.primary().clone()),
+        };
+        // Keep the eager pseudos too: resolving the primary computes them in the same pass.
         if let Some(mut data) = el.mutate_data() {
-            data.styles.primary = Some(primary.clone());
+            data.styles = styles;
         }
-        primary
+        style
     }
 }
 
@@ -568,6 +594,7 @@ fn style_of(
     focus: i32,
     target: i32,
     base: &str,
+    pseudo: Option<PseudoElement>,
 ) -> Option<Arc<ComputedValues>> {
     let _gate = GATE.read().unwrap_or_else(|e| e.into_inner());
     // shortcut: a released document's table lingers until the next read, hook `release` if
@@ -583,13 +610,35 @@ fn style_of(
         Some(doc) if doc.key == key && doc.base == base => doc,
         old => DocStyle::build(dom, root, key, base, old, &css.handles),
     };
-    let style = doc.computed(&dom.arena, node);
+    let style = doc.computed(&dom.arena, node, pseudo);
     css.docs.insert(root.id(), doc);
-    Some(style)
+    style
+}
+
+fn pseudo_element(name: &str) -> Option<PseudoElement> {
+    use PseudoElement::*;
+    Some(match name.to_ascii_lowercase().as_str() {
+        "::after" => After,
+        "::before" => Before,
+        "::selection" => Selection,
+        "::first-letter" => FirstLetter,
+        "::backdrop" => Backdrop,
+        "::details-content" => DetailsContent,
+        "::marker" => Marker,
+        "::color-swatch" => ColorSwatch,
+        "::file-selector-button" => FileSelectorButton,
+        "::placeholder" => Placeholder,
+        "::slider-fill" => SliderFill,
+        "::slider-thumb" => SliderThumb,
+        "::slider-track" => SliderTrack,
+        "::-moz-progress-bar" => MozProgressBar,
+        _ => return None,
+    })
 }
 
 /// `getComputedStyle(el).getPropertyValue(p)` for each of `props`; `""` for unknown names and
 /// for elements outside a document.
+#[allow(clippy::too_many_arguments)]
 pub fn computed_values(
     css: &mut CssState,
     dom: &DomState,
@@ -597,9 +646,17 @@ pub fn computed_values(
     focus: i32,
     target: i32,
     base: &str,
+    pseudo: &str,
     props: &[String],
 ) -> Vec<String> {
-    let Some(style) = style_of(css, dom, wire, focus, target, base) else {
+    let pseudo = if pseudo.is_empty() {
+        None
+    } else if let Some(pseudo) = pseudo_element(pseudo) {
+        Some(pseudo)
+    } else {
+        return vec![String::new(); props.len()];
+    };
+    let Some(style) = style_of(css, dom, wire, focus, target, base, pseudo) else {
         return vec![String::new(); props.len()];
     };
     props
@@ -650,6 +707,7 @@ pub fn op_css_computed_values(
     target: i32,
     #[serde] props: Vec<String>,
     #[string] base: &str,
+    #[string] pseudo: &str,
 ) -> Vec<String> {
     let mut css = state.try_take::<CssState>().unwrap_or_default();
     let values = computed_values(
@@ -659,6 +717,7 @@ pub fn op_css_computed_values(
         focus,
         target,
         base,
+        pseudo,
         &props,
     );
     state.put(css);
@@ -1570,7 +1629,7 @@ mod tests {
     }
 
     fn read(css: &mut CssState, dom: &DomState, wire: u32) -> Arc<ComputedValues> {
-        style_of(css, dom, wire, -1, -1, "about:blank").unwrap()
+        style_of(css, dom, wire, -1, -1, "about:blank", None).unwrap()
     }
 
     #[test]
@@ -1584,7 +1643,7 @@ mod tests {
         let style = dom.resolve(style);
         css.sheet_new(a, style, "p { color: rgb(1, 2, 3) }", "about:blank", "");
         let color = |css: &mut CssState, dom: &DomState, wire| {
-            computed_values(css, dom, wire, -1, -1, "about:blank", &["color".into()]).remove(0)
+            computed_values(css, dom, wire, -1, -1, "about:blank", "", &["color".into()]).remove(0)
         };
         assert_eq!(color(&mut css, &dom, pa), "rgb(1, 2, 3)");
         assert_eq!(color(&mut css, &dom, pb), "rgb(0, 0, 0)");

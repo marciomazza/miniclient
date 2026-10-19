@@ -1,4 +1,4 @@
-# fork: rrsmskuluwsr e26961a1ba25
+# fork: xluozsxpspls 3af7356afa8d
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -40,7 +40,7 @@ index fa242dd07c..e858f758f7 100644
      // It's important to grab the global proxy, instead of just the result of `createWindow(...)`, since otherwise
      // things like `window.eval` don't exist.
 diff --git a/node_modules/jsdom/lib/jsdom/browser/Window.js b/node_modules/jsdom/lib/jsdom/browser/Window.js
-index 296d6e7f2b..0a2d26fa93 100644
+index 296d6e7f2b..43bf932c34 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/Window.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/Window.js
 @@ -602,7 +602,9 @@ function task() {
@@ -58,15 +58,16 @@ index 296d6e7f2b..0a2d26fa93 100644
  
    window.getComputedStyle = function (elt, pseudoElt = undefined) {
      const elementImpl = Element.convert(window, elt);
-+    let pseudo = false;
++    let pseudo = null;
  
      if (pseudoElt !== undefined && pseudoElt !== null) {
        pseudoElt = webIDLConversions.DOMString(pseudoElt);
-@@ -860,10 +863,11 @@ function Audio(src) {
+@@ -859,11 +862,11 @@ function Audio(src) {
+           throw new TypeError("Tried to get the computed style of a Shadow DOM pseudo-element.");
          }
  
-         notImplementedMethod(window, "Window", "getComputedStyle", "with pseudo-elements");
-+        pseudo = true;
+-        notImplementedMethod(window, "Window", "getComputedStyle", "with pseudo-elements");
++        pseudo = pseudoElt.startsWith(":") ? pseudoElt : null;
        }
      }
  
@@ -2070,10 +2071,10 @@ index 406ba52c32..35e16c2d91 100644
  }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-index 26a1aec94c..e7e3a444f1 100644
+index 26a1aec94c..b93f8a0738 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleDeclaration-impl.js
-@@ -2,893 +2,120 @@ class CSSStyleDeclarationImpl {
+@@ -2,893 +2,119 @@ class CSSStyleDeclarationImpl {
  
  const DOMException = require("../../../generated/idl/DOMException.js");
  const idlUtils = require("../../../generated/idl/utils.js");
@@ -2142,7 +2143,7 @@ index 26a1aec94c..e7e3a444f1 100644
 -   *
 -   * @returns {string} The serialized CSS text.
 -   */
-+    this.#pseudo = Boolean(pseudo);
++    this.#pseudo = pseudo;
 +  }
 +
 +  get #text() {
@@ -2176,8 +2177,7 @@ index 26a1aec94c..e7e3a444f1 100644
 +
 +  #names() {
 +    if (this._computed) {
-+      // A pseudo-element's computed style is unimplemented, so it enumerates nothing.
-+      return this.#pseudo ? [] : computedLonghands(this.#ownerNode);
++      return computedLonghands(this.#ownerNode, this.#pseudo);
 +    }
 +    return declarations.names(this.#text, this.#base);
 +  }
@@ -2413,7 +2413,7 @@ index 26a1aec94c..e7e3a444f1 100644
 -   * @param {string} property - The property name to remove.
 -   * @returns {string} The value of the removed property.
 -   */
-+      return computedValues(this.#ownerNode, [property])[0];
++      return computedValues(this.#ownerNode, [property], this.#pseudo)[0];
 +    }
 +    return declarations.value(this.#text, this.#base, property)[0];
 +  }
@@ -3679,10 +3679,10 @@ index d4ed3d4749..b91210e994 100644
  }
  
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
-index bda5409bc3..d396d68184 100644
+index bda5409bc3..0b174ba308 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/computed-style.js
-@@ -1,335 +1,18 @@ function getComputedStyleDeclaration(elementImpl, { pseudo = false } = {}) {
+@@ -1,335 +1,18 @@ function getComputedStyleDeclaration(elementImpl, { pseudo = null } = {}) {
  "use strict";
  
 -const fs = require("node:fs");
@@ -3731,7 +3731,7 @@ index bda5409bc3..d396d68184 100644
 +
 +// Its values come from miniclient's native style engine, read on each access, so nothing is
 +// cascaded or cached here.
-+function getComputedStyleDeclaration(elementImpl, { pseudo = false } = {}) {
++function getComputedStyleDeclaration(elementImpl, { pseudo = null } = {}) {
    const declaration = CSSStyleProperties.createImpl(elementImpl._globalObject, [], {
      computed: true,
 -    ownerNode: elementImpl
@@ -5286,10 +5286,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..885b6941f9 100644
+index 7eb8408fc8..985e165076 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -6,31 +6,374 @@ function bind(node, w) {
+@@ -6,31 +6,383 @@ function bind(node, w) {
  
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
  
@@ -5588,13 +5588,17 @@ index 7eb8408fc8..885b6941f9 100644
 +// The computed value of each of `props` on `element`, from the native style engine; "" for
 +// every one when the element sits in no document. The op is looked up per call, as the snapshot
 +// is built without it.
-+function computedValues(element, props) {
++function computedValues(element, props, pseudo = null) {
 +  if (element._wire < 0) {
 +    return props.map(() => "");
 +  }
 +  const doc = element._ownerDocument;
 +  const focus = doc._lastFocusedElement?._wire ?? -1;
-+  return Deno.core.ops.op_css_computed_values(element._wire, focus, targetWire(doc), props, doc.baseURLSerialized());
++  // shortcut: Stylo has no ::picker(select); primary style preserves its initial values until it does.
++  const nativePseudo = pseudo === "::picker(select)" ? "" : pseudo ?? "";
++  return Deno.core.ops.op_css_computed_values(
++    element._wire, focus, targetWire(doc), props, doc.baseURLSerialized(), nativePseudo
++  );
 +}
 +
 +// A declaration block's text, read and edited by the native style engine against `base`. The
@@ -5612,8 +5616,13 @@ index 7eb8408fc8..885b6941f9 100644
 +// The longhands `element`'s computed style enumerates: every one, fetched once per isolate, or
 +// none when the element sits in no document, as its values are all "" then.
 +let longhands;
-+function computedLonghands(element) {
-+  if (element._wire < 0) {
++const supportedPseudos = new Set([
++  "::after", "::before", "::selection", "::first-letter", "::backdrop", "::details-content",
++  "::marker", "::color-swatch", "::file-selector-button", "::placeholder", "::slider-fill",
++  "::slider-thumb", "::slider-track", "::-moz-progress-bar"
++]);
++function computedLonghands(element, pseudo = null) {
++  if (element._wire < 0 || (pseudo !== null && !supportedPseudos.has(pseudo.toLowerCase()))) {
 +    return [];
 +  }
 +  longhands ??= Deno.core.ops.op_css_computed_longhands();
@@ -5688,7 +5697,7 @@ index 7eb8408fc8..885b6941f9 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +383,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +392,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -5725,7 +5734,7 @@ index 7eb8408fc8..885b6941f9 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +449,6 @@ next() {
+@@ -136,28 +458,6 @@ next() {
    }
  }
  
@@ -5754,7 +5763,7 @@ index 7eb8408fc8..885b6941f9 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +544,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +553,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
