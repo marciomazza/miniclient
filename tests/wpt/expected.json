@@ -772,6 +772,7 @@
   "Redirect 302: same origin to cors",
   "Redirect 303: cors to same cors",
   "Redirect 303: same origin to cors",
+  "Redirect 307: cors to another cors",
   "Redirect 307: cors to same cors",
   "Redirect 307: same origin to cors",
   "Redirect 308: cors to same cors",
@@ -1059,6 +1060,7 @@
  ],
  "/fetch/api/redirect/redirect-origin.any.html": [
   "[GET] Redirect 301 Other origin to other origin",
+  "[GET] Redirect 301 Other origin to same origin",
   "[GET] Redirect 301 Same origin to other origin",
   "[GET] Redirect 301 Same origin to same origin",
   "[GET] Redirect 302 Other origin to other origin",
@@ -1078,7 +1080,6 @@
   "[POST] Redirect 302 Other origin to other origin",
   "[POST] Redirect 302 Same origin to other origin",
   "[POST] Redirect 303 Other origin to other origin",
-  "[POST] Redirect 303 Other origin to same origin",
   "[POST] Redirect 303 Same origin to other origin",
   "[POST] Redirect 307 Other origin to other origin",
   "[POST] Redirect 307 Same origin to other origin",
