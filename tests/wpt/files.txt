@@ -1,7 +1,6 @@
 /cors/access-control-expose-headers-parsing.window.html
 /cors/cors-safelisted-request-header.any.html
 /fetch/api/abort/cache.https.any.html
-/fetch/api/abort/general.any.html
 /fetch/api/abort/request.any.html
 /fetch/api/basic/accept-header.any.html
 /fetch/api/basic/conditional-get.any.html

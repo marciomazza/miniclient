@@ -55,7 +55,6 @@
   "Preflight for {\"range\":\"bytes\\t=100-200\"}"
  ],
  "/fetch/api/abort/cache.https.any.html": [],
- "/fetch/api/abort/general.any.html": [],
  "/fetch/api/abort/request.any.html": [
   "Aborting a request after calling arrayBuffer()",
   "Aborting a request after calling blob()",

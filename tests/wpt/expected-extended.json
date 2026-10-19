@@ -993,7 +993,6 @@
  "/eventsource/request-status-error.window.html": [],
  "/fetch/api/abort/cache.https.any.html": [],
  "/fetch/api/abort/destroyed-context.html": [],
- "/fetch/api/abort/general.any.html": [],
  "/fetch/api/abort/request.any.html": [
   "Aborting a request after calling arrayBuffer()",
   "Aborting a request after calling blob()",
