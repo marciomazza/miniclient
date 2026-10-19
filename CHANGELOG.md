@@ -33,6 +33,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `:future`, `:has-slotted`, `:heading`, `:muted`, `:past`, `:paused`, `:picture-in-picture`,
   `:playing`, `:seeking`, `:stalled` and `:volume-locked`, as do undeclared namespace prefixes
   such as `svg|rect`. `:default` and `:focus-visible` now apply in stylesheets too.
+- Every selector query now matches natively, validity and value pseudo-classes included. Two
+  answers change to match browsers: `:valid` skips a read-only `<textarea>`, and `:in-range` skips
+  an input whose `min` does not parse and that has no `max`. `:dir()` follows `dir` attributes,
+  counting `auto` as `ltr`. `:-webkit-*()` functions such as `:-webkit-any()` throw
+  `SyntaxError`, as in Firefox.
 
 ## [0.2.5]
 

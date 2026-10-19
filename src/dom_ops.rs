@@ -356,8 +356,10 @@ pub fn op_dom_tree_ids(state: &mut OpState, id: u32, #[buffer] out: &mut [u32]) 
 }
 
 /// `mode` is a `QueryMode` index (first, all, closest, matches); `focus` and `target` are the
-/// focused and target elements' wires, `-1` for none. Returns `-1` when the selector reads state
-/// only jsdom has, so JS falls back to `dom-selector`, and `-2` when it is invalid.
+/// focused and target elements' wires, `-1` for none; `form_state` is jsdom's snapshot (see
+/// `DomState::query_state`), read when `has_form_state`. Returns `-1` when the selector needs that
+/// snapshot and got none, with the `FORM_FLAGS` bits it reads in `out[0]`, so JS takes the
+/// snapshot and asks again; `-2` when the selector is invalid.
 #[op2(fast)]
 pub fn op_dom_query(
     state: &mut OpState,
@@ -368,16 +370,29 @@ pub fn op_dom_query(
     quirks: bool,
     focus: i32,
     target: i32,
+    has_form_state: bool,
+    #[buffer] form_state: &[u32],
     #[buffer] out: &mut [u32],
 ) -> i32 {
     let Some(mode) = QueryMode::from_u8(mode) else {
         return -1;
     };
     let dom = dom(state);
-    let query_state = dom.query_state(html, quirks, focus, target);
+    let query_state = dom.query_state(
+        html,
+        quirks,
+        focus,
+        target,
+        has_form_state.then_some(form_state),
+    );
     match dom.query(scope, selector, mode, &query_state) {
         Ok(wires) => fill(out, wires) as i32,
-        Err(Declined::NeedsJs) => -1,
+        Err(Declined::NeedsState(bits)) => {
+            if let Some(first) = out.first_mut() {
+                *first = bits;
+            }
+            -1
+        }
         Err(Declined::Invalid) => -2,
     }
 }

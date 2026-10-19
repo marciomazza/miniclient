@@ -1,4 +1,4 @@
-# fork: uqvquryvnuul b8ba98642cdd
+# fork: uxlmpspsvvnn 820f0fe0301f
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -5291,19 +5291,21 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..1874e789c8 100644
+index 7eb8408fc8..53fcc20272 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -4,33 +4,392 @@ function bind(node, w) {
+@@ -4,33 +4,478 @@ function bind(node, w) {
  // Copyright (c) 2015 Joris van der Wel
  // Licensed under the MIT license; see LICENSE.txt.
  
 +const DOMException = require("../../../generated/idl/DOMException");
  const NODE_DOCUMENT_POSITION = require("../node-document-position");
- 
+-
 -// DOM links are allocated only when a node joins a tree or gains children. In
 -// particular, reading the tree must not allocate storage for Attr or new nodes.
 -// Insertion callers provide detached children. Mutations here only change links:
++const { HTML_NS } = require("./namespaces");
++
 +/* global Deno */
 +/* eslint-disable camelcase -- the native op names */
 +
@@ -5579,24 +5581,110 @@ index 7eb8408fc8..1874e789c8 100644
 +
 +const QUERY = { first: 0, all: 1, closest: 2, matches: 3 };
 +
-+// The impls the native matcher selects from `node` in `mode`, or null for a selector reading
-+// state only jsdom has (validity, `indeterminate`, `:placeholder-shown`) or a node without a slot.
-+// Throws a SyntaxError for an invalid selector.
++const NO_FORM_STATE = new Uint32Array(0);
++
++// The impls the native matcher selects from `node` in `mode`. A node without a slot gets one,
++// as it has no attributes or children to lose. Throws a SyntaxError for an invalid selector.
 +function query(node, selectors, mode) {
-+  if (node._wire < 0) {
-+    return null;
-+  }
++  wire(node);
 +  const doc = node._ownerDocument;
 +  const html = doc._parsingMode === "html";
 +  const quirks = html && doc.compatMode === "BackCompat";
 +  const focus = doc._lastFocusedElement?._wire ?? -1;
 +  const target = targetWire(doc);
-+  const hits = batch(op_dom_query, node, selectors, mode, html, quirks, focus, target);
++  function run(has, state) {
++    return batch(op_dom_query, node, selectors, mode, html, quirks, focus, target, has, state);
++  }
++  let hits = run(false, NO_FORM_STATE);
++  if (hits === -1) {
++    hits = run(true, formState(node, scratch[0]));
++    if (hits === -1) {
++      throw new Error(`'${selectors}' still asks for form state after it was sent`);
++    }
++  }
 +  if (hits === -2) {
 +    const message = `'${selectors}' is not a valid selector`;
 +    throw DOMException.create(node._globalObject, [message, "SyntaxError"]);
 +  }
-+  return hits === -1 ? null : hits;
++  return hits;
++}
++
++// Bit `i` stands for miniclient's `FORM_FLAGS[i]`.
++const FORM_STATE = { valid: 1, invalid: 2, inRange: 4, outOfRange: 8, placeholderShown: 16, indeterminate: 32 };
++
++// https://html.spec.whatwg.org/multipage/input.html#do-not-apply
++const PLACEHOLDER_TYPES = new Set(["text", "search", "url", "tel", "email", "password", "number"]);
++
++// The `wanted` validity and value state jsdom alone holds, for every element in `node`'s tree:
++// wire and `FORM_STATE` bits in turn. Taken per query that reads it, so it is never stale.
++function formState(node, wanted) {
++  const validity = wanted & (FORM_STATE.valid | FORM_STATE.invalid);
++  const range = wanted & (FORM_STATE.inRange | FORM_STATE.outOfRange);
++  // Required here: form-controls pulls in generated wrappers that load this module.
++  const { formOwner, isSubmittable } = require("./form-controls");
++  let root = node;
++  for (let p = parent(root); p !== null; p = parent(p)) {
++    root = p;
++  }
++  const bits = new Map();
++  function set(el, bit) {
++    bits.set(el, (bits.get(el) ?? 0) | bit);
++  }
++  const invalidOwners = new Set();
++  const groups = [];
++  for (const el of descendantsToArray(root, root)) {
++    if (el.nodeType !== 1 || el._namespaceURI !== HTML_NS) {
++      continue;
++    }
++    const name = el._localName;
++    const input = name === "input";
++    if (validity && (name === "form" || name === "fieldset")) {
++      groups.push(el);
++    }
++    const candidate = (validity || range) && isSubmittable(el) && el._isCandidateForConstraintValidation();
++    if (candidate && validity) {
++      const valid = el._satisfiesConstraints();
++      set(el, valid ? FORM_STATE.valid : FORM_STATE.invalid);
++      if (!valid) {
++        invalidOwners.add(formOwner(el));
++        for (let a = parent(el); a !== null; a = parent(a)) {
++          if (a._localName !== "fieldset") {
++            continue;
++          }
++          if (invalidOwners.has(a)) {
++            break;
++          }
++          invalidOwners.add(a);
++        }
++      }
++    }
++    if (candidate && range && input && (el._minimum !== null || el._maximum !== null)) {
++      const outside = el.validity.rangeUnderflow || el.validity.rangeOverflow;
++      set(el, outside ? FORM_STATE.outOfRange : FORM_STATE.inRange);
++    }
++    if ((wanted & FORM_STATE.placeholderShown) && el.value === "" &&
++        (name === "textarea" || (input && PLACEHOLDER_TYPES.has(el.type))) &&
++        el.hasAttributeNS(null, "placeholder")) {
++      set(el, FORM_STATE.placeholderShown);
++    }
++    if ((wanted & FORM_STATE.indeterminate) && (
++      (input && el.type === "checkbox" && el.indeterminate) ||
++      (input && el.type === "radio" && !el._someInRadioGroup("checked")) ||
++      (name === "progress" && !el.hasAttributeNS(null, "value")))) {
++      set(el, FORM_STATE.indeterminate);
++    }
++  }
++  // A form is invalid when a control it owns is; a fieldset when one it contains is.
++  for (const el of groups) {
++    set(el, invalidOwners.has(el) ? FORM_STATE.invalid : FORM_STATE.valid);
++  }
++  const out = new Uint32Array(bits.size * 2);
++  let i = 0;
++  for (const [el, b] of bits) {
++    out[i++] = el._wire;
++    out[i++] = b;
++  }
++  return out;
 +}
 +
 +// The computed value of each of `props` on `element`, from the native style engine; "" for
@@ -5610,9 +5698,8 @@ index 7eb8408fc8..1874e789c8 100644
 +  const focus = doc._lastFocusedElement?._wire ?? -1;
 +  // shortcut: Stylo has no ::picker(select); primary style preserves its initial values until it does.
 +  const nativePseudo = pseudo === "::picker(select)" ? "" : pseudo ?? "";
-+  return Deno.core.ops.op_css_computed_values(
-+    element._wire, focus, targetWire(doc), props, doc.baseURLSerialized(), nativePseudo
-+  );
++  const base = doc.baseURLSerialized();
++  return Deno.core.ops.op_css_computed_values(element._wire, focus, targetWire(doc), props, base, nativePseudo);
 +}
 +
 +// A declaration block's text, read and edited by the native style engine against `base`. The
@@ -5711,7 +5798,7 @@ index 7eb8408fc8..1874e789c8 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +399,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +485,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -5748,7 +5835,7 @@ index 7eb8408fc8..1874e789c8 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +465,6 @@ next() {
+@@ -136,28 +551,6 @@ next() {
    }
  }
  
@@ -5777,7 +5864,7 @@ index 7eb8408fc8..1874e789c8 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +560,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +646,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  
@@ -6024,7 +6111,7 @@ index 71e3c38aee..133468e14f 100644
      if (id === "") {
        return null;
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
-index 86e0f40b48..68185fd431 100644
+index 86e0f40b48..d90aed0926 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/Element-impl.js
 @@ -5,6 +5,8 @@
@@ -6133,26 +6220,23 @@ index 86e0f40b48..68185fd431 100644
          return true;
        }
        return false;
-@@ -512,11 +483,19 @@ insertAdjacentHTML(position, text) {
+@@ -512,13 +483,12 @@ insertAdjacentHTML(position, text) {
    }
  
    closest(selectors) {
+-    const domSelector = this._ownerDocument._getDOMSelector();
+-    return domSelector.closest(selectors, this);
 +    const hits = query(this, selectors, QUERY.closest);
-+    if (hits !== null) {
-+      return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
-+    }
-     const domSelector = this._ownerDocument._getDOMSelector();
-     return domSelector.closest(selectors, this);
++    return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
    }
  
    matches(selectors) {
-+    const hits = query(this, selectors, QUERY.matches);
-+    if (hits !== null) {
-+      return hits.length > 0;
-+    }
-     const domSelector = this._ownerDocument._getDOMSelector();
-     return domSelector.matches(selectors, this);
+-    const domSelector = this._ownerDocument._getDOMSelector();
+-    return domSelector.matches(selectors, this);
++    return query(this, selectors, QUERY.matches).length > 0;
    }
+ 
+   webkitMatchesSelector(selectors) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
 index ace803c6bb..ccf890a8a5 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLElement-impl.js
@@ -6502,7 +6586,7 @@ index 476421f2ef..919812de69 100644
          for (const child of this._descendants()) {
            if (child.nodeType === NODE_TYPE.TEXT_NODE || child.nodeType === NODE_TYPE.CDATA_SECTION_NODE) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
-index 3fed0cd5d1..0d4ac23d96 100644
+index 3fed0cd5d1..9cc5988c3e 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/ParentNode-impl.js
 @@ -4,6 +4,8 @@ class ParentNodeImpl {
@@ -6514,27 +6598,24 @@ index 3fed0cd5d1..0d4ac23d96 100644
  
  class ParentNodeImpl {
    get children() {
-@@ -60,6 +62,10 @@ querySelector(selectors) {
+@@ -60,8 +62,8 @@ querySelector(selectors) {
      if (shouldAlwaysSelectNothing(this)) {
        return null;
      }
+-    const domSelector = this._ownerDocument._getDOMSelector();
+-    return domSelector.querySelector(selectors, this);
 +    const hits = query(this, selectors, QUERY.first);
-+    if (hits !== null) {
-+      return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
-+    }
-     const domSelector = this._ownerDocument._getDOMSelector();
-     return domSelector.querySelector(selectors, this);
++    return hits.length > 0 ? wrapperForImpl(hits[0]) : null;
    }
-@@ -71,8 +77,10 @@ querySelectorAll(selectors) {
+ 
+   // WARNING FOR INTERNAL USERS:
+@@ -71,8 +73,7 @@ querySelectorAll(selectors) {
      if (shouldAlwaysSelectNothing(this)) {
        return NodeList.createImpl(this._globalObject, [], { nodes: [] });
      }
 -    const domSelector = this._ownerDocument._getDOMSelector();
 -    const nodes = domSelector.querySelectorAll(selectors, this);
-+    const hits = query(this, selectors, QUERY.all);
-+    const nodes = hits !== null ?
-+      hits.map(wrapperForImpl) :
-+      this._ownerDocument._getDOMSelector().querySelectorAll(selectors, this);
++    const nodes = query(this, selectors, QUERY.all).map(wrapperForImpl);
      return NodeList.createImpl(this._globalObject, [], { nodes });
    }
  }

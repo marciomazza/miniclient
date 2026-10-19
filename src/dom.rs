@@ -110,7 +110,7 @@ pub struct DomState {
     /// filters this by document (each candidate's topmost ancestor) at read time instead of
     /// tracking connect/disconnect -- that's exactly what "topmost ancestor" already answers.
     id_index: HashMap<String, Vec<NodeId>>,
-    /// Parsed selectors by source text; a `Declined` is cached too.
+    /// Parsed selectors by source text; an invalid one is cached too.
     selectors: HashMap<String, Result<MatchSelector, Declined>>,
 }
 
@@ -143,6 +143,9 @@ impl DomState {
         self.parsed(selector)?;
         let quirks = state.quirks;
         let parsed = self.selectors[selector].as_ref().map_err(|e| *e)?;
+        if parsed.form_bits != 0 && state.form_state.is_none() {
+            return Err(Declined::NeedsState(parsed.form_bits));
+        }
         let Some(node) = self.resolve(scope).and_then(|id| self.arena.get(id)) else {
             return Ok(Vec::new());
         };
@@ -178,8 +181,16 @@ impl DomState {
         self.selectors[selector].as_ref().map_err(|e| *e)
     }
 
-    /// `focus` and `target` are wires, negative for none.
-    pub fn query_state(&self, html: bool, quirks: bool, focus: i32, target: i32) -> QueryState {
+    /// `focus` and `target` are wires, negative for none; `form_state` is jsdom's snapshot, wire
+    /// and `FORM_FLAGS` bits in turn.
+    pub fn query_state(
+        &self,
+        html: bool,
+        quirks: bool,
+        focus: i32,
+        target: i32,
+        form_state: Option<&[u32]>,
+    ) -> QueryState {
         let node = |w: i32| u32::try_from(w).ok().and_then(|w| self.resolve(w));
         let focus_path = node(focus)
             .and_then(|id| self.arena.get(id))
@@ -195,6 +206,14 @@ impl DomState {
             quirks,
             focus_path,
             target: node(target),
+            form_state: form_state.map(|pairs| {
+                pairs
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .filter_map(|&[w, bits]| Some((self.resolve(w)?, dom_query::form_flags(bits))))
+                    .collect()
+            }),
         }
     }
 
@@ -1500,7 +1519,7 @@ mod tests {
             .collect();
         let mut dom = DomState::new();
         let doc = dom.parse(&format!("<ul>{items}</ul>"), None)[0].id;
-        let state = dom.query_state(true, false, -1, -1);
+        let state = dom.query_state(true, false, -1, -1, None);
         let first = dom.query(doc, "li", QueryMode::First, &state).unwrap()[0];
         for run in 0..5 {
             let start = std::time::Instant::now();

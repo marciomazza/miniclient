@@ -1,6 +1,7 @@
 //! CSS selector matching over the arena: a `selectors::SelectorImpl` and a `selectors::Element`
 //! over `ego_tree::NodeRef<Node>`.
 
+use std::collections::HashMap;
 use std::sync::Once;
 
 use crate::node::{Element as ElementData, Node};
@@ -81,15 +82,40 @@ const STATE_FLAGS: [(StatePseudo, ElementState); 13] = [
     (StatePseudo::Target, ElementState::URLTARGET),
 ];
 
-/// State pseudo-classes whose inputs (values, validity, `indeterminate`) live only in jsdom.
-// shortcut: selectors using them still go to `dom-selector`; drop this once jsdom hands their
-// state to Rust.
-fn needs_js_state(pc: &NonTSPseudoClass) -> bool {
-    use NonTSPseudoClass as P;
-    matches!(
-        pc,
-        P::PlaceholderShown | P::Indeterminate | P::Valid | P::Invalid | P::InRange | P::OutOfRange
-    )
+/// The state whose inputs (values, validity, `indeterminate`) live only in jsdom, which hands it
+/// over per query: bit `i` of a snapshot entry stands for `FORM_FLAGS[i]`.
+pub const FORM_FLAGS: [ElementState; 6] = [
+    ElementState::VALID,
+    ElementState::INVALID,
+    ElementState::INRANGE,
+    ElementState::OUTOFRANGE,
+    ElementState::PLACEHOLDER_SHOWN,
+    ElementState::INDETERMINATE,
+];
+
+/// The `FORM_FLAGS` a snapshot entry's `bits` set.
+pub fn form_flags(bits: u32) -> ElementState {
+    FORM_FLAGS
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| bits & (1 << i) != 0)
+        .fold(ElementState::empty(), |state, (_, flag)| state | *flag)
+}
+
+/// `:state()` names standing in for names stylo 0.22 lacks; see `rewrite`.
+const IN_RANGE: &str = "-mini-in-range";
+const DIR_LTR: &str = "-mini-dir-ltr";
+const DIR_RTL: &str = "-mini-dir-rtl";
+
+/// The `FORM_FLAGS` bits `pc` reads.
+fn form_bits(pc: &NonTSPseudoClass) -> u32 {
+    let flag = match pc {
+        NonTSPseudoClass::CustomState(state) if &*state.0 == IN_RANGE => ElementState::INRANGE,
+        _ => pc.state_flag(),
+    };
+    (0..FORM_FLAGS.len())
+        .filter(|&i| flag.intersects(FORM_FLAGS[i]))
+        .fold(0, |bits, i| bits | 1 << i)
 }
 
 /// What a query knows beyond the arena: the document type, focus and target.
@@ -101,6 +127,8 @@ pub struct QueryState {
     /// The focused element and its ancestors, nearest first.
     pub focus_path: Vec<NodeId>,
     pub target: Option<NodeId>,
+    /// jsdom's `FORM_FLAGS` per element, when the query reads them.
+    pub form_state: Option<HashMap<NodeId, ElementState>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,13 +154,15 @@ impl QueryMode {
 pub enum Declined {
     /// Not a valid selector: the caller throws `SyntaxError`.
     Invalid,
-    /// Valid, but it reads state only jsdom has.
-    NeedsJs,
+    /// Valid, but it reads these `FORM_FLAGS` bits and the query carries no snapshot of them.
+    NeedsState(u32),
 }
 
 /// A compiled selector group (comma-separated list).
 pub struct MatchSelector {
     list: SelectorList<SelectorImpl>,
+    /// The `FORM_FLAGS` bits it reads.
+    pub form_bits: u32,
 }
 
 impl MatchSelector {
@@ -146,23 +176,25 @@ impl MatchSelector {
             url_data: &url_data,
             for_supports_rule: false,
         };
-        let list = CssParser::new(selector)
-            .parse_entirely(|i| SelectorList::parse(&parser, i, ParseRelative::No))
-            .map_err(|_| {
-                if names_browsers_accept(&mut CssParser::new(selector)) {
-                    Declined::NeedsJs
-                } else {
-                    Declined::Invalid
-                }
-            })?;
-        let mut js = JsState(false);
+        let parse = |source: &str| {
+            CssParser::new(source)
+                .parse_entirely(|i| SelectorList::parse(&parser, i, ParseRelative::No))
+                .ok()
+        };
+        let list = parse(selector)
+            .or_else(|| {
+                let mut source = String::new();
+                rewrite(&mut CssParser::new(selector), &mut source).then(|| parse(&source))?
+            })
+            .ok_or(Declined::Invalid)?;
+        let mut form = FormBits(0);
         for s in list.slice() {
-            s.visit(&mut js);
+            s.visit(&mut form);
         }
-        if js.0 {
-            return Err(Declined::NeedsJs);
-        }
-        Ok(Self { list })
+        Ok(Self {
+            list,
+            form_bits: form.0,
+        })
     }
 
     /// The id every match must bear: the list is one selector whose subject compound has an
@@ -185,46 +217,100 @@ impl MatchSelector {
     }
 }
 
-/// Whether a selector stylo rejects names a pseudo-class or pseudo-element browsers accept, so it
-/// goes to `dom-selector` instead of throwing.
-// shortcut: stylo 0.22 lacks these names (`in-range` has a variant but no name), so they keep the
-// JS fallback; drop each one once stylo parses it.
-fn names_browsers_accept(input: &mut CssParser) -> bool {
+/// Copies `input` to `out` with the names stylo 0.22 lacks but browsers accept swapped for ones
+/// it parses that match alike (see `replacement`). False when what follows a name is malformed.
+fn rewrite(input: &mut CssParser, out: &mut String) -> bool {
     use cssparser::Token;
-    const NAMES: [&str; 7] = [
-        "in-range",
-        "dir",
-        "first-line",
-        "first-letter",
-        "cue",
-        "cue-region",
-        "target-text",
-    ];
-    let known = |name: &str| {
-        let name = name.to_ascii_lowercase();
-        name.starts_with("-webkit-") || NAMES.contains(&name.as_str())
-    };
-    let mut after_colon = false;
-    while let Ok(token) = input.next_including_whitespace() {
+    let mut colons = 0;
+    let mut ok = true;
+    loop {
+        let start = input.position();
+        let Ok(token) = input.next_including_whitespace_and_comments() else {
+            return ok;
+        };
         let token = token.clone();
-        match &token {
-            Token::Ident(name) | Token::Function(name) if after_colon && known(name) => {
-                return true;
+        let text = input.slice_from(start).to_owned();
+        let Ok(swap) = replacement(colons, &token, input) else {
+            return false;
+        };
+        if let Some(swap) = swap {
+            out.push_str(&swap);
+        } else {
+            out.push_str(&text);
+            let close = match token {
+                Token::Function(_) | Token::ParenthesisBlock => Some(")"),
+                Token::SquareBracketBlock => Some("]"),
+                _ => None,
+            };
+            if let Some(close) = close {
+                let verbatim = matches!(token, Token::SquareBracketBlock);
+                let _ = input.parse_nested_block(|i| {
+                    if verbatim {
+                        let start = i.position();
+                        while i.next_including_whitespace_and_comments().is_ok() {}
+                        out.push_str(i.slice_from(start));
+                    } else {
+                        ok &= rewrite(i, out);
+                    }
+                    Ok::<_, cssparser::ParseError<()>>(())
+                });
+                out.push_str(close);
             }
-            _ => {}
         }
-        after_colon = matches!(token, Token::Colon);
-        if matches!(
-            token,
-            Token::Function(_) | Token::ParenthesisBlock | Token::SquareBracketBlock
-        ) && input
-            .parse_nested_block(|i| Ok::<_, cssparser::ParseError<()>>(names_browsers_accept(i)))
-            == Ok(true)
-        {
-            return true;
-        }
+        colons = if matches!(token, Token::Colon) {
+            colons + 1
+        } else {
+            0
+        };
     }
-    false
+}
+
+/// What `rewrite` writes for `token` when it follows `colons` colons, consuming the arguments of
+/// a function it replaces: `::before` for pseudo-elements, as no query matches those, `:not(*)`
+/// for `:-webkit-*`, and `:state()` names `match_non_ts_pseudo_class` answers for `:in-range` and
+/// `:dir()`. Err when `:dir()`'s argument is malformed.
+fn replacement(
+    colons: u32,
+    token: &cssparser::Token,
+    input: &mut CssParser,
+) -> Result<Option<String>, ()> {
+    use cssparser::Token;
+    let (Token::Ident(name) | Token::Function(name)) = token else {
+        return Ok(None);
+    };
+    let name = name.to_ascii_lowercase();
+    let function = matches!(token, Token::Function(_));
+    let element = name.starts_with("-webkit-")
+        || ["first-line", "cue", "cue-region", "target-text"].contains(&name.as_str());
+    // Only `::cue()` and `::-webkit-*()` take an argument.
+    let takes_argument = name == "cue" || name.starts_with("-webkit-");
+    Ok(match (colons, name.as_str()) {
+        (2, _) if element && (!function || takes_argument) => {
+            if function {
+                // The argument goes with the pseudo-element.
+                let _ = input.parse_nested_block(|i| {
+                    while i.next_including_whitespace_and_comments().is_ok() {}
+                    Ok::<_, cssparser::ParseError<()>>(())
+                });
+            }
+            Some("before".to_owned())
+        }
+        (1, "in-range") if !function => Some(format!("state({IN_RANGE})")),
+        (1, n) if !function && n.starts_with("-webkit-") => Some("not(*)".to_owned()),
+        (1, "dir") if function => Some(
+            input
+                .parse_nested_block(|i| {
+                    let dir = i.expect_ident()?.to_ascii_lowercase();
+                    Ok::<_, cssparser::ParseError<()>>(match dir.as_str() {
+                        "ltr" => format!("state({DIR_LTR})"),
+                        "rtl" => format!("state({DIR_RTL})"),
+                        _ => "not(*)".to_owned(),
+                    })
+                })
+                .map_err(|_| ())?,
+        ),
+        _ => None,
+    })
 }
 
 /// The ids of the elements `scope` selects in `mode`, in document order (ancestor order for
@@ -275,17 +361,17 @@ pub fn select<'a>(
     }
 }
 
-/// Finds any pseudo-class `needs_js_state` names, inside `:is()`, `:not()` and `:has()` too.
-struct JsState(bool);
+/// Collects the `FORM_FLAGS` bits pseudo-classes read, inside `:is()`, `:not()` and `:has()` too.
+struct FormBits(u32);
 
-impl SelectorVisitor for JsState {
+impl SelectorVisitor for FormBits {
     type Impl = SelectorImpl;
 
     fn visit_simple_selector(&mut self, c: &Component<SelectorImpl>) -> bool {
         if let Component::NonTSPseudoClass(pc) = c {
-            self.0 |= needs_js_state(pc);
+            self.0 |= form_bits(pc);
         }
-        !self.0
+        true
     }
 
     // The default skips `:has()` arguments.
@@ -399,10 +485,29 @@ impl<'a> MiniElement<'a> {
 
     /// The stylo flags of every native state this element is in.
     pub fn element_state(&self) -> ElementState {
+        let form = self.state.form_state.as_ref();
         STATE_FLAGS
             .iter()
             .filter(|(pc, _)| self.in_state(*pc))
             .fold(ElementState::DEFINED, |state, (_, flag)| state | *flag)
+            | form
+                .and_then(|f| f.get(&self.node.id()))
+                .copied()
+                .unwrap_or(ElementState::empty())
+    }
+
+    /// The `dir` of the nearest HTML element setting a known one is `rtl`.
+    // shortcut: `auto` and `bdi` count as ltr; resolve them from the text once a page needs it.
+    fn is_rtl(&self) -> bool {
+        std::iter::successors(Some(*self), Element::parent_element)
+            .filter(|e| e.html_local().is_some())
+            .filter_map(|e| e.el().attr("dir"))
+            .find_map(|dir| match dir.to_ascii_lowercase().as_str() {
+                "rtl" => Some(true),
+                "ltr" | "auto" => Some(false),
+                _ => None,
+            })
+            .unwrap_or(false)
     }
 
     /// Checked-by-default controls, selected-by-default options and a form's default button.
@@ -669,8 +774,19 @@ impl Element for MiniElement<'_> {
         pc: &NonTSPseudoClass,
         _context: &mut MatchingContext<'_, SelectorImpl>,
     ) -> bool {
-        if let NonTSPseudoClass::Lang(value) = pc {
-            return self.lang().is_some_and(|lang| lang_matches(lang, value));
+        match pc {
+            NonTSPseudoClass::Lang(value) => {
+                return self.lang().is_some_and(|lang| lang_matches(lang, value));
+            }
+            NonTSPseudoClass::CustomState(state) => {
+                return match &*state.0.0 {
+                    IN_RANGE => self.element_state().intersects(ElementState::INRANGE),
+                    DIR_LTR => !self.is_rtl(),
+                    DIR_RTL => self.is_rtl(),
+                    _ => false,
+                };
+            }
+            _ => {}
         }
         let flag = pc.state_flag();
         !flag.is_empty() && self.element_state().intersects(flag)
@@ -821,34 +937,48 @@ mod tests {
     }
 
     #[test]
-    fn invalid_selectors_and_jsdom_state_are_declined() {
+    fn invalid_selectors_and_form_state_without_a_snapshot_are_declined() {
         let parse = |s| MatchSelector::parse(s).err();
+        let bits = |s| MatchSelector::parse(s).map(|m| m.form_bits);
         for selector in [
             ":::",
             "div::??",
             ":totallyfake",
             "svg|rect",
             "[x=':in-range']:::",
+            "p::first-line(x)",
+            "::target-text(x)",
         ] {
             assert_eq!(parse(selector), Some(Declined::Invalid), "{selector}");
         }
+        for (selector, want) in [
+            (":invalid", 0b10),
+            ("p:is(a, :not(:placeholder-shown))", 0b1_0000),
+            (":has(:invalid), :valid", 0b11),
+            (":nth-child(1 of :valid)", 0b1),
+            ("input:IN-RANGE", 0b100),
+            ("p:not(:in-range):out-of-range:indeterminate", 0b10_1100),
+        ] {
+            assert_eq!(bits(selector), Ok(want), "{selector}");
+        }
         for selector in [
-            ":invalid",
-            "p:is(a, :not(:placeholder-shown))",
-            ":has(:invalid)",
-            ":nth-child(1 of :valid)",
-            "input:IN-RANGE",
+            ":hover, :lang(en)",
             "p:not(:dir(ltr))",
             ":-webkit-autofill",
             "p::first-line",
+            "::CUE(b) , ::-webkit-scrollbar",
         ] {
-            assert_eq!(parse(selector), Some(Declined::NeedsJs), "{selector}");
+            assert_eq!(bits(selector), Ok(0), "{selector}");
         }
-        assert_eq!(parse(":hover, :lang(en)"), None);
+        assert_eq!(parse(":dir(1)"), Some(Declined::Invalid));
         let (mut dom, root) = doc("<html><body><div></div></body></html>");
         assert_eq!(
             dom.query(root, ":::", QueryMode::All, &html()),
             Err(Declined::Invalid)
+        );
+        assert_eq!(
+            dom.query(root, "div:valid", QueryMode::All, &html()),
+            Err(Declined::NeedsState(0b1))
         );
         assert_eq!(dom.query(9999, "div", QueryMode::All, &html()), Ok(vec![]));
     }

@@ -1,6 +1,6 @@
 //! `querySelector`, `querySelectorAll`, `closest` and `matches` through the public API. Selectors
-//! parse as stylo parses them and match natively over the arena; only those reading state jsdom
-//! alone has (validity, `:placeholder-shown`, ...) go to `dom-selector`.
+//! parse as stylo parses them and match natively over the arena; state jsdom alone has (validity,
+//! `:placeholder-shown`, ...) reaches the matcher as a snapshot taken per query.
 
 mod common;
 
@@ -201,15 +201,24 @@ fn pseudo_classes_stylo_does_not_know_throw() {
             assert_eq!(error, "SyntaxError", "{call}");
         }
     }
-    for selector in [
-        ":dir(ltr)",
-        "p::first-line",
-        ":-webkit-autofill",
-        "[x=':in-range']",
-    ] {
-        let call = format!(r#"document.querySelectorAll("{selector}").length >= 0"#);
-        assert_eq!(rt.eval_json(&call).as_deref(), Some("true"), "{selector}");
-    }
+}
+
+/// Names stylo lacks but browsers accept: pseudo-elements and `:-webkit-*` never match a query,
+/// `:dir()` follows the `dir` attributes.
+#[test]
+fn names_stylo_lacks_match_as_in_a_browser() {
+    let rt = runtime();
+    let out: Vec<usize> = rt.eval(&format!(
+        r##"{PAGE}
+        document.getElementById("b").dir = "RTL";
+        document.getElementById("e2").dir = "ltr";
+        document.getElementById("e").dir = "auto";
+        ["p::first-line", "p::first-letter", "::cue", "::cue(b)", "::target-text", "::cue-region",
+            ":-webkit-autofill", "p:not(:-webkit-autofill)", "#root :dir(ltr)", "#root :dir(rtl)",
+            "p:not(:dir(ltr))", ":is(span, i):dir(rtl)", "div:DIR(foo)", "[x=':in-range']"]
+            .map((s) => document.querySelectorAll(s).length)"##
+    ));
+    assert_eq!(out, [0, 0, 0, 0, 0, 0, 0, 2, 10, 2, 0, 1, 0, 0]);
 }
 
 #[test]
@@ -259,8 +268,8 @@ fn declined_selectors_keep_working() {
     assert_eq!(out, ["p1", "p1 p2", "i1 cb", "cb", "i1", "a", "i1", ""]);
 }
 
-/// Every selector in `CASES`, and the ones `dom-selector` used to answer, takes the native path;
-/// what stylo rejects is invalid (`-2`), never a fallback (`-1`).
+/// Every selector in `CASES`, and the ones `dom-selector` used to answer, takes the native path:
+/// what stylo rejects is invalid (`-2`), and one reading jsdom's form state asks for it (`-1`).
 #[test]
 fn cases_match_natively_and_rejected_selectors_are_invalid() {
     let rt = runtime();
@@ -268,19 +277,20 @@ fn cases_match_natively_and_rejected_selectors_are_invalid() {
         r##"{PAGE}
         const wire = __jsdomImplForWrapper(document)._wire;
         const out = new Uint32Array(64);
+        const none = new Uint32Array(0);
         {selectors:?}.concat([":lang(en)", ":hover", ":dir(ltr)", "svg|rect", ":-webkit-autofill",
-            "::first-line", ":::"])
-            .map((s) => [s, Deno.core.ops.op_dom_query(wire, s, 1, true, false, -1, -1, out)])
+            "::first-line", ":invalid", ":::", ":-webkit-any(p)"])
+            .map((s) => [s,
+                Deno.core.ops.op_dom_query(wire, s, 1, true, false, -1, -1, false, none, out)])
             .filter(([, n]) => n < 0)"##,
         selectors = CASES.iter().map(|(s, _)| *s).collect::<Vec<_>>()
     ));
-    // -1 hands a name stylo lacks but browsers accept to `dom-selector`; -2 throws.
+    // -1 asks JS for the form-state snapshot; -2 throws.
     let want = [
-        (":dir(ltr)", -1),
         ("svg|rect", -2),
-        (":-webkit-autofill", -1),
-        ("::first-line", -1),
+        (":invalid", -1),
         (":::", -2),
+        (":-webkit-any(p)", -2),
     ];
     assert_eq!(declined, want.map(|(s, n)| (s.to_owned(), n)));
 }
@@ -410,26 +420,37 @@ const STATE_CASES: &[(&str, &str, &str)] = &[
         "n",
     ),
     ("$('t').focus()", "#f:has(:focus-visible)", "f"),
-];
-
-/// `(state change, selector, a browser's ids, dom-selector's ids)`: state pseudo-classes the
-/// native matcher declines, where `dom-selector` answers wrong. Pinned so a fix shows up.
-const STATE_DIVERGENCES: &[(&str, &str, &str, &str)] = &[
-    (
-        "",
-        "#f > :valid:not(button)",
-        "fs n cb r1 r2 sel",
-        "fs n cb r1 r2 sel ta",
-    ),
+    ("", "#f > :valid:not(button)", "fs n cb r1 r2 sel"),
     (
         "$('n').setAttribute('min', 'abc'); $('n').removeAttribute('max')",
         ":in-range",
         "",
-        "n",
     ),
+    ("$('cb').setCustomValidity('no')", ":invalid", "f t cb"),
+    (
+        "$('t').value = 'x'; $('cb').required = true",
+        "fieldset:valid, form:invalid",
+        "f fs",
+    ),
+    ("$('n').step = '5'", ":invalid", "f t n"),
+    (
+        "document.body.append(Object.assign(document.createElement('form'), {id: 'g'})); \
+         $('t').setAttribute('form', 'g')",
+        "form:invalid",
+        "g",
+    ),
+    (
+        "const w = document.createElement('fieldset'); w.id = 'w'; \
+         $('f').before(w); w.append($('f'))",
+        "#w:invalid",
+        "w",
+    ),
+    ("$('fs').disabled = false", "#fs :placeholder-shown", ""),
 ];
 
+/// Also makes any query `dom-selector` would answer throw.
 const RESET: &str = r##"
+    __jsdomImplForWrapper(document)._getDOMSelector = () => { throw new Error("dom-selector"); };
     document.activeElement?.blur?.();
     history.replaceState(null, "", "/");
 "##;
@@ -452,20 +473,6 @@ fn state_pseudo_classes_follow_live_state() {
         })
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
-}
-
-#[test]
-fn declined_state_pseudo_classes_keep_dom_selector_divergences() {
-    let rt = runtime();
-    let changed: Vec<String> = STATE_DIVERGENCES
-        .iter()
-        .filter_map(|(change, selector, _, pinned)| {
-            let got = live_state_ids(&rt, change, selector);
-            (got != *pinned)
-                .then(|| format!("{change} / {selector}: pinned {pinned:?}, got {got:?}"))
-        })
-        .collect();
-    assert!(changed.is_empty(), "{changed:#?}");
 }
 
 #[test]
@@ -505,30 +512,18 @@ fn checked_state_set_while_detached_is_matched_once_inserted() {
     assert_eq!(out, "o9 new copy");
 }
 
-/// The state pseudo-classes whose selectors still go to `dom-selector`: their inputs live only in
-/// jsdom.
+/// Elements never inserted anywhere have no arena slot until a query gives them one.
 #[test]
-fn only_the_native_state_set_matches_natively() {
+fn queries_on_a_never_inserted_element() {
     let rt = runtime();
-    let fallbacks: Vec<String> = rt.eval(&format!(
-        r##"{FORM_PAGE}
-        const wire = __jsdomImplForWrapper(document)._wire;
-        const out = new Uint32Array(64);
-        [...new Set({selectors:?})]
-            .filter((s) => Deno.core.ops.op_dom_query(wire, s, 1, true, false, -1, -1, out) < 0)"##,
-        selectors = STATE_CASES.iter().map(|(_, s, _)| *s).collect::<Vec<_>>()
+    let out: Vec<serde_json::Value> = rt.eval(&format!(
+        r##"{RESET}
+        const p = document.createElement("p");
+        [p.matches("p"), p.closest("p") === p, p.querySelector("b"),
+            p.querySelectorAll("*").length, document.createElement("input").matches(":valid")]"##
     ));
     assert_eq!(
-        fallbacks,
-        [
-            ":placeholder-shown",
-            ":indeterminate",
-            ":invalid",
-            "form:valid",
-            ":in-range",
-            ":out-of-range",
-            "#f:not(:has(:placeholder-shown))",
-            "#f :is(:in-range, :out-of-range)",
-        ]
+        serde_json::Value::Array(out).to_string(),
+        "[true,true,null,0,true]"
     );
 }

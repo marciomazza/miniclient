@@ -448,7 +448,7 @@ impl DocStyle {
             base: base.to_owned(),
             sheets,
             stylist,
-            query: dom.query_state(html, false, key.1, key.2),
+            query: dom.query_state(html, false, key.1, key.2, None),
             extras: RefCell::default(),
         }
     }
