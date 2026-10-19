@@ -615,8 +615,12 @@ fn chromium_golden() {
         r#"globalThis.__golden = (markup) => {{
             document.documentElement.innerHTML = markup;
             const props = {props};
+            // Scripts and interactions are absent, and about:blank has no target element.
+            const values = (el) => Deno.core.ops.op_css_computed_values(
+                __jsdomImplForWrapper(el)._wire, -1, -1, props, document.baseURI, ""
+            );
             return JSON.stringify(
-                [...document.querySelectorAll("*")].map((el) => [el.localName, __computed(el, props)])
+                [...document.querySelectorAll("*")].map((el) => [el.localName, values(el)])
             );
         }};
         0"#
