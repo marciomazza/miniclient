@@ -154,10 +154,107 @@
             configurable: true,
         });
 
-        // jsdom has no Constructable Stylesheets support (adoptedStyleSheets is undefined, not
-        // even an empty array): htmx.js's request-indicator CSS injection does
-        // `[...document.adoptedStyleSheets, sheet]`, which throws on a bare Window otherwise.
-        win.document.adoptedStyleSheets ??= [];
+        /** @type {WeakMap<Document, CSSStyleSheet[]>} */
+        const adoptedByDocument = new WeakMap();
+        /** @type {WeakMap<Document, (sheets: CSSStyleSheet[]) => void>} */
+        const replaceAdoptedByDocument = new WeakMap();
+        const mutators = new Set([
+            "copyWithin",
+            "fill",
+            "pop",
+            "push",
+            "reverse",
+            "shift",
+            "sort",
+            "splice",
+            "unshift",
+        ]);
+        /** @param {Document} document */
+        const adoptedStyleSheets = (document) => {
+            let adopted = adoptedByDocument.get(document);
+            if (adopted) return adopted;
+
+            const documentImpl = globalThis.__jsdomImplForWrapper(document);
+            /** @type {CSSStyleSheet[]} */
+            const target = [];
+            /** @param {CSSStyleSheet[]} sheets */
+            const commit = (sheets) => {
+                const ids = Array.from(sheets, (sheet) => {
+                    const impl = globalThis.__jsdomImplForWrapper(sheet);
+                    if (typeof impl?._canAdopt !== "function") {
+                        throw new TypeError("Adopted stylesheets must be CSSStyleSheet objects.");
+                    }
+                    if (!impl._canAdopt(documentImpl)) {
+                        throw new win.DOMException(
+                            "Only constructed stylesheets from this document may be adopted.",
+                            "NotAllowedError",
+                        );
+                    }
+                    return impl._id;
+                });
+                if (!Deno.core.ops.op_css_sheet_adopt(documentImpl._wire, ids)) {
+                    throw new win.DOMException(
+                        "The document cannot adopt stylesheets.",
+                        "NotAllowedError",
+                    );
+                }
+            };
+            /** @param {CSSStyleSheet[]} sheets */
+            const replace = (sheets) => {
+                commit(sheets);
+                target.length = 0;
+                sheets.forEach((sheet, index) => {
+                    Object.defineProperty(target, index, {
+                        value: sheet,
+                        writable: true,
+                        enumerable: true,
+                        configurable: true,
+                    });
+                });
+            };
+            /** @type {CSSStyleSheet[]} */
+            let proxy;
+            proxy = new Proxy(target, {
+                get(array, property) {
+                    const value = Reflect.get(array, property, array);
+                    if (typeof property !== "string" || !mutators.has(property)) return value;
+                    /** @param {...any} args */
+                    const mutate = (...args) => {
+                        const next = array.slice();
+                        const result = Reflect.apply(value, next, args);
+                        replace(next);
+                        return result === next ? proxy : result;
+                    };
+                    return mutate;
+                },
+                set(array, property, value) {
+                    const next = array.slice();
+                    Reflect.set(next, property, value, next);
+                    replace(next);
+                    return true;
+                },
+                deleteProperty(array, property) {
+                    const next = array.slice();
+                    Reflect.deleteProperty(next, property);
+                    replace(next);
+                    return true;
+                },
+            });
+            adoptedByDocument.set(document, proxy);
+            replaceAdoptedByDocument.set(document, replace);
+            return proxy;
+        };
+        Object.defineProperty(win.Document.prototype, "adoptedStyleSheets", {
+            get() {
+                return adoptedStyleSheets(this);
+            },
+            set(value) {
+                adoptedStyleSheets(this);
+                replaceAdoptedByDocument.get(this)?.(Array.from(value));
+            },
+            configurable: true,
+            enumerable: true,
+        });
 
         globalThis.__patchJsdom(win);
 

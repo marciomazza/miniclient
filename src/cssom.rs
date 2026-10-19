@@ -65,6 +65,7 @@ struct Entry {
 pub struct Handles {
     entries: HashMap<u32, Entry>,
     owners: HashMap<NodeId, u32>,
+    adopted: HashMap<NodeId, Vec<u32>>,
     next: u32,
 }
 
@@ -81,10 +82,32 @@ impl Handles {
         }
     }
 
+    pub(crate) fn adopted_sheets(
+        &self,
+        doc: NodeId,
+    ) -> impl Iterator<Item = DocumentStyleSheet> + '_ {
+        self.adopted
+            .get(&doc)
+            .into_iter()
+            .flatten()
+            .filter_map(|id| match &self.entries.get(id)?.item {
+                Item::Sheet {
+                    sheet,
+                    disabled: false,
+                    ..
+                } => Some(sheet.clone()),
+                _ => None,
+            })
+    }
+
     pub(crate) fn retain_docs(&mut self, live: impl Fn(NodeId) -> bool) {
         self.entries.retain(|_, e| live(e.doc));
         let entries = &self.entries;
         self.owners.retain(|_, id| entries.contains_key(id));
+        self.adopted.retain(|doc, _| live(*doc));
+        for ids in self.adopted.values_mut() {
+            ids.retain(|id| entries.contains_key(id));
+        }
     }
 
     fn add(&mut self, doc: NodeId, item: Item) -> u32 {
@@ -836,6 +859,33 @@ impl CssState {
     }
 }
 
+/// Replaces `doc`'s adopted constructed sheets, in cascade order.
+#[op2]
+pub fn op_css_sheet_adopt(state: &mut OpState, doc: u32, #[serde] ids: Vec<u32>) -> bool {
+    with_css(state, |css, dom| {
+        let Some(root) = dom.resolve(doc) else {
+            return false;
+        };
+        if !ids.iter().all(|id| {
+            matches!(
+                css.handles.entries.get(id),
+                Some(Entry {
+                    doc,
+                    item: Item::Sheet {
+                        constructed: true,
+                        ..
+                    }
+                }) if *doc == root
+            )
+        }) {
+            return false;
+        }
+        css.handles.adopted.insert(root, ids);
+        css.docs.remove(&root);
+        true
+    })
+}
+
 /// Sheet `id` leaves the cascade, as its owner dropped it.
 #[op2(fast)]
 pub fn op_css_sheet_detach(state: &mut OpState, id: u32) {
@@ -965,6 +1015,12 @@ pub fn op_css_release(state: &mut OpState, id: u32) {
     with_css(state, |css, _| {
         css.handles.entries.remove(&id);
         css.handles.owners.retain(|_, v| *v != id);
+        for (doc, ids) in &mut css.handles.adopted {
+            if ids.contains(&id) {
+                ids.retain(|adopted| *adopted != id);
+                css.docs.remove(doc);
+            }
+        }
     })
 }
 

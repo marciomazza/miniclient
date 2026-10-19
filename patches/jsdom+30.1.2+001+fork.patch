@@ -1,4 +1,4 @@
-# fork: xluozsxpspls 3af7356afa8d
+# fork: klysyupnwrpm 4994715b2abc
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -3169,10 +3169,10 @@ index 274ebb25f7..9694dfde28 100644
  
  exports.implementation = CSSStyleRuleImpl;
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
-index 48e10ffc1f..cefbe217e7 100644
+index 48e10ffc1f..10b1248c1a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/CSSStyleSheet-impl.js
-@@ -1,23 +1,55 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
+@@ -1,23 +1,60 @@ class CSSStyleSheetImpl extends StyleSheetImpl {
  "use strict";
 -
 +const whatwgURL = require("whatwg-url");
@@ -3210,6 +3210,7 @@ index 48e10ffc1f..cefbe217e7 100644
 +    // https://drafts.csswg.org/cssom/#dom-cssstylesheet-cssstylesheet
 +    const { baseURL, media, disabled } = args[0];
 +    const document = globalObject._document;
++    this._constructorDocument = document;
 +    let base = document.baseURLSerialized();
 +    if (baseURL) {
 +      const parsed = whatwgURL.parseURL(baseURL, { baseURL: whatwgURL.parseURL(base) });
@@ -3230,13 +3231,17 @@ index 48e10ffc1f..cefbe217e7 100644
 +    return this.ownerRule?.parentStyleSheet ?? null;
 +  }
 +
++  _canAdopt(document) {
++    return this.#constructed && this._constructorDocument === document;
++  }
++
 +  get cssRules() {
 +    this.#cssRules ??= CSSRuleList.createImpl(this._globalObject, [], { owner: this });
 +    return this.#cssRules;
    }
  
    // Legacy alias for cssRules
-@@ -28,35 +60,18 @@ insertRule(rule, index) {
+@@ -28,35 +65,18 @@ insertRule(rule, index) {
    insertRule(rule, index) {
      // TODO: check origin-clean flag
      this.#checkModificationAllowed();
@@ -3275,7 +3280,7 @@ index 48e10ffc1f..cefbe217e7 100644
      return -1;
    }
  
-@@ -66,53 +81,24 @@ removeRule(index) {
+@@ -66,53 +86,24 @@ removeRule(index) {
    }
  
    replaceSync(text) {
@@ -3339,7 +3344,7 @@ index 48e10ffc1f..cefbe217e7 100644
  
          // webidl2js doesn't auto-wrap return values: https://github.com/jsdom/webidl2js/issues/257
          resolve(wrapperForImpl(this));
-@@ -120,6 +106,21 @@ replace(text) {
+@@ -120,6 +111,21 @@ replace(text) {
      });
    }
  

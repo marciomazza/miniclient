@@ -248,6 +248,90 @@ fn cssom_writes_reach_the_cascade() {
 }
 
 #[test]
+fn adopted_constructed_sheets_reach_the_cascade() {
+    let rt = runtime();
+    let got: serde_json::Value = rt.eval(
+        r#"document.documentElement.innerHTML =
+            "<head><style>p { color: rgb(1, 2, 3) }</style></head><body><p>x</p></body>";
+        const color = () => getComputedStyle(document.querySelector("p")).color;
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync("p { color: rgb(4, 5, 6) }");
+        const seen = [color()];
+        document.adoptedStyleSheets = [sheet];
+        seen.push(color());
+        sheet.replaceSync("p { color: rgb(7, 8, 9) }");
+        sheet.insertRule("p { color: rgb(10, 11, 12) }", sheet.cssRules.length);
+        seen.push(color());
+        sheet.deleteRule(1);
+        sheet.disabled = true;
+        seen.push(color());
+        sheet.disabled = false;
+        seen.push(color());
+        document.adoptedStyleSheets.pop();
+        seen.push(color());
+        document.adoptedStyleSheets.push(sheet);
+        seen.push(color());
+        const errorName = value => {
+            try {
+                value.adoptedStyleSheets = [sheet];
+                return "";
+            } catch (error) {
+                return error.name;
+            }
+        };
+        let ownerError = "";
+        try {
+            document.adoptedStyleSheets = [document.styleSheets[0]];
+        } catch (error) {
+            ownerError = error.name;
+        }
+        let typeError = "";
+        try {
+            document.adoptedStyleSheets.push("not a sheet");
+        } catch (error) {
+            typeError = error.name;
+        }
+        let backing = null;
+        Object.defineProperty(Array.prototype, "1", {
+            configurable: true,
+            set() { backing = this; },
+        });
+        try {
+            document.adoptedStyleSheets = [sheet, new CSSStyleSheet()];
+        } finally {
+            delete Array.prototype["1"];
+        }
+        ({
+            seen,
+            ownerError,
+            typeError,
+            backingExposed: backing !== null,
+            isArray: Array.isArray(document.adoptedStyleSheets),
+            documentError: errorName(document.implementation.createHTMLDocument()),
+        })"#,
+    );
+    assert_eq!(
+        got,
+        serde_json::json!({
+            "seen": [
+                "rgb(1, 2, 3)",
+                "rgb(4, 5, 6)",
+                "rgb(10, 11, 12)",
+                "rgb(1, 2, 3)",
+                "rgb(7, 8, 9)",
+                "rgb(1, 2, 3)",
+                "rgb(7, 8, 9)",
+            ],
+            "ownerError": "NotAllowedError",
+            "typeError": "TypeError",
+            "backingExposed": false,
+            "isArray": true,
+            "documentError": "NotAllowedError",
+        })
+    );
+}
+
+#[test]
 fn hidden_ancestor_is_not_focusable() {
     let rt = runtime();
     let focused: Vec<bool> = rt.eval(

@@ -394,7 +394,8 @@ fn has_token(list: Option<&str>, token: &str) -> bool {
 // relies on that.
 fn author_sheets(root: NodeRef<Node>, handles: &crate::cssom::Handles) -> Vec<DocumentStyleSheet> {
     let mut preferred = None;
-    root.descendants()
+    let mut sheets: Vec<_> = root
+        .descendants()
         .filter_map(|n| {
             let e = n.value().as_element().filter(|e| e.name.ns == ns!(html))?;
             let applies = match e.name.local {
@@ -415,7 +416,9 @@ fn author_sheets(root: NodeRef<Node>, handles: &crate::cssom::Handles) -> Vec<Do
             }
             Some(sheet)
         })
-        .collect()
+        .collect();
+    sheets.extend(handles.adopted_sheets(root.id()));
+    sheets
 }
 
 fn element_state(node: NodeRef<Node>, query: &QueryState) -> ElementState {

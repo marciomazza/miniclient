@@ -91,6 +91,7 @@ declare namespace Deno {
       op_crypto_random_bytes(n: number): Uint8Array;
       op_now(): number;
       op_css_supports(property: string, value: string | null): boolean;
+      op_css_sheet_adopt(document: number, sheets: number[]): boolean;
     };
   };
 }

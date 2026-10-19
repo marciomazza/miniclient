@@ -1959,7 +1959,9 @@
  ],
  "/css/css-cascade/layer-keyframes-override.html": [],
  "/css/css-cascade/layer-property-override.html": [],
- "/css/css-cascade/layer-replaceSync-clears-stale.html": [],
+ "/css/css-cascade/layer-replaceSync-clears-stale.html": [
+  "replaceSync clears stale layer statements"
+ ],
  "/css/css-cascade/layer-rule-invalid-name.html": [
   "@layer with lone dash (-) name is dropped",
   "@layer with numeric name (123) is dropped",
@@ -22087,14 +22089,22 @@
  "/css/cssom/CSSStyleSheet-constructable-baseURL.html": [
   "Constructing sheet with invalid base URL throws a NotAllowedError"
  ],
- "/css/cssom/CSSStyleSheet-constructable-cssRules.html": [],
+ "/css/cssom/CSSStyleSheet-constructable-cssRules.html": [
+  "cssRules doesn't change on replace / replaceSync"
+ ],
  "/css/cssom/CSSStyleSheet-constructable-disabled-regular-sheet-insertion.html": [],
  "/css/cssom/CSSStyleSheet-constructable-disallow-import.tentative.html": [
   "Inserting an @import rule through insertRule on a constructed stylesheet throws an exception"
  ],
- "/css/cssom/CSSStyleSheet-constructable-duplicate.html": [],
+ "/css/cssom/CSSStyleSheet-constructable-duplicate.html": [
+  "Appending duplicate stylesheets yields the correct cascade position in the Document",
+  "Duplicate stylesheets have the right cascade position in the Document"
+ ],
  "/css/cssom/CSSStyleSheet-constructable-invalidation.html": [],
- "/css/cssom/CSSStyleSheet-constructable-replace-cssRules.html": [],
+ "/css/cssom/CSSStyleSheet-constructable-replace-cssRules.html": [
+  "cssRules tests (sync: false)",
+  "cssRules tests (sync: true)"
+ ],
  "/css/cssom/CSSStyleSheet-constructable-replace-on-regular-sheet.html": [
   "CSSStyleSheet.replace returns a rejected promise for non-constructed sheets",
   "CSSStyleSheet.replaceSync throws NotAllowedError for non-constructed sheets"
@@ -22104,6 +22114,8 @@
  ],
  "/css/cssom/CSSStyleSheet-constructable.html": [
   "CSSStyleSheet.replace produces Promise<CSSStyleSheet>",
+  "Changes to constructed stylesheets through CSSOM is reflected",
+  "Constructed style sheets can be applied on document",
   "document.adoptedStyleSheets should initially have length 0.",
   "new CSSStyleSheet produces empty CSSStyleSheet",
   "title can be set in the CSSStyleSheet constructor"
@@ -22227,7 +22239,18 @@
  "/css/cssom/StyleSheetList.html": [
   "CSSOM - StyleSheetList interface"
  ],
- "/css/cssom/adoptedstylesheets-cascade-order.html": [],
+ "/css/cssom/adoptedstylesheets-cascade-order.html": [
+  "Mutating a duplicated adopted stylesheet while inserting a leading sheet updates cascade order",
+  "Reordering a document.adoptedStyleSheets suffix after a replacement updates cascade order",
+  "Reordering adopted stylesheets while inserting one updates cascade order",
+  "Reordering adopted stylesheets while removing one updates cascade order",
+  "Reordering adopted stylesheets with media queries updates cascade order",
+  "Reordering after an unchanged leading adopted stylesheet updates cascade order",
+  "Reordering around a mutated adopted stylesheet updates cascade order",
+  "Reordering document.adoptedStyleSheets updates cascade order",
+  "Reordering duplicated adopted stylesheets updates cascade order",
+  "Rotating document.adoptedStyleSheets updates cascade order"
+ ],
  "/css/cssom/adoptedstylesheets-modify-array-and-sheet.html": [],
  "/css/cssom/adoptedstylesheets-observablearray.html": [],
  "/css/cssom/at-namespace.html": [],
@@ -23071,7 +23094,9 @@
   "Document includes ParentNode: member names are unique",
   "Document includes XPathEvaluatorBase: member names are unique",
   "Document interface: attribute styleSheets",
+  "Document interface: document must inherit property \"adoptedStyleSheets\" with the proper type",
   "Document interface: document must inherit property \"styleSheets\" with the proper type",
+  "Document interface: new Document() must inherit property \"adoptedStyleSheets\" with the proper type",
   "Document interface: new Document() must inherit property \"styleSheets\" with the proper type",
   "DocumentFragment includes NonElementParentNode: member names are unique",
   "DocumentFragment includes ParentNode: member names are unique",
