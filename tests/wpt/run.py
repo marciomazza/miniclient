@@ -185,16 +185,18 @@ def main():
         # are not tracked.
         with ThreadPoolExecutor(int(os.environ.get("JOBS", "8"))) as pool:
             runs = [dict(pool.map(run_file, paths)) for _ in range(3 if update else 1)]
-        results = runs[0]
-        now = {p: sorted(set.intersection(*(set(passing(r[p])) for r in runs))) for p in results}
-        if not update:
-            # Some files race against the real server (e.g. a 304 whose body leaks into the next
-            # response on a reused connection): a subtest is lost only if it fails every retry.
-            for p, names in expected.items():
+            results = runs[0]
+            now = {
+                p: sorted(set.intersection(*(set(passing(r[p])) for r in runs))) for p in results
+            }
+            if not update:
+                # Some files race against the real server (e.g. a 304 whose body leaks into the
+                # next response on a reused connection): a subtest is lost only if it fails every
+                # retry.
                 for _ in range(2):
-                    if set(names) <= set(now[p]):
-                        break
-                    now[p] = sorted(set(now[p]) | set(passing(run_file(p)[1])))
+                    missing = [p for p, names in expected.items() if not set(names) <= set(now[p])]
+                    for p, r in pool.map(run_file, missing):
+                        now[p] = sorted(set(now[p]) | set(passing(r)))
     finally:
         for w in workers:
             w.close()
