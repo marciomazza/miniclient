@@ -1748,7 +1748,7 @@ mod tests {
     }
 
     #[test]
-    fn every_style_attribute_names_a_parsed_property() {
+    fn style_attributes_match_the_enabled_properties() {
         enable_prefs();
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1763,6 +1763,24 @@ mod tests {
         assert!(
             stale.is_empty(),
             "rerun scripts/css-style-properties.py: {stale:?}"
+        );
+        // The script finds enabled prefs by scanning the source, so a moved set_pref! drops names.
+        // Stylo's table leaves out these two, which are not enabled in content, but its servo
+        // build parses them anyway once layout.unimplemented is on.
+        let listed: HashSet<&str> = names
+            .values()
+            .map(String::as_str)
+            .chain(["zoom", "-x-text-scale"])
+            .collect();
+        let missing: Vec<_> = style::properties::NonCustomPropertyId::iter()
+            .filter(|id| id.unaliased() == *id)
+            .map(|id| id.name())
+            .filter(|p| !p.starts_with("-moz-") && !listed.contains(p))
+            .filter(|p| PropertyId::parse_enabled_for_all_content(p).is_ok())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "rerun scripts/css-style-properties.py: {missing:?}"
         );
     }
 
