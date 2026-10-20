@@ -511,6 +511,85 @@ fn failed_refetch_drops_the_previous_sheet() {
 }
 
 #[test]
+fn newer_href_aborts_the_pending_fetch() {
+    let mock = MockFetchBackend::new();
+    mock.hang("http://localhost/slow.css");
+    mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+    let got = after_load(
+        &mock,
+        "",
+        &format!(
+            r#"Promise.race([
+                new Promise((resolve) => {{
+                    const link = document.createElement("link");
+                    link.rel = "stylesheet";
+                    link.href = "http://localhost/slow.css";
+                    document.head.append(link);
+                    link.onload = resolve;
+                    link.href = "http://localhost/a.css";
+                }}),
+                new Promise((_, reject) => setTimeout(
+                    () => reject(new Error("the replaced fetch still holds up the newer one")), 2000)),
+            ]).then(() => [{COLOR_OF_P}, document.styleSheets[0].href, log])"#
+        ),
+    );
+    assert_eq!(
+        got,
+        serde_json::json!(["rgb(1, 2, 3)", "http://localhost/a.css", []])
+    );
+    assert_eq!(mock.aborted().len(), 1);
+}
+
+#[test]
+fn disabled_link_is_fetched_once_enabled_and_dropped_when_disabled() {
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+    let got = after_load(
+        &mock,
+        r#"<link rel=stylesheet disabled href="http://localhost/a.css">"#,
+        &format!(
+            r#"((before) => new Promise((resolve) => {{
+                const link = document.querySelector("link");
+                link.onload = resolve;
+                link.removeAttribute("disabled");
+            }}).then(() => {{
+                const enabled = [{COLOR_OF_P}, document.styleSheets.length];
+                document.querySelector("link").setAttribute("disabled", "");
+                return [before, enabled, [{COLOR_OF_P}, document.styleSheets.length]];
+            }}))([{COLOR_OF_P}, document.styleSheets.length])"#
+        ),
+    );
+    assert_eq!(
+        got,
+        serde_json::json!([
+            ["rgb(0, 0, 0)", 0],
+            ["rgb(1, 2, 3)", 1],
+            ["rgb(0, 0, 0)", 0]
+        ])
+    );
+    // Only enabling fetched it.
+    assert_eq!(mock.requests().len(), 1);
+}
+
+/// An `@import` whose body has not arrived yet is an empty sheet, and the rest of its sheet applies.
+#[test]
+fn pending_import_is_an_empty_sheet() {
+    let mock = MockFetchBackend::new();
+    mock.hang("http://localhost/slow.css");
+    let got = after_load(
+        &mock,
+        "",
+        r#"((style) => {
+            style.textContent = '@import "http://localhost/slow.css"; p { width: 1px }';
+            document.head.append(style);
+            return [getComputedStyle(document.querySelector("p")).width,
+                style.sheet.cssRules[0].styleSheet.cssRules.length];
+        })(document.createElement("style"))"#,
+    );
+    assert_eq!(got, serde_json::json!(["1px", 0]));
+}
+
+#[test]
 fn nested_import_resolves_against_its_own_sheet() {
     let mock = MockFetchBackend::new();
     mock.text(

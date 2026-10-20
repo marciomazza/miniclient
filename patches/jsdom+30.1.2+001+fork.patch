@@ -1,4 +1,4 @@
-# fork: xoqlwkrznrmy 6ba264164e94
+# fork: looqrqnwpzsl 007c1e9d783f
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -561,10 +561,37 @@ index facc519f4d..3c9fc24798 100644
            return;
          }
 diff --git a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
-index 446e495518..a63d7dc772 100644
+index 446e495518..342f196651 100644
 --- a/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
 +++ b/node_modules/jsdom/lib/jsdom/browser/resources/per-document-resource-loader.js
-@@ -111,7 +111,10 @@ then: (onFulfilled, onRejected) => fetchPromise.then(onFulfilled, onRejected),
+@@ -42,7 +42,7 @@ fetch(url, { element, onLoad, onError }) {
+       this._requestManager.remove(abortController);
+ 
+       // If the request was aborted, don't fire error events
+-      if (resourceDocument._isDestroyed || (cause && cause.name === "AbortError")) {
++      if (resourceDocument._isDestroyed || abortController.signal.aborted || (cause && cause.name === "AbortError")) {
+         return Promise.resolve();
+       }
+ 
+@@ -63,7 +63,8 @@ fetch(url, { element, onLoad, onError }) {
+ 
+     const onLoadWrapped = response => {
+       this._requestManager.remove(abortController);
+-      if (resourceDocument._isDestroyed) {
++      // An aborted request may have finished already and be waiting its turn in the queue.
++      if (resourceDocument._isDestroyed || abortController.signal.aborted) {
+         return Promise.resolve();
+       }
+ 
+@@ -105,13 +106,17 @@ get(name) {
+     // Create a wrapper object that can be used by the queue system
+     const request = {
+       then: (onFulfilled, onRejected) => fetchPromise.then(onFulfilled, onRejected),
+-      catch: onRejected => fetchPromise.catch(onRejected)
++      catch: onRejected => fetchPromise.catch(onRejected),
++      abort: () => abortController.abort()
+     };
+ 
      if (element.localName === "script" && element.hasAttributeNS(null, "async")) {
        this._asyncQueue.push(request, onLoadWrapped, onErrorWrapped, this._queue.getLastScript());
      } else if (
@@ -4084,7 +4111,7 @@ index 0000000000..d832403ea5
 +  return interfaces()[name].createImpl(globalObject, [], { id, parentRule, parentStyleSheet });
 +};
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..a0394c2cf0 100644
+index 270a6209f5..3adb6b4566 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 @@ -1,7 +1,8 @@
@@ -4130,17 +4157,32 @@ index 270a6209f5..a0394c2cf0 100644
        document._clearStyleCache();
      } else {
        const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
-@@ -42,7 +51,8 @@ function onStyleSheetLoad(data, response) {
+@@ -40,10 +49,22 @@ function onStyleSheetLoad(data, response) {
+     }
+   }
  
-   resourceLoader.fetch(urlString, {
+-  resourceLoader.fetch(urlString, {
++  const request = resourceLoader.fetch(urlString, {
      element: elementImpl,
 -    onLoad: onStyleSheetLoad
 +    onLoad: onStyleSheetLoad,
 +    onError: removeOldSheet
    });
++  if (!importRule) {
++    // A newer `href` replaces the pending fetch, which then neither installs a sheet nor fires
++    // an event, and no longer holds up the resource queue.
++    exports.abortStyleSheetFetch(elementImpl);
++    elementImpl._sheetRequest = request;
++  }
++};
++
++exports.abortStyleSheetFetch = elementImpl => {
++  elementImpl._sheetRequest?.abort();
++  elementImpl._sheetRequest = null;
  };
  
-@@ -53,58 +63,31 @@ function onStyleSheetLoad(data, response) {
+ // https://drafts.csswg.org/cssom/#remove-a-css-style-sheet
+@@ -53,58 +74,31 @@ function onStyleSheetLoad(data, response) {
  
    // Remove the association explicitly; in the spec it's implicit so this step doesn't exist.
    elementImpl.sheet = null;
@@ -4210,7 +4252,7 @@ index 270a6209f5..a0394c2cf0 100644
  // https://drafts.csswg.org/cssom/#add-a-css-style-sheet
  exports.addStyleSheet = (sheet, elementImpl) => {
    elementImpl._ownerDocument.styleSheets._add(sheet);
-@@ -117,40 +100,31 @@ function onStyleSheetLoad(data, response) {
+@@ -117,40 +111,31 @@ function onStyleSheetLoad(data, response) {
    // TODO: title and disabled stuff
  };
  
@@ -6207,15 +6249,44 @@ index 42421cc7d7..393c76c54b 100644
      }
      if (checkedness) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
-index b9edd3be89..faabca59f9 100644
+index b9edd3be89..1931fb7be0 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
-@@ -45,8 +45,18 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+@@ -2,7 +2,7 @@
+ const DOMTokenList = require("../../../generated/idl/DOMTokenList");
+ const HTMLElementImpl = require("./HTMLElement-impl").implementation;
+ const idlUtils = require("../../../generated/idl/utils");
+-const { fetchStyleSheet, removeStyleSheet } = require("../css/helpers/stylesheets");
++const { fetchStyleSheet, removeStyleSheet, abortStyleSheetFetch } = require("../css/helpers/stylesheets");
+ const whatwgURL = require("whatwg-url");
+ 
+ // Important reading: "appropriate times to obtain the resource" in
+@@ -33,6 +33,7 @@ _removingSteps(isSubtreeRoot, oldAncestor) {
+   _removingSteps(isSubtreeRoot, oldAncestor) {
+     super._removingSteps(isSubtreeRoot, oldAncestor);
+ 
++    abortStyleSheetFetch(this);
+     if (this.sheet) {
+       removeStyleSheet(this.sheet, this);
+     }
+@@ -45,8 +46,30 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
        maybeFetchAndProcess(this);
      }
  
 -    if (namespace === null && localName === "rel" && this._relList !== undefined) {
 -      this._relList.attrModified();
++    // https://html.spec.whatwg.org/multipage/semantics.html#attr-link-disabled
++    if (namespace === null && localName === "disabled") {
++      if (value === null) {
++        maybeFetchAndProcess(this);
++      } else {
++        abortStyleSheetFetch(this);
++        if (this.sheet) {
++          removeStyleSheet(this.sheet, this);
++        }
++      }
++    }
++
 +    if (namespace === null && localName === "rel") {
 +      if (this._relList !== undefined) {
 +        this._relList.attrModified();
@@ -6231,7 +6302,19 @@ index b9edd3be89..faabca59f9 100644
      }
    }
  
-@@ -97,11 +107,10 @@ function isExternalResourceLink(el) {
+@@ -65,6 +88,11 @@ function maybeFetchAndProcess(el) {
+     return;
+   }
+ 
++  // A disabled link is not fetched; removing `disabled` fetches it.
++  if (el.hasAttributeNS(null, "disabled")) {
++    return;
++  }
++
+   // Browsing-context connected
+   if (!el.isConnected || !el._ownerDocument._defaultView) {
+     return;
+@@ -97,11 +125,10 @@ function isExternalResourceLink(el) {
  function isExternalResourceLink(el) {
    // for our purposes, only stylesheets can be external resource links
    const wrapper = idlUtils.wrapperForImpl(el);
