@@ -14722,7 +14722,8 @@
   "x: _camel_cased_attribute v. CSS.supports",
   "y: _camel_cased_attribute v. CSS.supports",
   "z-index: _camel_cased_attribute v. CSS.supports",
-  "z-index: _dashed_attribute v. CSS.supports"
+  "z-index: _dashed_attribute v. CSS.supports",
+  "zoom: _camel_cased_attribute v. CSS.supports"
  ],
  "/css/css-conditional/js/CSS-supports-L3.html": [
   "Complex conditions allowed",
@@ -22160,7 +22161,9 @@
   "removeRule(1)",
   "rules returns the same object twice"
  ],
- "/css/cssom/HTMLLinkElement-disabled-001.html": [],
+ "/css/cssom/HTMLLinkElement-disabled-001.html": [
+  "<link disabled> prevents the stylesheet from being in document.styleSheets (from parser)"
+ ],
  "/css/cssom/HTMLLinkElement-disabled-002.html": [],
  "/css/cssom/HTMLLinkElement-disabled-003.html": [],
  "/css/cssom/HTMLLinkElement-disabled-004.html": [],
@@ -22169,7 +22172,8 @@
  ],
  "/css/cssom/HTMLLinkElement-disabled-007.html": [],
  "/css/cssom/HTMLLinkElement-load-event-002.html": [
-  "Load event doesn't fire for removed sheet"
+  "Load event doesn't fire for removed sheet",
+  "Load event doesn't fire on removed link"
  ],
  "/css/cssom/HTMLLinkElement-load-event.html": [],
  "/css/cssom/HTMLStyleElement-load-event.html": [],
