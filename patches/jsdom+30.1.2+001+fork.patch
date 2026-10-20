@@ -1,4 +1,4 @@
-# fork: lskwtnxwrsyx 1093f8080714
+# fork: mtuxllzvqslk 992ed9033dcb
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -4111,7 +4111,7 @@ index 0000000000..d832403ea5
 +  return interfaces()[name].createImpl(globalObject, [], { id, parentRule, parentStyleSheet });
 +};
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..50a719f40f 100644
+index 270a6209f5..7780c70d23 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 @@ -1,7 +1,8 @@
@@ -4157,35 +4157,36 @@ index 270a6209f5..50a719f40f 100644
        document._clearStyleCache();
      } else {
        const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
-@@ -40,10 +49,25 @@ function onStyleSheetLoad(data, response) {
+@@ -40,10 +49,26 @@ function onStyleSheetLoad(data, response) {
      }
    }
  
 -  resourceLoader.fetch(urlString, {
-+  elementImpl._sheetRequests ??= [];
++  if (!importRule) {
++    // A newer `href` replaces the pending fetches, its old sheet's `@import`s included, which then
++    // neither install a sheet nor fire an event, and no longer hold up the resource queue.
++    exports.abortStyleSheetFetch(elementImpl);
++  }
 +  const request = resourceLoader.fetch(urlString, {
      element: elementImpl,
 -    onLoad: onStyleSheetLoad
 +    onLoad: onStyleSheetLoad,
 +    onError: removeOldSheet
    });
-+  if (!importRule) {
-+    // A newer `href` replaces the pending fetches, its old sheet's `@import`s included, which then
-+    // neither install a sheet nor fire an event, and no longer hold up the resource queue.
-+    exports.abortStyleSheetFetch(elementImpl);
++  if (request) {
++    (elementImpl._sheetRequests ??= []).push(request);
 +  }
-+  elementImpl._sheetRequests.push(request);
 +};
 +
 +exports.abortStyleSheetFetch = elementImpl => {
 +  for (const request of elementImpl._sheetRequests ?? []) {
-+    request?.abort();
++    request.abort();
 +  }
 +  elementImpl._sheetRequests = [];
  };
  
  // https://drafts.csswg.org/cssom/#remove-a-css-style-sheet
-@@ -53,58 +77,31 @@ function onStyleSheetLoad(data, response) {
+@@ -53,58 +78,31 @@ function onStyleSheetLoad(data, response) {
  
    // Remove the association explicitly; in the spec it's implicit so this step doesn't exist.
    elementImpl.sheet = null;
@@ -4255,7 +4256,7 @@ index 270a6209f5..50a719f40f 100644
  // https://drafts.csswg.org/cssom/#add-a-css-style-sheet
  exports.addStyleSheet = (sheet, elementImpl) => {
    elementImpl._ownerDocument.styleSheets._add(sheet);
-@@ -117,40 +114,31 @@ function onStyleSheetLoad(data, response) {
+@@ -117,40 +115,31 @@ function onStyleSheetLoad(data, response) {
    // TODO: title and disabled stuff
  };
  
@@ -5394,7 +5395,7 @@ index 42421cc7d7..393c76c54b 100644
      }
      if (checkedness) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
-index b9edd3be89..f6bf6dc44a 100644
+index b9edd3be89..fca3af7a9c 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 @@ -2,7 +2,7 @@
@@ -5406,15 +5407,17 @@ index b9edd3be89..f6bf6dc44a 100644
  const whatwgURL = require("whatwg-url");
  
  // Important reading: "appropriate times to obtain the resource" in
-@@ -33,6 +33,7 @@ _removingSteps(isSubtreeRoot, oldAncestor) {
+@@ -33,20 +33,43 @@ _removingSteps(isSubtreeRoot, oldAncestor) {
    _removingSteps(isSubtreeRoot, oldAncestor) {
      super._removingSteps(isSubtreeRoot, oldAncestor);
  
-+    abortStyleSheetFetch(this);
-     if (this.sheet) {
-       removeStyleSheet(this.sheet, this);
-     }
-@@ -42,11 +43,39 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+-    if (this.sheet) {
+-      removeStyleSheet(this.sheet, this);
+-    }
++    dropStyleSheet(this);
+   }
+ 
+   _attributeChangeSteps(localName, oldValue, value, namespace) {
      super._attributeChangeSteps(localName, oldValue, value, namespace);
  
      if (namespace === null && localName === "href") { // TODO crossorigin="" or type=""
@@ -5434,10 +5437,7 @@ index b9edd3be89..f6bf6dc44a 100644
 +      if (value === null) {
 +        maybeFetchAndProcess(this);
 +      } else {
-+        abortStyleSheetFetch(this);
-+        if (this.sheet) {
-+          removeStyleSheet(this.sheet, this);
-+        }
++        dropStyleSheet(this);
 +      }
 +    }
 +
@@ -5456,7 +5456,7 @@ index b9edd3be89..f6bf6dc44a 100644
      }
    }
  
-@@ -65,6 +94,11 @@ function maybeFetchAndProcess(el) {
+@@ -65,6 +88,11 @@ function maybeFetchAndProcess(el) {
      return;
    }
  
@@ -5468,7 +5468,7 @@ index b9edd3be89..f6bf6dc44a 100644
    // Browsing-context connected
    if (!el.isConnected || !el._ownerDocument._defaultView) {
      return;
-@@ -76,13 +110,7 @@ function maybeFetchAndProcess(el) {
+@@ -76,13 +104,7 @@ function maybeFetchAndProcess(el) {
  // https://html.spec.whatwg.org/multipage/semantics.html#default-fetch-and-process-the-linked-resource
  // TODO: refactor into general link-fetching like the spec.
  function fetchAndProcess(el) {
@@ -5483,10 +5483,17 @@ index b9edd3be89..f6bf6dc44a 100644
    if (url === null) {
      return;
    }
-@@ -94,14 +122,21 @@ function fetchAndProcess(el) {
+@@ -94,14 +116,28 @@ function fetchAndProcess(el) {
    fetchStyleSheet(el, serialized);
  }
  
++function dropStyleSheet(el) {
++  abortStyleSheetFetch(el);
++  if (el.sheet) {
++    removeStyleSheet(el.sheet, el);
++  }
++}
++
 +function linkedURL(el) {
 +  const href = el.getAttributeNS(null, "href");
 +  if (href === null || href === "") {
