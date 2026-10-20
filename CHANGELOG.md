@@ -4,16 +4,25 @@ The main changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.3.0]
 
 ### Added
 
 - `Browser`: shares a transport and mounts across Pages and keeps one blank runtime booted in the
   background, so a new `Page` skips the startup cost. `preboot=False` turns that off to save
   memory.
+- `document.adoptedStyleSheets`, pseudo-element styles through `getComputedStyle(el, "::before")`,
+  and `element.style.zoom`.
+- The wheel carries `MPL_NOTICE.md` for the MPL-2.0 crates it links (stylo, selectors,
+  cssparser, ...).
+- mini now runs against the web-platform-tests from jsdom's checkout: a default set, an extended
+  set and a CSS and CSSOM set (23,335 of 26,717 subtests pass), each failing on any regression
+  from its recorded baseline (`just test-wpt`, `test-wpt-extended`, `test-wpt-css`).
 
 ### Changed
 
+- Python 3.15 is now required: 3.14 is no longer supported, and wheels are built only for 3.15.
+- `httpx2` is now accepted at any 2.x (`>=2.0,<3`), not only `~=2.6.0`.
 - `Page` and `AsyncPage` now take a `Browser` (`Page(browser)`) instead of `httpx_transport` and
   `mounts`, which move to `Browser(...)`.
 - Every `goto()` after a page's first takes a prebooted runtime from its `Browser` instead of
@@ -42,6 +51,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stylesheets too. `:in-range` rules are still dropped.
 - `goto()` raises `JavaScriptError` when its request fails, as Playwright's does, instead of
   returning on an error document.
+- CSS runs on stylo, Servo's style engine: the cascade, `getComputedStyle`, `element.style`,
+  `CSSStyleSheet` and its rules, and `CSS.supports`. `getComputedStyle` returns computed values,
+  as browsers do (`2em` reads as `32px`), where it used to echo the specified ones.
+  `<link rel=stylesheet>` and `@import` sheets now apply to the cascade.
+- jsdom's CSS code and dom-selector left the bundle: it shrinks from 3.16 to 2.23 MB and the
+  development snapshot from 17.3 to 12.6 MB.
+- A `<link rel=stylesheet>` whose `href` changes aborts its pending fetch: the older response no
+  longer installs its sheet or fires `load`/`error`, and no longer holds up later resource loads.
+- `<link disabled>` is not fetched. Removing `disabled` fetches it, and setting it again removes
+  the sheet from `document.styleSheets` and the cascade. (`link.disabled`, the IDL property, is
+  still not reflected; use the attribute.)
+- A stylesheet's pending @import no longer holds up later resource loads after its link changes
+  href, is emptied, removed or disabled.
+- Emptying, removing or invalidating a link's href now drops its stylesheet, as in browsers.
 
 ### Fixed
 
@@ -54,6 +77,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A malformed response from the Python fetch backend fails the request instead of losing its
   headers.
 - A resource mount matches whole path segments, and a nested mount wins over its parent.
+- An unhandled `AbortError` that failed the page's eval when a subresource request was aborted
+  before its response headers arrived.
 
 ## [0.2.5]
 
