@@ -46,10 +46,10 @@ mod tests {
         );
     }
 
-    // Lazy builds are ~10.6 MB, eager ~14 MB (dev). V8 can silently ignore the
+    // Lazy builds are ~9.7 MB, eager ~12.6 MB (dev). V8 can silently ignore the
     // flag, or it can be set too late, and the only symptom is slower isolates.
     #[test]
     fn default_snapshot_is_built_with_eager_compilation() {
-        assert!(crate::snapshot::DEFAULT_SNAPSHOT.len() > 12_000_000);
+        assert!(crate::snapshot::DEFAULT_SNAPSHOT.len() > 11_000_000);
     }
 }
