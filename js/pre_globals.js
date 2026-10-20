@@ -137,7 +137,8 @@ globalThis.clearTimeout = timers.clearTimeout;
 globalThis.clearInterval = timers.clearInterval;
 // @ts-expect-error -- a plain timer, not a node Immediate
 globalThis.setImmediate ??= (fn, ...a) => setTimeout(fn, 0, ...a);
-globalThis.clearImmediate ??= () => {};
+// @ts-expect-error -- clears that plain timer
+globalThis.clearImmediate ??= clearTimeout;
 
 // Base64 — not built into V8; needed by entities and node-buffer.js polyfill.
 // Force-loaded here (like 00_url.js) so it survives into the snapshot.

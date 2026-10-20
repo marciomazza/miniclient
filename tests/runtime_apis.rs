@@ -264,6 +264,20 @@ fn clear_timeout_cancels() {
 }
 
 #[test]
+fn clear_immediate_cancels_set_immediate() {
+    let rt = runtime();
+    assert!(!rt.eval_promise::<bool>(
+        r#"
+            new Promise(resolve => {
+              let fired = false;
+              clearImmediate(setImmediate(() => { fired = true; }));
+              setTimeout(() => resolve(fired), 20);
+            })
+        "#,
+    ));
+}
+
+#[test]
 fn set_interval_fires_repeatedly_then_clears() {
     let rt = runtime();
     assert_eq!(
