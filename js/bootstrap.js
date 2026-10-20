@@ -394,7 +394,7 @@
      * @param {any} request
      */
     async function fetchAndWrite(url, request) {
-        let html;
+        let html, error;
         try {
             // The body crosses from Rust as a JSON array of byte values (JSON has no bytes).
             const body = Array.isArray(request.body) ? Uint8Array.from(request.body) : request.body;
@@ -405,12 +405,14 @@
             html = await res.text();
         } catch (err) {
             // Never revert to the old document -- it's already gone. Commit an error-state
-            // document instead, marked so a caller can detect the failure.
+            // document instead, marked so a caller can detect the failure, then rethrow.
+            error = new Error(`navigation to ${url} failed: ${err}`, { cause: err });
             html = `<pre data-mini-navigation-error>${String(err)}</pre>`;
         }
         win.document.open();
         win.document.write(html);
         win.document.close();
+        if (error) throw error;
     }
 
     // Page.goto() lands on a blank realm -- the page's own, if nothing navigated it yet, or a fresh one
@@ -439,6 +441,8 @@
     };
 
     if (globalThis.__NAVIGATION_BOOT__) {
-        fetchAndWrite(__BASE_URL__, __NAVIGATION_REQUEST__);
+        // A navigation the page started has no caller to raise to: its error document is the
+        // outcome, as a Playwright click() doesn't throw on a failed navigation either.
+        fetchAndWrite(__BASE_URL__, __NAVIGATION_REQUEST__).catch(() => {});
     }
 })();

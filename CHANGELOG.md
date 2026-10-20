@@ -40,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `SyntaxError`, as in Firefox.
 - `:valid`, `:invalid`, `:out-of-range`, `:placeholder-shown` and `:indeterminate` now apply in
   stylesheets too. `:in-range` rules are still dropped.
+- `goto()` raises `JavaScriptError` when its request fails, as Playwright's does, instead of
+  returning on an error document.
 
 ### Fixed
 

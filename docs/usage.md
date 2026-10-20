@@ -139,6 +139,11 @@ realm instead of booting another, so anything `eval()` defined on `window` befor
 listeners) is still there afterwards; every later `goto()` starts a fresh realm. Cookies carry
 over either way.
 
+Like Playwright's, `goto()` raises `JavaScriptError` when the request itself fails (connection
+refused, unknown host), and returns normally for any HTTP status. The page is then left on an
+error document holding a `data-mini-navigation-error` element. A navigation the page starts (a
+link, a form submit) never raises: it lands on that same error document.
+
 ## Finding elements
 
 Locate elements by CSS selector, returning `Element` wrappers:

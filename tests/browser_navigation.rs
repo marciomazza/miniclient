@@ -93,6 +93,28 @@ async fn post_submit_lands_on_the_redirect_target_url() {
     );
 }
 
+/// Unlike `goto()`, a navigation the page starts doesn't raise, as a Playwright `click()`
+/// doesn't: the error document is its outcome.
+#[tokio::test]
+async fn failed_submit_navigation_commits_an_error_document() {
+    let page = Browser::new("{}", false).new_page();
+    // No route for /save -- the mock answers it with a connection-style error.
+    page.install_fetch_backend(Arc::new(MockFetchBackend::new()))
+        .await;
+    page.load(r#"<form method="post" action="http://localhost/save"></form>"#)
+        .await
+        .unwrap();
+
+    let form = page.find("form", None).await.unwrap().unwrap();
+    form.request_submit().await.unwrap();
+    assert!(
+        page.find("[data-mini-navigation-error]", None)
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
 #[tokio::test]
 async fn click_dispatches_an_event_and_fill_sets_the_value() {
     let page = Browser::new("{}", false).new_page();
@@ -396,18 +418,21 @@ async fn goto_loads_head_and_body() {
     assert_eq!(s.inner_html().await.unwrap(), "ok");
 }
 
-/// A failed fetch must not error out of `goto()` -- the new realm is already committed and the
-/// old document is gone, so `goto()` surfaces the failure as an error-state document, same as a
-/// real browser's top-level navigation.
+/// A failed fetch errors out of `goto()`, as Playwright's does, so a test stops at its cause. The
+/// old document is already gone: the page is left on an error-state document.
 #[tokio::test]
-async fn goto_commits_an_error_document_on_failed_navigation() {
+async fn goto_raises_and_commits_an_error_document_on_failed_navigation() {
     let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     // No route registered for /unreachable -- the mock answers every unregistered URL with an
     // error, same effect as a real connection failure.
     page.install_fetch_backend(Arc::new(mock)).await;
 
-    page.goto("http://localhost/unreachable").await.unwrap();
+    let err = page.goto("http://localhost/unreachable").await.unwrap_err();
+    assert!(
+        format!("{err:?}").contains("http://localhost/unreachable"),
+        "{err:?}"
+    );
     assert!(
         page.find("[data-mini-navigation-error]", None)
             .await
@@ -686,13 +711,13 @@ async fn first_goto_replaces_the_blank_history_entry() {
 }
 
 #[tokio::test]
-async fn first_goto_commits_an_error_document_when_the_fetch_fails() {
+async fn first_goto_raises_and_commits_an_error_document_when_the_fetch_fails() {
     let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
     // No route for /boom -- the mock answers it with a connection-style error.
     page.install_fetch_backend(Arc::new(mock)).await;
 
-    page.goto("http://localhost/boom").await.unwrap();
+    page.goto("http://localhost/boom").await.unwrap_err();
     assert_eq!(
         eval_str(&page.runtime(), "location.href").await,
         "http://localhost/boom"
