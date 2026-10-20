@@ -1,6 +1,6 @@
 import asyncio
 from concurrent.futures import Executor
-from typing import Iterable, cast
+from typing import cast
 from wsgiref.types import WSGIApplication
 
 import httpx2 as httpx
@@ -27,13 +27,17 @@ class WSGITransport(httpx.AsyncBaseTransport):
         self._sync = httpx.WSGITransport(app=app)
         self._executor = executor
 
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        response = self._sync.handle_request(request)
+        stream = cast(httpx.SyncByteStream, response.stream)
+        # The body's close() is where WSGI apps clean up (Django's request_finished), and a
+        # streaming body runs app code, so both stay on the executor thread.
+        try:
+            content = b"".join(stream)
+        finally:
+            stream.close()
+        return httpx.Response(response.status_code, headers=response.headers, content=content)
+
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         loop = asyncio.get_running_loop()
-        sync_response = await loop.run_in_executor(
-            self._executor, self._sync.handle_request, request
-        )
-        return httpx.Response(
-            status_code=sync_response.status_code,
-            headers=sync_response.headers,
-            content=b"".join(cast(Iterable[bytes], sync_response.stream)),
-        )
+        return await loop.run_in_executor(self._executor, self._handle, request)
