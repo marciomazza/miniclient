@@ -172,6 +172,7 @@ fn inline_style_round_trips_through_the_attribute() {
             cssFloat: p.style.cssFloat,
             removed: p.style.removeProperty("float"),
             after: p.getAttribute("style"),
+            zoom: ((p.style.zoom = "2"), p.style.zoom),
         })"#,
     );
     assert_eq!(
@@ -185,6 +186,7 @@ fn inline_style_round_trips_through_the_attribute() {
             "cssFloat": "left",
             "removed": "left",
             "after": "",
+            "zoom": "2",
         })
     );
     let computed: String = rt.eval(

@@ -1762,12 +1762,12 @@ mod tests {
             "rerun scripts/css-style-properties.py: {stale:?}"
         );
         // The script finds enabled prefs by scanning the source, so a moved set_pref! drops names.
-        // Stylo's table leaves out these two, which are not enabled in content, but its servo
-        // build parses them anyway once layout.unimplemented is on.
+        // Stylo's table leaves out -x-text-scale, internal and not enabled in content, but its
+        // servo build parses it anyway once layout.unimplemented is on.
         let listed: HashSet<&str> = names
             .values()
             .map(String::as_str)
-            .chain(["zoom", "-x-text-scale"])
+            .chain(["-x-text-scale"])
             .collect();
         let missing: Vec<_> = style::properties::NonCustomPropertyId::iter()
             .filter(|id| id.unaliased() == *id)

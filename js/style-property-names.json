@@ -848,5 +848,6 @@
  "x": "x",
  "y": "y",
  "zIndex": "z-index",
- "z-index": "z-index"
+ "z-index": "z-index",
+ "zoom": "zoom"
 }

@@ -44,6 +44,8 @@ def main() -> None:
         # Chrome exposes no -moz- aliases, and pages feature-detect on them.
         if (info["pref"] is None or info["pref"] in enabled) and not name.startswith("-moz-")
     )
+    # Stylo's table marks zoom chrome-only, but its servo build parses it and browsers expose it.
+    props = sorted([*props, "zoom"])
     names = {"cssFloat": "float"} | {attr: prop for prop in props for attr in attributes(prop)}
 
     (ROOT / "js/style-property-names.json").write_text(json.dumps(names, indent=1) + "\n")
