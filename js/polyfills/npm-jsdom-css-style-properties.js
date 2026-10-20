@@ -1,7 +1,9 @@
 "use strict";
 
 // jsdom's webidl2js wrapper for CSSStyleProperties, generated from an IDL that lists only
-// cssFloat; the install loop below adds the other property attributes.
+// cssFloat; the install loop below adds the other property attributes. esbuild swaps it in for
+// jsdom's own copy unconditionally, so on a jsdom bump regenerate it with that version's
+// webidl2js and diff: a renamed utils helper would otherwise only fail at runtime.
 
 const conversions = require("webidl-conversions");
 const utils = require("../../node_modules/jsdom/lib/generated/idl/utils.js");
