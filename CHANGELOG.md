@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `goto()` and form submits that get redirected land on the final URL.
 - A submit button's `formaction`, `formmethod` and `formenctype` now override the form's.
+- Submitting a `<form method="dialog">` closes its dialog instead of navigating.
 
 ## [0.2.5]
 

@@ -282,8 +282,9 @@
             win.HTMLDialogElement.prototype.showModal ??= function () {
                 this.open = true;
             };
-            win.HTMLDialogElement.prototype.close ??= function () {
+            win.HTMLDialogElement.prototype.close ??= function (/** @type {string} */ result) {
                 this.open = false;
+                if (result !== undefined) this.returnValue = result;
             };
         }
 

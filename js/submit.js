@@ -39,6 +39,10 @@ export function formSubmitFetch(form, submitter) {
         if (value !== null) params.setAttribute(name, value);
     }
     const { action, method, enctype } = params;
+    if (method === "dialog") {
+        form.closest("dialog")?.close(/** @type {HTMLButtonElement} */ (submitter)?.value);
+        return;
+    }
     const formData = new FormData(form, submitter); // includes submitter's name/value
     // Non-multipart encodings send a file entry as its filename, never as "[object File]".
     const pairs = [...formData].map(([k, v]) => [k, v instanceof File ? v.name : v]);

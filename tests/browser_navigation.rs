@@ -228,6 +228,33 @@ async fn submit_uses_the_submitters_form_overrides() {
 }
 
 #[tokio::test]
+async fn dialog_form_submit_closes_the_dialog_without_a_request() {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    page.install_fetch_backend(Arc::new(mock.clone())).await;
+    page.load(
+        r#"<dialog open><form method="dialog"><button value="ok">OK</button></form></dialog>"#,
+    )
+    .await
+    .unwrap();
+
+    let button = page.find("button", None).await.unwrap().unwrap();
+    button.click().await.unwrap();
+
+    assert!(mock.requests().is_empty());
+    let dialog = page.find("dialog", None).await.unwrap().unwrap();
+    assert_eq!(
+        eval_str(
+            &page.runtime(),
+            "const d = document.querySelector('dialog'); `${d.open} ${d.returnValue}`"
+        )
+        .await,
+        "false ok"
+    );
+    assert!(dialog.attr("open").await.unwrap().is_none());
+}
+
+#[tokio::test]
 async fn request_submit_multipart_sends_the_selected_file_bytes() {
     let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();
