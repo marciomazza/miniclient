@@ -41,6 +41,10 @@ function polyfillResolverPlugin() {
       pluginBuild.onResolve({ filter: /living\/xhr\/XMLHttpRequest-impl\.js$/ }, () => ({
         path: _POLYFILLS + "npm-jsdom-xhr-stub.js",
       }));
+      pluginBuild.onResolve(
+        { filter: /^@asamuzakjp\/dom-selector$|\/living\/css\/CSS-impl\.js$/ },
+        () => ({ path: _POLYFILLS + "npm-css-engine-stub.js" }),
+      );
       pluginBuild.onResolve({ filter: /^(node:)?[\w./-]+$/ }, (args) => {
         const bare = args.path.replace(/^node:/, "");
         if (bare in NODE_POLYFILL_FILES) {
