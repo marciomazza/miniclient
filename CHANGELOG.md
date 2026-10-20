@@ -49,6 +49,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `WSGITransport` now calls the response body's `close()`.
 - `clearImmediate()` cancels a pending `setImmediate()` callback.
 - A `fetch` aborted before its request starts is never sent.
+- A malformed response from the Python fetch backend fails the request instead of losing its
+  headers.
 
 ## [0.2.5]
 

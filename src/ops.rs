@@ -139,14 +139,8 @@ fn fetch_request_to_pydict<'py>(
 fn pyobj_to_fetch_response(obj: &Bound<'_, PyAny>) -> PyResult<FetchResponse> {
     Ok(FetchResponse {
         status: obj.get_item("status")?.extract()?,
-        status_text: obj
-            .get_item("statusText")
-            .and_then(|v| v.extract())
-            .unwrap_or_default(),
-        headers: obj
-            .get_item("headers")
-            .and_then(|v| v.extract())
-            .unwrap_or_default(),
+        status_text: obj.get_item("statusText")?.extract()?,
+        headers: obj.get_item("headers")?.extract()?,
         body: obj
             .get_item("body")?
             .extract::<Option<Vec<u8>>>()?
@@ -328,8 +322,17 @@ async def fetch_impl(req):
     return {
         "status": 201,
         "statusText": "Created",
-        "headers": [["content-type", "application/json"]],
+        "headers": [("content-type", "application/json")],
         "body": b"async-body",
+        "url": req["url"],
+    }
+
+async def fetch_list_headers_impl(req):
+    return {
+        "status": 200,
+        "statusText": "OK",
+        "headers": [["content-type", "text/html"]],
+        "body": b"",
         "url": req["url"],
     }
 "#,
@@ -342,13 +345,13 @@ async def fetch_impl(req):
     }
 
     fn host_ops(
-        _py: Python<'_>,
         fixtures: &Bound<'_, PyModule>,
+        fetch: &str,
         locals: TaskLocals,
     ) -> Rc<dyn FetchBackend> {
         let get = |name: &str| fixtures.getattr(name).unwrap().into();
         Rc::new(PythonFetchBackend {
-            fetch: get("fetch_impl"),
+            fetch: get(fetch),
             fetch_locals: locals,
             fetch_abort: get("fetch_abort_impl"),
         })
@@ -410,7 +413,7 @@ async def fetch_impl(req):
             let locals = running_event_loop(py).unwrap();
             js.op_state()
                 .borrow_mut()
-                .put(host_ops(py, &fixtures, locals));
+                .put(host_ops(&fixtures, "fetch_impl", locals));
             fixtures.unbind()
         });
         // op_fetch_abort has no return value worth reading back -- the Python-side `calls`
@@ -427,15 +430,16 @@ async def fetch_impl(req):
         });
     }
 
-    #[test]
-    fn fetch_bridges_to_a_python_coroutine() {
+    /// One `op_fetch_hop` answered by the Python fixture `fetch`; returns `describe`
+    /// evaluated on the response, or the rejection's message.
+    fn fetch_through(fetch: &str, describe: &str) -> String {
         let mut js = bare_runtime();
         Python::attach(|py| {
             let fixtures = fixtures(py);
             let locals = running_event_loop(py).unwrap();
             js.op_state()
                 .borrow_mut()
-                .put(host_ops(py, &fixtures, locals));
+                .put(host_ops(&fixtures, fetch, locals));
         });
         // Invoking an async op (even just to enqueue its future) needs an ambient Tokio
         // context, same as the real isolate thread's `tokio.block_on` in `runtime.rs` --
@@ -447,24 +451,39 @@ async def fetch_impl(req):
         tokio.block_on(async {
             js.execute_script(
                 "<test>",
-                r#"
-                globalThis.__result = null;
-                Deno.core.ops.op_fetch_hop({id: 'r1', url: 'http://x/', method: 'GET', headers: {}, body: null})
-                    .then((r) => { globalThis.__result = r; });
-                "#,
+                format!(
+                    r#"
+                    globalThis.__result = null;
+                    Deno.core.ops.op_fetch_hop({{id: 'r1', url: 'http://x/', method: 'GET', headers: {{}}, body: null}})
+                        .then((r) => {{ globalThis.__result = {describe}; }}, (e) => {{ globalThis.__result = e.message; }});
+                    "#
+                ),
             )
             .unwrap();
             js.run_event_loop(deno_core::PollEventLoopOptions::default())
                 .await
                 .unwrap();
         });
+        eval_string(&mut js, "globalThis.__result")
+    }
+
+    #[test]
+    fn fetch_bridges_to_a_python_coroutine() {
         assert_eq!(
-            eval_string(
-                &mut js,
-                "`${globalThis.__result.status} ${Array.from(new Uint8Array(globalThis.__result.body)).map(b => String.fromCharCode(b)).join('')}`"
+            fetch_through(
+                "fetch_impl",
+                "`${r.status} ${r.headers[0][1]} ${Array.from(new Uint8Array(r.body)).map(b => String.fromCharCode(b)).join('')}`"
             ),
-            "201 async-body"
+            "201 application/json async-body"
         );
+    }
+
+    /// Header pairs as lists don't extract as `(String, String)`; that must fail the fetch,
+    /// not deliver a response with no headers.
+    #[test]
+    fn fetch_rejects_a_response_with_malformed_headers() {
+        let result = fetch_through("fetch_list_headers_impl", "`${r.headers.length} headers`");
+        assert_ne!(result, "0 headers");
     }
 
     #[test]
