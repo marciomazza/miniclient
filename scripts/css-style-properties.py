@@ -2,8 +2,8 @@
 """Regenerates the jsdom fork's CSSStyleProperties attributes from stylo's property table.
 
 Keeps the properties whose pref is unset or one src/css.rs enables, so `element.style` exposes
-exactly what the style engine parses. Writes the attribute-to-property map that both the impl
-and the interface's install loop read. Needs a prior `cargo build`.
+exactly what the style engine parses. Writes the attribute-to-property map that the impl and
+js/polyfills/npm-jsdom-css-style-properties.js read. Needs a prior `cargo build`.
 """
 
 import json

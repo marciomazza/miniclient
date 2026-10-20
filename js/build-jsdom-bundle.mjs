@@ -45,6 +45,11 @@ function polyfillResolverPlugin() {
         { filter: /^@asamuzakjp\/dom-selector$|\/living\/css\/CSS-impl\.js$/ },
         () => ({ path: _POLYFILLS + "npm-css-engine-stub.js" }),
       );
+      // Our wrapper installs one accessor per CSS property from a table; patching jsdom's
+      // generated copy instead would carry a ~1.7 MB diff against every upstream regeneration.
+      pluginBuild.onResolve({ filter: /generated\/idl\/CSSStyleProperties\.js$/ }, () => ({
+        path: _POLYFILLS + "npm-jsdom-css-style-properties.js",
+      }));
       pluginBuild.onResolve({ filter: /^(node:)?[\w./-]+$/ }, (args) => {
         const bare = args.path.replace(/^node:/, "");
         if (bare in NODE_POLYFILL_FILES) {
