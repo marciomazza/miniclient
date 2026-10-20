@@ -41,6 +41,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `:valid`, `:invalid`, `:out-of-range`, `:placeholder-shown` and `:indeterminate` now apply in
   stylesheets too. `:in-range` rules are still dropped.
 
+### Fixed
+
+- `goto()` and form submits that get redirected land on the final URL.
+
 ## [0.2.5]
 
 ### Removed

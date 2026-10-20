@@ -50,6 +50,50 @@ async fn goto_navigates_and_load_rewrites_the_document_in_place() {
 }
 
 #[tokio::test]
+async fn goto_lands_on_the_redirect_target_url() {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    mock.redirect("http://localhost/login", "http://localhost/dash");
+    mock.text("http://localhost/dash", "dashboard");
+    page.install_fetch_backend(Arc::new(mock)).await;
+
+    page.goto("http://localhost/login").await.unwrap();
+    assert_eq!(
+        eval_str(&page.runtime(), "location.href").await,
+        "http://localhost/dash"
+    );
+}
+
+#[tokio::test]
+async fn post_submit_lands_on_the_redirect_target_url() {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    mock.reply(
+        "http://localhost/save",
+        303,
+        &[("location", "http://localhost/saved")],
+        b"",
+    );
+    mock.text("http://localhost/saved", "saved");
+    page.install_fetch_backend(Arc::new(mock)).await;
+    page.load(r#"<form method="post" action="http://localhost/save"></form>"#)
+        .await
+        .unwrap();
+
+    let form = page.find("form", None).await.unwrap().unwrap();
+    form.request_submit().await.unwrap();
+    // The history entry follows too, so back/forward and reload revisit the target.
+    assert_eq!(
+        eval_str(
+            &page.runtime(),
+            "`${location.href} ${__mini.goingFrom().history.entries.at(-1).url}`"
+        )
+        .await,
+        "http://localhost/saved http://localhost/saved"
+    );
+}
+
+#[tokio::test]
 async fn click_dispatches_an_event_and_fill_sets_the_value() {
     let page = Browser::new("{}", false).new_page();
     page.install_fetch_backend(Arc::new(MockFetchBackend::new()))

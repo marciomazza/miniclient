@@ -398,6 +398,9 @@
             // The body crosses from Rust as a JSON array of byte values (JSON has no bytes).
             const body = Array.isArray(request.body) ? Uint8Array.from(request.body) : request.body;
             const res = await fetch(url, { ...request, body });
+            // A redirected navigation commits at the final URL; reconfigure also moves the
+            // current history entry there.
+            if (res.redirected) dom.reconfigure({ url: res.url });
             html = await res.text();
         } catch (err) {
             // Never revert to the old document -- it's already gone. Commit an error-state
