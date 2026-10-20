@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerates the jsdom fork's CSSStyleProperties attributes from stylo's property table.
 
-Keeps the properties whose pref is unset or one src/css.rs enables, so `element.style` exposes
+Keeps the properties whose pref is unset or one src/dom_query.rs enables, so `element.style` exposes
 exactly what the style engine parses. Writes the attribute-to-property map that the impl and
 js/polyfills/npm-jsdom-css-style-properties.js read. Needs a prior `cargo build`.
 """
@@ -36,7 +36,9 @@ def main() -> None:
     tables = ROOT.glob("target/debug/build/stylo/*/out/css-properties.json")
     table = max(tables, key=lambda p: p.stat().st_mtime)
     data = json.loads(table.read_text())
-    enabled = set(re.findall(r'set_pref!\("([^"]+)", true\)', (ROOT / "src/css.rs").read_text()))
+    enabled = set(
+        re.findall(r'set_pref!\("([^"]+)", true\)', (ROOT / "src/dom_query.rs").read_text())
+    )
     props = sorted(
         name
         for kind in ("longhands", "shorthands")
