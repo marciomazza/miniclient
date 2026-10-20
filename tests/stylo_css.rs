@@ -541,6 +541,77 @@ fn newer_href_aborts_the_pending_fetch() {
 }
 
 #[test]
+fn newer_href_aborts_the_old_sheets_pending_import() {
+    let mock = MockFetchBackend::new();
+    mock.hang("http://localhost/slow.css");
+    mock.text("http://localhost/a.css", "@import url(slow.css);");
+    mock.text("http://localhost/b.css", "p { color: rgb(1, 2, 3) }");
+    let got = after_load(
+        &mock,
+        "",
+        &format!(
+            r#"Promise.race([
+                new Promise((resolve) => {{
+                    const link = document.createElement("link");
+                    link.rel = "stylesheet";
+                    link.href = "http://localhost/a.css";
+                    // Loading a.css starts the fetch of its import.
+                    link.onload = () => {{
+                        link.onload = resolve;
+                        link.href = "http://localhost/b.css";
+                    }};
+                    document.head.append(link);
+                }}),
+                new Promise((_, reject) => setTimeout(
+                    () => reject(new Error("the old import still holds up the newer href")), 2000)),
+            ]).then(() => [{COLOR_OF_P}, log])"#
+        ),
+    );
+    assert_eq!(got, serde_json::json!(["rgb(1, 2, 3)", []]));
+    assert_eq!(mock.aborted().len(), 1);
+}
+
+/// Removing the link, disabling it or emptying its `href` ends its pending fetch, so a later
+/// link loads.
+#[test]
+fn dropping_a_link_aborts_its_pending_fetch() {
+    for drop in [
+        "link.remove()",
+        r#"link.setAttribute("disabled", "")"#,
+        r#"link.href = """#,
+    ] {
+        let mock = MockFetchBackend::new();
+        mock.hang("http://localhost/slow.css");
+        mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+        let got = after_load(
+            &mock,
+            "",
+            &format!(
+                r#"Promise.race([
+                    new Promise((resolve) => {{
+                        const link = document.createElement("link");
+                        link.rel = "stylesheet";
+                        link.href = "http://localhost/slow.css";
+                        link.onload = link.onerror = () => log.push("slow settled");
+                        document.head.append(link);
+                        {drop};
+                        const later = document.createElement("link");
+                        later.rel = "stylesheet";
+                        later.href = "http://localhost/a.css";
+                        later.onload = resolve;
+                        document.head.append(later);
+                    }}),
+                    new Promise((_, reject) => setTimeout(
+                        () => reject(new Error("the dropped fetch still holds up a later one")), 2000)),
+                ]).then(() => [{COLOR_OF_P}, log])"#
+            ),
+        );
+        assert_eq!(got, serde_json::json!(["rgb(1, 2, 3)", []]), "{drop}");
+        assert_eq!(mock.aborted().len(), 1, "{drop}");
+    }
+}
+
+#[test]
 fn disabled_link_is_fetched_once_enabled_and_dropped_when_disabled() {
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");

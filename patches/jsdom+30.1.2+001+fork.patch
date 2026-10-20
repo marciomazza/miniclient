@@ -1,4 +1,4 @@
-# fork: looqrqnwpzsl 007c1e9d783f
+# fork: kwympkpsnmpp 87514a855455
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -4111,7 +4111,7 @@ index 0000000000..d832403ea5
 +  return interfaces()[name].createImpl(globalObject, [], { id, parentRule, parentStyleSheet });
 +};
 diff --git a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
-index 270a6209f5..3adb6b4566 100644
+index 270a6209f5..50a719f40f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 +++ b/node_modules/jsdom/lib/jsdom/living/css/helpers/stylesheets.js
 @@ -1,7 +1,8 @@
@@ -4157,11 +4157,12 @@ index 270a6209f5..3adb6b4566 100644
        document._clearStyleCache();
      } else {
        const createdSheet = exports.createStyleSheetForElement(css, elementImpl, urlString);
-@@ -40,10 +49,22 @@ function onStyleSheetLoad(data, response) {
+@@ -40,10 +49,25 @@ function onStyleSheetLoad(data, response) {
      }
    }
  
 -  resourceLoader.fetch(urlString, {
++  elementImpl._sheetRequests ??= [];
 +  const request = resourceLoader.fetch(urlString, {
      element: elementImpl,
 -    onLoad: onStyleSheetLoad
@@ -4169,20 +4170,22 @@ index 270a6209f5..3adb6b4566 100644
 +    onError: removeOldSheet
    });
 +  if (!importRule) {
-+    // A newer `href` replaces the pending fetch, which then neither installs a sheet nor fires
-+    // an event, and no longer holds up the resource queue.
++    // A newer `href` replaces the pending fetches, its old sheet's `@import`s included, which then
++    // neither install a sheet nor fire an event, and no longer hold up the resource queue.
 +    exports.abortStyleSheetFetch(elementImpl);
-+    elementImpl._sheetRequest = request;
 +  }
++  elementImpl._sheetRequests.push(request);
 +};
 +
 +exports.abortStyleSheetFetch = elementImpl => {
-+  elementImpl._sheetRequest?.abort();
-+  elementImpl._sheetRequest = null;
++  for (const request of elementImpl._sheetRequests ?? []) {
++    request?.abort();
++  }
++  elementImpl._sheetRequests = [];
  };
  
  // https://drafts.csswg.org/cssom/#remove-a-css-style-sheet
-@@ -53,58 +74,31 @@ function onStyleSheetLoad(data, response) {
+@@ -53,58 +77,31 @@ function onStyleSheetLoad(data, response) {
  
    // Remove the association explicitly; in the spec it's implicit so this step doesn't exist.
    elementImpl.sheet = null;
@@ -4252,7 +4255,7 @@ index 270a6209f5..3adb6b4566 100644
  // https://drafts.csswg.org/cssom/#add-a-css-style-sheet
  exports.addStyleSheet = (sheet, elementImpl) => {
    elementImpl._ownerDocument.styleSheets._add(sheet);
-@@ -117,40 +111,31 @@ function onStyleSheetLoad(data, response) {
+@@ -117,40 +114,31 @@ function onStyleSheetLoad(data, response) {
    // TODO: title and disabled stuff
  };
  
@@ -6249,7 +6252,7 @@ index 42421cc7d7..393c76c54b 100644
      }
      if (checkedness) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
-index b9edd3be89..1931fb7be0 100644
+index b9edd3be89..63b3598f6f 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 @@ -2,7 +2,7 @@
@@ -6269,7 +6272,12 @@ index b9edd3be89..1931fb7be0 100644
      if (this.sheet) {
        removeStyleSheet(this.sheet, this);
      }
-@@ -45,8 +46,30 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+@@ -42,11 +43,35 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+     super._attributeChangeSteps(localName, oldValue, value, namespace);
+ 
+     if (namespace === null && localName === "href") { // TODO crossorigin="" or type=""
++      // An emptied, invalid or removed `href` fetches nothing, but still ends the pending fetch.
++      abortStyleSheetFetch(this);
        maybeFetchAndProcess(this);
      }
  
@@ -6302,7 +6310,7 @@ index b9edd3be89..1931fb7be0 100644
      }
    }
  
-@@ -65,6 +88,11 @@ function maybeFetchAndProcess(el) {
+@@ -65,6 +90,11 @@ function maybeFetchAndProcess(el) {
      return;
    }
  
@@ -6314,7 +6322,7 @@ index b9edd3be89..1931fb7be0 100644
    // Browsing-context connected
    if (!el.isConnected || !el._ownerDocument._defaultView) {
      return;
-@@ -97,11 +125,10 @@ function isExternalResourceLink(el) {
+@@ -97,11 +127,10 @@ function isExternalResourceLink(el) {
  function isExternalResourceLink(el) {
    // for our purposes, only stylesheets can be external resource links
    const wrapper = idlUtils.wrapperForImpl(el);
@@ -6401,6 +6409,29 @@ index 36633a1af9..8eef540e1c 100644
      try {
        vm.runInContext(code, window._globalObject, { filename, lineOffset, displayErrors: false });
      } catch (e) {
+diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLStyleElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLStyleElement-impl.js
+index c9c7ac3088..84b3718646 100644
+--- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLStyleElement-impl.js
++++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLStyleElement-impl.js
+@@ -1,6 +1,8 @@
+ "use strict";
+ const HTMLElementImpl = require("./HTMLElement-impl").implementation;
+-const { addStyleSheet, removeStyleSheet, createStyleSheetForElement } = require("../css/helpers/stylesheets");
++const {
++  addStyleSheet, removeStyleSheet, createStyleSheetForElement, abortStyleSheetFetch
++} = require("../css/helpers/stylesheets");
+ const { childTextContent } = require("../helpers/text");
+ const { asciiCaseInsensitiveMatch } = require("../helpers/strings");
+ 
+@@ -56,6 +58,8 @@ _pushedOnStackOfOpenElements() {
+   }
+ 
+   _updateAStyleBlock() {
++    // The old sheet's pending `@import`s would hold up the resource queue.
++    abortStyleSheetFetch(this);
+     if (this.sheet) {
+       removeStyleSheet(this.sheet, this);
+     }
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
 index 476421f2ef..919812de69 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/Node-impl.js
