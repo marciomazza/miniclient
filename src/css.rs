@@ -370,8 +370,8 @@ fn has_token(list: Option<&str>, token: &str) -> bool {
 }
 
 /// The document's `<style>` and loaded `<link>` sheets in tree order, minus the ones a browser
-/// leaves off: a foreign `type`, `disabled`, alternates, and titled sheets outside the first
-/// title's set.
+/// leaves off: a foreign `type`, alternates, and titled sheets outside the first title's set. A
+/// `disabled` link has no sheet at all.
 // shortcut: tree order stands in for the order sheets were created, which differs only when a
 // `<link>` loads after a later `<style>` gave the first title, track creation order once a page
 // relies on that.
@@ -386,9 +386,7 @@ fn author_sheets(root: NodeRef<Node>, handles: &crate::cssom::Handles) -> Vec<Do
                     .attr("type")
                     .is_none_or(|t| t.is_empty() || t.eq_ignore_ascii_case("text/css")),
                 local_name!("link") => {
-                    has_token(e.attr("rel"), "stylesheet")
-                        && !has_token(e.attr("rel"), "alternate")
-                        && e.attr("disabled").is_none()
+                    has_token(e.attr("rel"), "stylesheet") && !has_token(e.attr("rel"), "alternate")
                 }
                 _ => false,
             };
