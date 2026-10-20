@@ -1,4 +1,4 @@
-# fork: kwympkpsnmpp 87514a855455
+# fork: okltrpmtmvml d56088def8fb
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -6252,7 +6252,7 @@ index 42421cc7d7..393c76c54b 100644
      }
      if (checkedness) {
 diff --git a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
-index b9edd3be89..63b3598f6f 100644
+index b9edd3be89..f6bf6dc44a 100644
 --- a/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 +++ b/node_modules/jsdom/lib/jsdom/living/nodes/HTMLLinkElement-impl.js
 @@ -2,7 +2,7 @@
@@ -6272,12 +6272,16 @@ index b9edd3be89..63b3598f6f 100644
      if (this.sheet) {
        removeStyleSheet(this.sheet, this);
      }
-@@ -42,11 +43,35 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
+@@ -42,11 +43,39 @@ _attributeChangeSteps(localName, oldValue, value, namespace) {
      super._attributeChangeSteps(localName, oldValue, value, namespace);
  
      if (namespace === null && localName === "href") { // TODO crossorigin="" or type=""
-+      // An emptied, invalid or removed `href` fetches nothing, but still ends the pending fetch.
++      // An emptied, invalid or removed `href` fetches nothing, but still ends the pending fetch
++      // and drops the sheet; any other replaces the sheet once it loads.
 +      abortStyleSheetFetch(this);
++      if (this.sheet && linkedURL(this) === null) {
++        removeStyleSheet(this.sheet, this);
++      }
        maybeFetchAndProcess(this);
      }
  
@@ -6310,7 +6314,7 @@ index b9edd3be89..63b3598f6f 100644
      }
    }
  
-@@ -65,6 +90,11 @@ function maybeFetchAndProcess(el) {
+@@ -65,6 +94,11 @@ function maybeFetchAndProcess(el) {
      return;
    }
  
@@ -6322,7 +6326,33 @@ index b9edd3be89..63b3598f6f 100644
    // Browsing-context connected
    if (!el.isConnected || !el._ownerDocument._defaultView) {
      return;
-@@ -97,11 +127,10 @@ function isExternalResourceLink(el) {
+@@ -76,13 +110,7 @@ function maybeFetchAndProcess(el) {
+ // https://html.spec.whatwg.org/multipage/semantics.html#default-fetch-and-process-the-linked-resource
+ // TODO: refactor into general link-fetching like the spec.
+ function fetchAndProcess(el) {
+-  const href = el.getAttributeNS(null, "href");
+-
+-  if (href === null || href === "") {
+-    return;
+-  }
+-
+-  const url = el._ownerDocument.encodingParseAURL(href);
++  const url = linkedURL(el);
+   if (url === null) {
+     return;
+   }
+@@ -94,14 +122,21 @@ function fetchAndProcess(el) {
+   fetchStyleSheet(el, serialized);
+ }
+ 
++function linkedURL(el) {
++  const href = el.getAttributeNS(null, "href");
++  if (href === null || href === "") {
++    return null;
++  }
++  return el._ownerDocument.encodingParseAURL(href);
++}
++
  function isExternalResourceLink(el) {
    // for our purposes, only stylesheets can be external resource links
    const wrapper = idlUtils.wrapperForImpl(el);

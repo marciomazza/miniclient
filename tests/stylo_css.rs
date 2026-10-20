@@ -612,6 +612,27 @@ fn dropping_a_link_aborts_its_pending_fetch() {
 }
 
 #[test]
+fn clearing_href_drops_the_sheet() {
+    for clear in [
+        r#"link.href = """#,
+        r#"link.removeAttribute("href")"#,
+        r#"link.href = "http://[""#,
+    ] {
+        let mock = MockFetchBackend::new();
+        mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
+        let got = after_load(
+            &mock,
+            r#"<link rel=stylesheet href="http://localhost/a.css">"#,
+            &format!(
+                r#"((link) => ({clear}, [{COLOR_OF_P}, document.styleSheets.length]))(
+                    document.querySelector("link"))"#
+            ),
+        );
+        assert_eq!(got, serde_json::json!(["rgb(0, 0, 0)", 0]), "{clear}");
+    }
+}
+
+#[test]
 fn disabled_link_is_fetched_once_enabled_and_dropped_when_disabled() {
     let mock = MockFetchBackend::new();
     mock.text("http://localhost/a.css", "p { color: rgb(1, 2, 3) }");
