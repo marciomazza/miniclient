@@ -116,7 +116,14 @@ function fromMount(url) {
     const mounts = globalThis.__RESOURCE_MOUNTS__;
     const { origin, pathname } = new URL(url);
     const target = origin + pathname;
-    const prefix = Object.keys(mounts).find((p) => target.startsWith(p));
+    // A mount covers whole path segments, and the most specific one wins.
+    const prefix = Object.keys(mounts)
+        .filter(
+            (p) =>
+                target.startsWith(p) &&
+                (p.endsWith("/") || [undefined, "/"].includes(target[p.length])),
+        )
+        .sort((a, b) => b.length - a.length)[0];
     if (prefix === undefined) return null;
     try {
         const rel = decodeURIComponent(target.slice(prefix.length));

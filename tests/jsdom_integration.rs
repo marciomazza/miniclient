@@ -272,3 +272,46 @@ fn inline_event_handler_attribute_is_compiled() {
     "#,
     ));
 }
+
+/// Mounts `prefix -> dir` for each pair, with `dir/file` written into the given dir. Any URL no
+/// mount serves goes to a backend that fails it.
+fn runtime_with_mounts(mounts: &[(&str, &str, &str)]) -> Runtime {
+    let root = std::env::temp_dir().join(format!("miniclient-mounts-{}", std::process::id()));
+    let entries: Vec<String> = mounts
+        .iter()
+        .map(|(prefix, dir, file)| {
+            let dir = root.join(dir);
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"1;").unwrap();
+            format!("{prefix:?}: {:?}", dir.to_str().unwrap())
+        })
+        .collect();
+    let rt = Runtime::new(&format!("{{{}}}", entries.join(", ")));
+    rt.send_install_fetch_backend(std::sync::Arc::new(
+        common::fetch_mock::MockFetchBackend::new(),
+    ))
+    .blocking_recv()
+    .expect("fetch backend installed");
+    rt
+}
+
+fn fetch_status(rt: &Runtime, url: &str) -> u16 {
+    rt.eval_promise::<u16>(&format!("fetch('{url}').then(r => r.status, () => 0)"))
+}
+
+#[test]
+fn mount_prefix_matches_whole_path_segments() {
+    let rt = runtime_with_mounts(&[("http://localhost/static", "segments", "foo/a.js")]);
+    assert_eq!(fetch_status(&rt, "http://localhost/static/foo/a.js"), 200);
+    assert_ne!(fetch_status(&rt, "http://localhost/staticfoo/a.js"), 200);
+}
+
+#[test]
+fn nested_mount_wins_over_its_parent() {
+    let rt = runtime_with_mounts(&[
+        ("http://localhost/a/", "parent", "other.js"),
+        ("http://localhost/a/b/", "nested", "x.js"),
+    ]);
+    assert_eq!(fetch_status(&rt, "http://localhost/a/b/x.js"), 200);
+}

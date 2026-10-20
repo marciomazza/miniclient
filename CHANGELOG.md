@@ -51,6 +51,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A `fetch` aborted before its request starts is never sent.
 - A malformed response from the Python fetch backend fails the request instead of losing its
   headers.
+- A resource mount matches whole path segments, and a nested mount wins over its parent.
 
 ## [0.2.5]
 
