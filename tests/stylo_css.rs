@@ -89,20 +89,27 @@ fn queries_and_the_cascade_agree_on_state_selectors() {
         ":any-link",
         ":lang(pt)",
         ":hover",
+        ":valid",
+        ":invalid",
+        ":out-of-range",
+        ":placeholder-shown",
+        ":indeterminate",
     ];
     let out: Vec<(String, String, bool, bool)> = rt.eval(&format!(
         r#"document.documentElement.innerHTML = `<body><form lang="pt-BR">
             <input id="cb" type="checkbox" checked><input id="t" required>
             <button id="b">go</button><input id="d" disabled><a id="a" href="/x">x</a>
-            </form></body>`;
+            <input id="n" type="number" max="1" value="5"><input id="p" placeholder="p">
+            <input id="i" type="checkbox"></form></body>`;
+        document.getElementById("i").indeterminate = true;
         document.getElementById("t").focus();
         const style = document.createElement("style");
         document.head.append(style);
         const out = [];
         for (const sel of {selectors:?}) {{
-            style.textContent = `${{sel}} {{ color: rgb(1, 2, 3) }}`;
+            style.textContent = `${{sel}} {{ outline-style: dotted }}`;
             for (const el of document.querySelectorAll("form *")) {{
-                const applies = getComputedStyle(el).color === "rgb(1, 2, 3)";
+                const applies = getComputedStyle(el).outlineStyle === "dotted";
                 out.push([sel, el.id, el.matches(sel), applies]);
             }}
         }}
@@ -118,8 +125,29 @@ fn queries_and_the_cascade_agree_on_state_selectors() {
     };
     assert_eq!(matched(":default"), ["cb", "b"]);
     assert_eq!(matched(":focus-visible"), ["t"]);
-    assert_eq!(matched(":lang(pt)").len(), 5);
+    assert_eq!(matched(":lang(pt)").len(), 8);
     assert!(matched(":hover").is_empty());
+    assert_eq!(matched(":out-of-range"), ["n"]);
+    assert_eq!(matched(":indeterminate"), ["i"]);
+}
+
+/// Form state lives in jsdom, outside the document's change counter, so a new value alone
+/// must restyle.
+#[test]
+fn a_value_change_restyles_form_state_rules() {
+    let rt = runtime();
+    let out: Vec<String> = rt.eval(
+        r#"document.documentElement.innerHTML = `<head><style>
+            input:placeholder-shown { color: rgb(1, 2, 3) }
+            input:invalid { outline-style: solid }
+        </style></head><body><input placeholder="p" required></body>`;
+        const input = document.querySelector("input");
+        const read = () => getComputedStyle(input).color + " " + getComputedStyle(input).outlineStyle;
+        const before = read();
+        input.value = "x";
+        [before, read()]"#,
+    );
+    assert_eq!(out, ["rgb(1, 2, 3) solid", "rgb(0, 0, 0) none"]);
 }
 
 #[test]

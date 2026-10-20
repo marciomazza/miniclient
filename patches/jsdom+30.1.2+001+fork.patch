@@ -1,4 +1,4 @@
-# fork: uxlmpspsvvnn 820f0fe0301f
+# fork: spwosyskuxmw 9f2c55675e41
 diff --git a/node_modules/jsdom/lib/api.js b/node_modules/jsdom/lib/api.js
 index fa242dd07c..e858f758f7 100644
 --- a/node_modules/jsdom/lib/api.js
@@ -5291,10 +5291,10 @@ index 6e9883feb3..0000000000
 -  }
 -};
 diff --git a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-index 7eb8408fc8..53fcc20272 100644
+index 7eb8408fc8..5d085cf7fd 100644
 --- a/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
 +++ b/node_modules/jsdom/lib/jsdom/living/helpers/dom-tree.js
-@@ -4,33 +4,478 @@ function bind(node, w) {
+@@ -4,33 +4,482 @@ function bind(node, w) {
  // Copyright (c) 2015 Joris van der Wel
  // Licensed under the MIT license; see LICENSE.txt.
  
@@ -5699,7 +5699,11 @@ index 7eb8408fc8..53fcc20272 100644
 +  // shortcut: Stylo has no ::picker(select); primary style preserves its initial values until it does.
 +  const nativePseudo = pseudo === "::picker(select)" ? "" : pseudo ?? "";
 +  const base = doc.baseURLSerialized();
-+  return Deno.core.ops.op_css_computed_values(element._wire, focus, targetWire(doc), props, base, nativePseudo);
++  const run = state => Deno.core.ops.op_css_computed_values(
++    element._wire, focus, targetWire(doc), props, base, nativePseudo, state
++  );
++  const values = run(null);
++  return typeof values === "number" ? run(Array.from(formState(element, values))) : values;
 +}
 +
 +// A declaration block's text, read and edited by the native style engine against `base`. The
@@ -5798,7 +5802,7 @@ index 7eb8408fc8..53fcc20272 100644
  
  function lastInclusiveDescendant(node) {
    let child;
-@@ -40,36 +485,6 @@ function lastInclusiveDescendant(node) {
+@@ -40,36 +489,6 @@ function lastInclusiveDescendant(node) {
    return node;
  }
  
@@ -5835,7 +5839,7 @@ index 7eb8408fc8..53fcc20272 100644
  // Iterators capture the next light-tree node before yielding the current one.
  // This matters when a consumer removes or moves the current/next node.
  class ChildrenIterator extends Iterator {
-@@ -136,28 +551,6 @@ next() {
+@@ -136,28 +555,6 @@ next() {
    }
  }
  
@@ -5864,7 +5868,7 @@ index 7eb8408fc8..53fcc20272 100644
  function compareTreePosition(left, right) {
    if (left === right) {
      return 0;
-@@ -253,114 +646,12 @@ function commonAncestorInfo(left, right) {
+@@ -253,114 +650,12 @@ function commonAncestorInfo(left, right) {
    return { ancestor: leftAncestors[i + 1], leftChild: leftAncestors[i], rightChild: rightAncestors[j] };
  }
  

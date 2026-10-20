@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   an input whose `min` does not parse and that has no `max`. `:dir()` follows `dir` attributes,
   counting `auto` as `ltr`. `:-webkit-*()` functions such as `:-webkit-any()` throw
   `SyntaxError`, as in Firefox.
+- `:valid`, `:invalid`, `:out-of-range`, `:placeholder-shown` and `:indeterminate` now apply in
+  stylesheets too. `:in-range` rules are still dropped.
 
 ## [0.2.5]
 

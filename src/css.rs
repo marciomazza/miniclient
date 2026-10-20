@@ -62,7 +62,7 @@ use stylo_dom::ElementState;
 
 use crate::dom::DomState;
 pub(crate) use crate::dom_query::enable_prefs;
-use crate::dom_query::{MiniElement, QueryState};
+use crate::dom_query::{FORM_FLAGS, MiniElement, QueryState};
 use crate::node::Node;
 
 /// jsdom's window size, so media queries agree with `innerWidth` / `innerHeight`.
@@ -312,6 +312,8 @@ pub struct DocStyle {
     sheets: Vec<DocumentStyleSheet>,
     stylist: Stylist,
     query: QueryState,
+    /// The jsdom form-state snapshot `query` was built from; see `DomState::query_state`.
+    form_state: Option<Vec<u32>>,
     /// Filled as stylo reaches each element. Boxed so a handed-out `&Extra` stays put while
     /// the map grows.
     extras: RefCell<HashMap<NodeId, Box<Extra>>>,
@@ -422,6 +424,7 @@ impl DocStyle {
         base: &str,
         reuse: Option<DocStyle>,
         handles: &crate::cssom::Handles,
+        form_state: Option<&[u32]>,
     ) -> Self {
         enable_prefs();
         let html = matches!(root.value(), Node::Document(d) if !d.xml);
@@ -448,9 +451,21 @@ impl DocStyle {
             base: base.to_owned(),
             sheets,
             stylist,
-            query: dom.query_state(html, false, key.1, key.2, None),
+            query: dom.query_state(html, false, key.1, key.2, form_state),
+            form_state: form_state.map(<[u32]>::to_vec),
             extras: RefCell::default(),
         }
+    }
+
+    /// The `FORM_FLAGS` bits the sheets' selectors read.
+    fn form_bits(&self) -> u32 {
+        (0..FORM_FLAGS.len())
+            .filter(|&i| {
+                self.stylist
+                    .iter_origins()
+                    .any(|(data, _)| data.has_state_dependency(FORM_FLAGS[i]))
+            })
+            .fold(0, |bits, i| bits | 1 << i)
     }
 
     fn extra_for(&self, node: NodeRef<Node>, e: &crate::node::Element) -> Extra {
@@ -551,7 +566,9 @@ pub(crate) fn sweep(css: &mut CssState, dom: &DomState) {
 }
 
 /// The element's computed style, `None` outside a document. `base` is the document's base
-/// URL, which resolves relative `url()`s.
+/// URL, which resolves relative `url()`s. `Err` carries the `FORM_FLAGS` bits the sheets read
+/// when `form_state`, jsdom's snapshot (see `DomState::query_state`), is missing.
+#[allow(clippy::too_many_arguments)]
 fn style_of(
     css: &mut CssState,
     dom: &DomState,
@@ -560,24 +577,45 @@ fn style_of(
     target: i32,
     base: &str,
     pseudo: Option<PseudoElement>,
-) -> Option<Arc<ComputedValues>> {
+    form_state: Option<&[u32]>,
+) -> Result<Option<Arc<ComputedValues>>, u32> {
     let _gate = GATE.read().unwrap_or_else(|e| e.into_inner());
     // shortcut: a released document's table lingers until the next read, hook `release` if
     // pages that never read styles again hold many.
     sweep(css, dom);
-    let node = dom.resolve(wire).and_then(|id| dom.arena.get(id))?;
+    let Some(node) = dom.resolve(wire).and_then(|id| dom.arena.get(id)) else {
+        return Ok(None);
+    };
     let root = node.ancestors().last().unwrap_or(node);
     if !node.value().is_element() {
-        return None;
+        return Ok(None);
     }
-    let key = (dom.doc_version(root.id())?, focus, target);
-    let doc = match css.docs.remove(&root.id()) {
-        Some(doc) if doc.key == key && doc.base == base => doc,
-        old => DocStyle::build(dom, root, key, base, old, &css.handles),
+    let Some(version) = dom.doc_version(root.id()) else {
+        return Ok(None);
     };
+    let key = (version, focus, target);
+    let mut doc = match css.docs.remove(&root.id()) {
+        Some(doc) if doc.key == key && doc.base == base => doc,
+        old => DocStyle::build(dom, root, key, base, old, &css.handles, None),
+    };
+    let wanted = doc.form_bits();
+    if wanted != 0 {
+        // shortcut: jsdom walks the whole tree for a snapshot on every read while the sheets use
+        // form state; have it flag changes instead if `innerText` on such pages shows up.
+        match form_state {
+            None => {
+                css.docs.insert(root.id(), doc);
+                return Err(wanted);
+            }
+            Some(state) if doc.form_state.as_deref() != Some(state) => {
+                doc = DocStyle::build(dom, root, key, base, Some(doc), &css.handles, Some(state));
+            }
+            Some(_) => {}
+        }
+    }
     let style = doc.computed(&dom.arena, node, pseudo);
     css.docs.insert(root.id(), doc);
-    style
+    Ok(style)
 }
 
 fn pseudo_element(name: &str) -> Option<PseudoElement> {
@@ -602,7 +640,7 @@ fn pseudo_element(name: &str) -> Option<PseudoElement> {
 }
 
 /// `getComputedStyle(el).getPropertyValue(p)` for each of `props`; `""` for unknown names and
-/// for elements outside a document.
+/// for elements outside a document. `Err` as for `style_of`.
 #[allow(clippy::too_many_arguments)]
 pub fn computed_values(
     css: &mut CssState,
@@ -613,18 +651,19 @@ pub fn computed_values(
     base: &str,
     pseudo: &str,
     props: &[String],
-) -> Vec<String> {
+    form_state: Option<&[u32]>,
+) -> Result<Vec<String>, u32> {
     let pseudo = if pseudo.is_empty() {
         None
     } else if let Some(pseudo) = pseudo_element(pseudo) {
         Some(pseudo)
     } else {
-        return vec![String::new(); props.len()];
+        return Ok(vec![String::new(); props.len()]);
     };
-    let Some(style) = style_of(css, dom, wire, focus, target, base, pseudo) else {
-        return vec![String::new(); props.len()];
+    let Some(style) = style_of(css, dom, wire, focus, target, base, pseudo, form_state)? else {
+        return Ok(vec![String::new(); props.len()]);
     };
-    props
+    Ok(props
         .iter()
         .map(
             |name| match PropertyId::parse_enabled_for_all_content(name) {
@@ -638,7 +677,7 @@ pub fn computed_values(
                 Err(()) => String::new(),
             },
         )
-        .collect()
+        .collect())
 }
 
 /// As Servo does it: the shorthand serialized from its resolved longhands, "" when they
@@ -662,7 +701,16 @@ fn shorthand_value(style: &ComputedValues, id: ShorthandId) -> String {
     }
 }
 
-/// `focus` and `target` are wires, `-1` for none, as for `op_dom_query`.
+/// The values, or the `FORM_FLAGS` bits to send a snapshot of before asking again.
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+pub enum Computed {
+    Values(Vec<String>),
+    NeedsState(u32),
+}
+
+/// `focus` and `target` are wires, `-1` for none, and `form_state` jsdom's snapshot or null, as
+/// for `op_dom_query`.
 #[op2]
 #[serde]
 pub fn op_css_computed_values(
@@ -673,7 +721,8 @@ pub fn op_css_computed_values(
     #[serde] props: Vec<String>,
     #[string] base: &str,
     #[string] pseudo: &str,
-) -> Vec<String> {
+    #[serde] form_state: Option<Vec<u32>>,
+) -> Computed {
     let mut css = state.try_take::<CssState>().unwrap_or_default();
     let values = computed_values(
         &mut css,
@@ -684,9 +733,10 @@ pub fn op_css_computed_values(
         base,
         pseudo,
         &props,
+        form_state.as_deref(),
     );
     state.put(css);
-    values
+    values.map_or_else(Computed::NeedsState, Computed::Values)
 }
 
 /// Runs `f` on the declaration block `text` parses to, its relative `url()`s resolved against
@@ -1589,7 +1639,9 @@ mod tests {
     }
 
     fn read(css: &mut CssState, dom: &DomState, wire: u32) -> Arc<ComputedValues> {
-        style_of(css, dom, wire, -1, -1, "about:blank", None).unwrap()
+        style_of(css, dom, wire, -1, -1, "about:blank", None, None)
+            .unwrap()
+            .unwrap()
     }
 
     #[test]
@@ -1603,7 +1655,19 @@ mod tests {
         let style = dom.resolve(style);
         css.sheet_new(a, style, "p { color: rgb(1, 2, 3) }", "about:blank", "");
         let color = |css: &mut CssState, dom: &DomState, wire| {
-            computed_values(css, dom, wire, -1, -1, "about:blank", "", &["color".into()]).remove(0)
+            computed_values(
+                css,
+                dom,
+                wire,
+                -1,
+                -1,
+                "about:blank",
+                "",
+                &["color".into()],
+                None,
+            )
+            .unwrap()
+            .remove(0)
         };
         assert_eq!(color(&mut css, &dom, pa), "rgb(1, 2, 3)");
         assert_eq!(color(&mut css, &dom, pb), "rgb(0, 0, 0)");
