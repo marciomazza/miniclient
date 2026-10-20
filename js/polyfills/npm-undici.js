@@ -19,6 +19,8 @@ export class Dispatcher {
                 resolveBytes = res;
                 rejectBytes = rej;
             });
+            // A failure before the headers arrive also rejects `bytes`, which nobody reads then.
+            bytes.catch(() => {});
             this.dispatch(opts, {
                 onRequestStart(_controller, ctx) {
                     context = ctx ?? {};
