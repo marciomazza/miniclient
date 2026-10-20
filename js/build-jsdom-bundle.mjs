@@ -50,6 +50,10 @@ function polyfillResolverPlugin() {
       pluginBuild.onResolve({ filter: /generated\/idl\/CSSStyleProperties\.js$/ }, () => ({
         path: _POLYFILLS + "npm-jsdom-css-style-properties.js",
       }));
+      // The table comes from mini's stylo build and pref list, so it lives with them.
+      pluginBuild.onResolve({ filter: /style-property-names\.json$/ }, () => ({
+        path: _JS + "style-property-names.json",
+      }));
       pluginBuild.onResolve({ filter: /^(node:)?[\w./-]+$/ }, (args) => {
         const bare = args.path.replace(/^node:/, "");
         if (bare in NODE_POLYFILL_FILES) {

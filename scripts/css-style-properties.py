@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerates the jsdom fork's CSSStyleProperties attributes from stylo's property table.
+"""Regenerates element.style's attribute-to-property table from stylo's property table.
 
 Keeps the properties whose pref is unset or one src/dom_query.rs enables, so `element.style` exposes
 exactly what the style engine parses. Writes the attribute-to-property map that the impl and
@@ -11,8 +11,6 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FORK = ROOT / "vendor/jsdom"
-CSS_DIR = FORK / "lib/jsdom/living/css"
 
 
 def idl_attribute(prop: str, drop_leading_dash: bool) -> str:
@@ -48,7 +46,7 @@ def main() -> None:
     )
     names = {"cssFloat": "float"} | {attr: prop for prop in props for attr in attributes(prop)}
 
-    (CSS_DIR / "style-property-names.json").write_text(json.dumps(names, indent=1) + "\n")
+    (ROOT / "js/style-property-names.json").write_text(json.dumps(names, indent=1) + "\n")
 
 
 if __name__ == "__main__":

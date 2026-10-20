@@ -1750,10 +1750,7 @@ mod tests {
     #[test]
     fn style_attributes_match_the_enabled_properties() {
         enable_prefs();
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/node_modules/jsdom/lib/jsdom/living/css/style-property-names.json"
-        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/js/style-property-names.json");
         let names: HashMap<String, String> =
             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let stale: Vec<_> = names

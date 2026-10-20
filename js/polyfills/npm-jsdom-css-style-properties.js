@@ -14,7 +14,7 @@ const ceReactionsPostSteps_jsdom_living_helpers_custom_elements =
     require("../../node_modules/jsdom/lib/jsdom/living/helpers/custom-elements.js").ceReactionsPostSteps;
 const ctorRegistrySymbol = utils.ctorRegistrySymbol;
 const CSSStyleDeclaration = require("../../node_modules/jsdom/lib/generated/idl/CSSStyleDeclaration.js");
-const propertyNames = require("../../node_modules/jsdom/lib/jsdom/living/css/style-property-names.json");
+const propertyNames = require("../style-property-names.json");
 
 const interfaceName = "CSSStyleProperties";
 
