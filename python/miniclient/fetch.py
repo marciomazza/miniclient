@@ -47,6 +47,8 @@ def _make_fetch_op(httpx_client: httpx.AsyncClient):
     # AbortSignal/ClientRequest.destroy() can cancel the actual network I/O
     # instead of just discarding the eventual result.
     pending: dict[str, asyncio.Task] = {}
+    # Aborts that reached the loop before their request did.
+    aborted: set[str] = set()
     # __host_fetch_abort is a sync-bound op, invoked from this runtime's own
     # dedicated thread rather than this event loop's thread -- Task.cancel() isn't
     # thread-safe, so it must be scheduled back onto the loop that owns it.
@@ -66,6 +68,9 @@ def _make_fetch_op(httpx_client: httpx.AsyncClient):
 
     async def _fetch_op_impl(req: dict) -> dict:
         request_id = req["id"]
+        if request_id in aborted:
+            aborted.discard(request_id)
+            raise RuntimeError("fetch aborted")
         task = asyncio.ensure_future(_do_fetch(req))
         pending[request_id] = task
         try:
@@ -79,8 +84,14 @@ def _make_fetch_op(httpx_client: httpx.AsyncClient):
         finally:
             pending.pop(request_id, None)
 
-    def _fetch_abort_op(request_id: str) -> None:
+    def _abort(request_id: str) -> None:
         if task := pending.get(request_id):
-            loop.call_soon_threadsafe(task.cancel)
+            task.cancel()
+        else:
+            aborted.add(request_id)
+
+    def _fetch_abort_op(request_id: str) -> None:
+        # The lookup runs on the loop too: the request may still be queued there.
+        loop.call_soon_threadsafe(_abort, request_id)
 
     return _fetch_op_impl, _fetch_abort_op
