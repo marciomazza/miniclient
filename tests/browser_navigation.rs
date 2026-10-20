@@ -204,6 +204,30 @@ async fn request_submit_post_sends_the_forms_encoded_body() {
 }
 
 #[tokio::test]
+async fn submit_uses_the_submitters_form_overrides() {
+    let page = Browser::new("{}", false).new_page();
+    let mock = MockFetchBackend::new();
+    mock.text("http://localhost/delete", "deleted");
+    page.install_fetch_backend(Arc::new(mock.clone())).await;
+    page.load(
+        r#"<form action="/save" method="get"><input name="x" value="1">
+           <button formaction="/delete" formmethod="post" formenctype="text/plain">del</button>
+           </form>"#,
+    )
+    .await
+    .unwrap();
+
+    let button = page.find("button", None).await.unwrap().unwrap();
+    button.click().await.unwrap();
+
+    let request = mock.last_request();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.url, "http://localhost/delete");
+    assert_eq!(request.body, b"x=1\r\n");
+    assert_eq!(request.header("content-type"), Some("text/plain"));
+}
+
+#[tokio::test]
 async fn request_submit_multipart_sends_the_selected_file_bytes() {
     let page = Browser::new("{}", false).new_page();
     let mock = MockFetchBackend::new();

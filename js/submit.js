@@ -31,15 +31,21 @@ export async function awaitSettle(handle, doAction) {
  * @param {HTMLElement | null} [submitter]
  */
 export function formSubmitFetch(form, submitter) {
-    const method = form.method; // already normalized/defaulted by jsdom: "get" or "post"
-    const enctype = form.enctype; // already normalized/defaulted to urlencoded
+    // A submitter's formaction/formmethod/formenctype win over the form's. jsdom has no
+    // submitter-side getters, so a detached form normalizes the winning values the same way.
+    const params = form.ownerDocument.createElement("form");
+    for (const name of ["action", "method", "enctype"]) {
+        const value = submitter?.getAttribute(`form${name}`) ?? form.getAttribute(name);
+        if (value !== null) params.setAttribute(name, value);
+    }
+    const { action, method, enctype } = params;
     const formData = new FormData(form, submitter); // includes submitter's name/value
     // Non-multipart encodings send a file entry as its filename, never as "[object File]".
     const pairs = [...formData].map(([k, v]) => [k, v instanceof File ? v.name : v]);
 
     async function navigate() {
         if (method === "get") {
-            const url = new URL(form.action);
+            const url = new URL(action);
             url.search = new URLSearchParams(/** @type {any} */ (pairs)).toString();
             Deno.core.ops.op_request_navigation(url.href, "push");
             return;
@@ -62,13 +68,7 @@ export function formSubmitFetch(form, submitter) {
             // browsers send the bare mime type for form submissions.
             headers = { "content-type": "application/x-www-form-urlencoded" };
         }
-        Deno.core.ops.op_request_navigation(
-            new URL(form.action).href,
-            "push",
-            "post",
-            body,
-            headers,
-        );
+        Deno.core.ops.op_request_navigation(new URL(action).href, "push", "post", body, headers);
     }
 
     // Not awaited by the caller (jsdom's own requestSubmit() isn't async either) --
