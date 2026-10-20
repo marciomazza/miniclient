@@ -543,7 +543,7 @@ mod tests {
     }
 
     /// `fast_eval` (backing read-only methods like `text`) never waits for the event loop to
-    /// drain; `full_eval` (backing mutations/navigation and the public `eval()`) always does.
+    /// drain; `full_eval` (backing mutations and navigation) always does.
     /// A pending timer distinguishes them: only the settle-waiting path observes its effect.
     #[tokio::test]
     async fn fast_eval_does_not_drain_while_full_eval_does() {
