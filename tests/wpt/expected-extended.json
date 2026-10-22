@@ -11566,9 +11566,6 @@
   "testFormDataAppendUndefined1",
   "testFormDataAppendUndefined2"
  ],
- "/xhr/formdata/constructor-formelement.html": [
-  "test that FormData is correctly constructed from the form data set"
- ],
  "/xhr/formdata/constructor-submitter-coordinate.html": [],
  "/xhr/formdata/constructor-submitter.html": [
   "FormData construction should allow a null submitter",

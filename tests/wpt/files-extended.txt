@@ -592,7 +592,6 @@
 /xhr/formdata.html
 /xhr/formdata/append-formelement.html
 /xhr/formdata/append.any.html
-/xhr/formdata/constructor-formelement.html
 /xhr/formdata/constructor-submitter-coordinate.html
 /xhr/formdata/constructor-submitter.html
 /xhr/formdata/constructor.any.html
