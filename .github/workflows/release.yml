@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -35,7 +35,7 @@ jobs:
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --interpreter 3.14
+          args: --release --out dist --interpreter 3.15
           manylinux: 2_28
           sccache: true
           before-script-linux: |
