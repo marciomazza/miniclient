@@ -16,7 +16,7 @@ classifiers = [
   "Topic :: Software Development :: Testing",
 ]
 dependencies = [
-  "httpx2~=2.6.0",
+  "httpx2>=2.0,<3",
 ]
 dynamic = ["version"]
 
