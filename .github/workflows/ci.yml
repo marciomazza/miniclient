@@ -45,7 +45,8 @@ jobs:
         with:
           # Same v8-without-librusty_v8.a poisoning as the lint job; bump to bust.
           key: v2-test
-      - run: cargo test
+      # chromium_golden reads its corpus from WPT files in vendor/jsdom, which CI does not fetch.
+      - run: cargo test -- --skip chromium_golden
       - run: uv sync
       - run: uv run pytest tests/ -n auto --cov-report=term-missing
       - uses: codecov/codecov-action@v5
