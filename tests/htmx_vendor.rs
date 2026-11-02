@@ -32,11 +32,6 @@ const UNSCALED_TESTS: &[(&str, &str, &str)] = &[
         "main swap with delay respects blocking behavior",
     ),
     (
-        "hx-ws",
-        "Message Sending",
-        "queues a message until the initial connection opens",
-    ),
-    (
         "hx-live",
         "hx-live extension",
         "debounce(ms) supersedes prior calls",
@@ -75,11 +70,19 @@ const TIMER_SLACK_TESTS: &[(&str, &str, &str)] = &[
 /// (file stem, suite, test name) rewritten to `it.skip(...)` before the file runs -- not just
 /// filtered from results, since some failures are fatal to the whole `eval_promise` call and
 /// never produce a result to filter. Ported from `test_htmx.py`'s `_SKIP_TESTS`.
-const SKIP_TESTS: &[(&str, &str, &str)] = &[(
-    "hx-swap",
-    "hx-swap modifiers",
-    "swap with scroll:bottom modifier scrolls to bottom",
-)];
+const SKIP_TESTS: &[(&str, &str, &str)] = &[
+    (
+        "hx-swap",
+        "hx-swap modifiers",
+        "swap with scroll:bottom modifier scrolls to bottom",
+    ),
+    // Its mock socket opens after 10 ms, which htmx processing alone can outlast on a CI runner.
+    (
+        "hx-ws",
+        "Message Sending",
+        "queues a message until the initial connection opens",
+    ),
+];
 
 struct TestFailure {
     file: String,
