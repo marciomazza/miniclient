@@ -44,6 +44,7 @@ jobs:
             curl -fsSL "https://nodejs.org/dist/v24.20.0/$NODE.tar.xz" | tar -xJ -C /opt
             ln -sf "/opt/$NODE/bin/node" /usr/local/bin/node
             ln -sf "/opt/$NODE/bin/npm" /usr/local/bin/npm
+            ln -sf "/opt/$NODE/bin/npx" /usr/local/bin/npx
             node --version && npm --version
       - name: Wheel must carry V8 and fit PyPI's 100MB limit
         shell: bash
