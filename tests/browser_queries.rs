@@ -1,6 +1,7 @@
 //! `browser::Page`/`browser::Element`'s read-only query surface, `eval()`'s completion-value
 //! and global-scope semantics, and `load()`'s in-place document replacement -- driven directly
 //! by `tokio::test`, no pyo3/Python involved.
+#![allow(clippy::unwrap_used)]
 
 mod common;
 

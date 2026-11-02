@@ -1,5 +1,6 @@
 //! Keeps `python/miniclient/MPL_NOTICE.md` in step with `Cargo.lock`.
 //! Regenerate with `just notice`.
+#![allow(clippy::unwrap_used)]
 
 #[derive(Debug, PartialEq)]
 enum Verdict {

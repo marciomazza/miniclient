@@ -1,6 +1,7 @@
 //! `browser::Page`/`browser::Element`'s mutation and navigation surface (goto/load/click/fill/
 //! trigger/requestSubmit), driven directly by `tokio::test` -- same `MockFetchBackend` the
 //! runtime-level navigation suite (`tests/navigation_trigger.rs`) uses, no pyo3/Python involved.
+#![allow(clippy::unwrap_used)]
 
 mod common;
 

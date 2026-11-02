@@ -2,6 +2,7 @@
 //! `createContextualFragment`) builds the tree in the arena and creates every impl from it. The
 //! tree is read back through the public API only, so a node without an impl, or with state its
 //! insertion steps never derived, shows up here.
+#![allow(clippy::unwrap_used)]
 
 mod common;
 

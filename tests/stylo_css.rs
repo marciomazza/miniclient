@@ -1,5 +1,6 @@
 //! `getComputedStyle`, answered by stylo, on hand-written pages and against a Chromium recording
 //! of the CSS corpus. The cost test is a report: run it with `-- --ignored --nocapture`.
+#![allow(clippy::unwrap_used)]
 
 mod common;
 

@@ -1,6 +1,7 @@
 //! `browser::Page`/`browser::Element` driving real htmx behavior end to end (goto/load, click,
 //! custom triggers, form submission), backed by the vendored `htmx.js` served from a resource
 //! mount and `MockFetchBackend` -- no pyo3/Python involved.
+#![allow(clippy::unwrap_used)]
 
 mod common;
 

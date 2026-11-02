@@ -1,6 +1,7 @@
 //! Engine behaviour mini leans on: `<script>` runs when its host is inserted into a connected
 //! tree, `<script src>` fetches (`data:` URI and resource-mount file), `window.crypto` is
 //! polyfilled before jsdom imports it, and inline `on*` attributes compile on parse.
+#![allow(clippy::unwrap_used)]
 
 mod common;
 
