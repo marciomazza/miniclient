@@ -19,8 +19,8 @@ To release `0.1.4`:
    commit), tag `v0.1.4`, push the tag
 1. `Cargo.toml`: `0.1.4` → `0.1.5-dev`, then `cargo update -p miniclient` again
 
-CI builds wheels for Linux x86_64 and macOS arm64 only — every extra platform costs ~18 MB of
-PyPI's 10 GB project quota per release. It refuses to publish unless the tag matches
+CI builds wheels for Linux x86_64, Linux aarch64 and macOS arm64 only — every extra platform costs
+~34 MB of PyPI's 10 GB project quota per release. It refuses to publish unless the tag matches
 `Cargo.toml`. Never add `--locked` to the release build.
 
 ## MPL-2.0 notice

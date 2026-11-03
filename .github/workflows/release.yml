@@ -19,6 +19,11 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64
+            node: linux-x64
+          # Docker on Apple Silicon runs linux/arm64 containers.
+          - runner: ubuntu-24.04-arm
+            target: aarch64
+            node: linux-arm64
           - runner: macos-15
             target: aarch64
     runs-on: ${{ matrix.runner }}
@@ -40,7 +45,7 @@ jobs:
           sccache: true
           before-script-linux: |
             set -eux
-            NODE=node-v24.20.0-linux-x64
+            NODE=node-v24.20.0-${{ matrix.node }}
             curl -fsSL "https://nodejs.org/dist/v24.20.0/$NODE.tar.xz" | tar -xJ -C /opt
             ln -sf "/opt/$NODE/bin/node" /usr/local/bin/node
             ln -sf "/opt/$NODE/bin/npm" /usr/local/bin/npm
