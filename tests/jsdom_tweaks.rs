@@ -278,6 +278,14 @@ fn non_disabled_fieldset_does_not_disable_children() {
 }
 
 #[test]
+fn form_elements_resolves_controls_by_name() {
+    let rt = runtime();
+    rt.run(r#"document.body.innerHTML = "<form><input name='a' value='1'></form>""#);
+    assert!(rt.eval::<bool>("document.forms[0].elements.a.value === '1'"));
+}
+
+#[test]
+#[ignore = "jsdom has no ElementInternals.setFormValue(): https://github.com/jsdom/jsdom/issues/3831"]
 fn attach_internals_set_form_value() {
     let rt = runtime();
     for (value_js, expected) in [

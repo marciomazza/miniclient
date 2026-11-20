@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Wheels for Linux aarch64 (e.g. Docker on Apple Silicon).
 
+### Fixed
+
+- `form.elements.<name>` resolves controls by name again.
+
+### Removed
+
+- The form-associated custom elements polyfill (`ElementInternals.setFormValue()`, `.form`, and
+  those elements in `form.elements` and `FormData`), until jsdom implements it
+  ([jsdom#3831](https://github.com/jsdom/jsdom/issues/3831)).
+
 ## [0.3.0]
 
 ### Added

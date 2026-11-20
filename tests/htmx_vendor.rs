@@ -71,6 +71,27 @@ const TIMER_SLACK_TESTS: &[(&str, &str, &str)] = &[
 /// filtered from results, since some failures are fatal to the whole `eval_promise` call and
 /// never produce a result to filter. Ported from `test_htmx.py`'s `_SKIP_TESTS`.
 const SKIP_TESTS: &[(&str, &str, &str)] = &[
+    // jsdom has no ElementInternals.setFormValue(): https://github.com/jsdom/jsdom/issues/3831
+    (
+        "__collectFormData",
+        "__collectFormData unit tests",
+        "collects form-associated custom element value",
+    ),
+    (
+        "__collectFormData",
+        "__collectFormData unit tests",
+        "collects both regular and custom element values",
+    ),
+    (
+        "__collectFormData",
+        "__collectFormData unit tests",
+        "collects custom element with form attribute outside form",
+    ),
+    (
+        "__collectFormData",
+        "__collectFormData unit tests",
+        "collects multiple custom elements with same name",
+    ),
     (
         "hx-swap",
         "hx-swap modifiers",
@@ -234,9 +255,8 @@ fn run_dir(pattern: &str, skip_files: &[&str]) {
     }
 }
 
-// DataTransfer, innerText, and form-associated custom elements are polyfilled in bootstrap.js;
-// chai's `should` was never actually broken -- those failures were a downstream effect of
-// missing innerText.
+// DataTransfer and innerText are polyfilled in bootstrap.js; chai's `should` was never actually
+// broken -- those failures were a downstream effect of missing innerText.
 #[test]
 fn htmx_vendor_unit_suite() {
     run_dir("unit/*.js", &["__issueRequest.js"]);

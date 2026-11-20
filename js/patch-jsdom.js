@@ -1,5 +1,3 @@
-import { patchElementInternals } from "./patch-jsdom-element-internals.js";
-
 // jsdom has DOMParser (including text/html) but not the Declarative Shadow DOM family of
 // static Document methods -- see https://github.com/jsdom/jsdom/issues/3955 (open; a PR
 // implementing getHTML() was closed unmerged). Declarative shadow roots themselves stay
@@ -20,5 +18,4 @@ function patchParseHTMLUnsafe(win) {
 // this after every Window is constructed.
 export function patchJsdom(win) {
     patchParseHTMLUnsafe(win);
-    patchElementInternals(win);
 }
